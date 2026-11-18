@@ -28,6 +28,13 @@ public class HookEntry implements IXposedHookLoadPackage {
         if (lpparam == null || !WECHAT.equals(lpparam.packageName)) {
             return;
         }
+        // This module is tuned for the owner profile only. Work-profile
+        // WeChat runs its own LSPosed scope and must stay untouched.
+        if (android.os.Process.myUid() / 100000 != 0) {
+            XposedBridge.log(TAG + " skipped non-owner user uid="
+                    + android.os.Process.myUid());
+            return;
+        }
 
         hookHomeUiTopMargin(lpparam);
         hookDiscoverTopPadding(lpparam);
@@ -37,6 +44,7 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookStatusDraw(lpparam);
         hookActionBarOverlayDraw(lpparam);
         hookExactBarVisibility(lpparam);
+        hookChatFooterPanel(lpparam);
 
         try {
             XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
@@ -144,6 +152,65 @@ public class HookEntry implements IXposedHookLoadPackage {
      * bar height. That is exactly the "old bar" strip. Cancel the margin after
      * WeChat applies it.
      */
+    private static int readInt(Object target, String name) {
+        try {
+            Object value = XposedHelpers.getObjectField(target, name);
+            if (value instanceof Number) return ((Number) value).intValue();
+            if (value instanceof Boolean) return ((Boolean) value) ? 1 : 0;
+        } catch (Throwable ignored) {
+        }
+        return -1;
+    }
+
+    private static void hookChatFooterPanel(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.pluginsdk.ui.chat.ChatFooter",
+                    lpparam.classLoader, "r1", int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                Object footer = param.thisObject;
+                                int x2 = readInt(footer, "x2");
+                                if (x2 != 2) return;
+                                View contextView = (View) footer;
+                                float xdpi = contextView.getResources()
+                                        .getDisplayMetrics().xdpi;
+                                int reduce = Math.max(1,
+                                        Math.round(0.15f / 2.54f * xdpi));
+                                int v2 = readInt(footer, "V2");
+                                int t2 = readInt(footer, "T2");
+                                v2 = Math.max(1, v2 - reduce);
+                                t2 = Math.max(1, t2 - reduce);
+                                XposedHelpers.setIntField(footer, "V2", v2);
+                                XposedHelpers.setIntField(footer, "T2", t2);
+                                Object z = XposedHelpers.getObjectField(footer, "z");
+                                if (z instanceof View) {
+                                    ViewGroup.LayoutParams lp =
+                                            ((View) z).getLayoutParams();
+                                    if (lp != null) {
+                                        lp.height = t2;
+                                        ((View) z).setLayoutParams(lp);
+                                    }
+                                }
+                                Object panel = XposedHelpers.getObjectField(footer, "h");
+                                if (panel != null) {
+                                    XposedHelpers.callMethod(panel, "setPortHeighPx", v2);
+                                    XposedHelpers.callMethod(panel, "C");
+                                }
+                                XposedBridge.log(TAG + " panel r1 shrink reduce="
+                                        + reduce + " V2=" + v2 + " T2=" + t2);
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " panel r1 failed: " + throwable);
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " panel hook skipped: " + throwable);
+        }
+    }
+
     private static void hookHomeUiTopMargin(final XC_LoadPackage.LoadPackageParam lpparam) {
         try {
             XposedHelpers.findAndHookMethod("com.tencent.mm.ui.HomeUI",
@@ -154,6 +221,9 @@ public class HookEntry implements IXposedHookLoadPackage {
                             try {
                                 View view = (View) param.args[1];
                                 if (view == null) {
+                                    return;
+                                }
+                                if (view.getClass().getName().contains("ActionBarOverlayLayout")) {
                                     return;
                                 }
                                 ViewGroup.LayoutParams params = view.getLayoutParams();

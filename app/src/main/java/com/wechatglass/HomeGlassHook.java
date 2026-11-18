@@ -171,8 +171,7 @@ final class HomeGlassHook {
         Log.i("WeChatGlassFrost", "find frost=" + (frostedContent == null ? "null"
                 : frostedContent.getClass().getName()));
 
-        // Home uses flat chips; do not capture the decor with GlassRenderer.
-        renderer = null;
+        renderer = new GlassRenderer(decor);
 
         actionBarHeight = actionBar.getHeight() > 0 ? actionBar.getHeight()
                 : Ui.dp(activity, 56f) + Ui.statusBarHeight(decor);
@@ -200,7 +199,7 @@ final class HomeGlassHook {
         aiChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
         searchChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
         plusChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
-        aiChip.setLabel("小微", Ui.isNight(activity) ? 0xFFFFFFFF : 0xFF1A1A1A,
+        aiChip.setLabel("●  ●", Ui.isNight(activity) ? 0xFFFFFFFF : 0xFF1A1A1A,
                 14f * activity.getResources().getDisplayMetrics().scaledDensity);
         aiChip.setContentDescription("小微AI");
 
@@ -210,12 +209,13 @@ final class HomeGlassHook {
         clickThrough(leftChip, leftView);
         clickThrough(searchChip, searchView);
         clickThrough(plusChip, plusView);
-        boolean nativeBlur = frostedContent != null;
-        leftChip.setBlurBackground(!nativeBlur);
-        titleChip.setBlurBackground(!nativeBlur);
-        aiChip.setBlurBackground(!nativeBlur);
-        searchChip.setBlurBackground(!nativeBlur);
-        plusChip.setBlurBackground(!nativeBlur);
+        clickThrough(aiChip, aiSlot);
+        leftChip.setBlurBackground(true);
+        titleChip.setBlurBackground(true);
+        aiChip.setBlurBackground(true);
+        searchChip.setBlurBackground(true);
+        plusChip.setBlurBackground(true);
+        renderer.setHiddenViews(overlay);
 
         // 小微 takes the far-left slot; the old left/back button is removed.
         addChip(overlay, titleChip, chipHeight);
@@ -383,6 +383,22 @@ final class HomeGlassHook {
             Window window = activity.getWindow();
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             window.setStatusBarColor(Color.TRANSPARENT);
+            decor.setBackgroundColor(Color.TRANSPARENT);
+            View overlayLayout = Ui.findByClass(decor,
+                    "androidx.appcompat.widget.ActionBarOverlayLayout");
+            if (overlayLayout != null) {
+                overlayLayout.setBackground(null);
+            }
+            View content = decor.findViewById(android.R.id.content);
+            if (content != null) {
+                content.setBackgroundColor(Color.TRANSPARENT);
+            }
+            if (frostedContent != null) {
+                frostedContent.setBackgroundColor(Color.TRANSPARENT);
+            }
+            if (list != null) {
+                list.setBackgroundColor(Color.TRANSPARENT);
+            }
             if (Build.VERSION.SDK_INT >= 30) {
                 window.setDecorFitsSystemWindows(false);
                 WindowInsetsController controller = window.getInsetsController();
@@ -815,12 +831,6 @@ final class HomeGlassHook {
      * draws a blurred top strip, so it is both 60fps and recursion-safe.
      */
     private void configureNativeFrost(int actionBarBottomOnScreen) {
-        // EtE baseline first: keep the native blur off until the content root is
-        // proven to be full-bleed. Re-enable after the EtE pass.
-        if (true) {
-            setFrostEnabled(false, 0);
-            return;
-        }
         if (frostedContent == null) {
             return;
         }
@@ -898,6 +908,9 @@ final class HomeGlassHook {
             return;
         }
         View root = group.getChildAt(0);
+        if (root.getClass().getName().contains("ActionBarOverlayLayout")) {
+            return;
+        }
         int top = root.getTop();
         if (top > 0 && group.getHeight() > 0) {
             ViewGroup.LayoutParams params = root.getLayoutParams();

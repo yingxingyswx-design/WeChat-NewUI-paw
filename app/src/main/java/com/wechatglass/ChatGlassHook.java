@@ -72,6 +72,9 @@ final class ChatGlassHook {
     private View frostedContent;
     private View statusScrim;
     private View navFiller;
+    private int normalPanelBaseHeight = -1;
+    private int normalPanelParentBaseHeight = -1;
+    private boolean normalPanelShrunk;
     private ViewGroup contentFrame;
     private View scrollLayout;
     private View list;
@@ -268,6 +271,15 @@ final class ChatGlassHook {
             }
         });
 
+        scrollLayout.getViewTreeObserver().addOnScrollChangedListener(
+                new ViewTreeObserver.OnScrollChangedListener() {
+                    @Override
+                    public void onScrollChanged() {
+                        if (renderer != null) {
+                            renderer.requestUpdate();
+                        }
+                    }
+                });
         attached = true;
         updateTopGeometry();
         handler.postDelayed(tick, 600L);
@@ -717,9 +729,6 @@ final class ChatGlassHook {
             Ui.transparent(footerBottom);
             removePanelSpacer(footerBottom);
         }
-        if (footerPanel != null) {
-            Ui.transparent(footerPanel);
-        }
         Log.i(TAG, "footerBottom=" + (footerBottom == null ? "null"
                 : footerBottom.getClass().getName())
                 + " footerPanel=" + (footerPanel == null ? "null"
@@ -902,9 +911,6 @@ final class ChatGlassHook {
         if (footerBottom != null && footerBottom.getBackground() != null) {
             footerBottom.setBackground(null);
         }
-        if (footerPanel != null && footerPanel.getBackground() != null) {
-            footerPanel.setBackground(null);
-        }
         View emojiPanel = Ui.findByClassContains(footer, "EmojiPanelGroupView");
         if (emojiPanel != null && emojiPanel.getBackground() != null) {
             emojiPanel.setBackground(null);
@@ -935,6 +941,7 @@ final class ChatGlassHook {
         logFooterGeometry();
         applyListPadding(lastVisibleFooterHeight > 0 ? lastVisibleFooterHeight : footerHeight);
         applyInputHeight();
+        styleEmojiPanel();
         ensureNavFiller();
     }
 
@@ -979,6 +986,77 @@ final class ChatGlassHook {
                 navFiller.setLayoutParams(lp);
             }
             navFiller.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void styleFooterPanel() {
+        if (footerPanel == null || footerPanel.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        footerPanel.setBackground(new GlassBarDrawable(renderer, footerPanel,
+                Ui.dp(activity, 18f), tint, border, 0));
+        clearPanelBackgrounds(footerPanel, 0);
+    }
+
+    private void clearPanelBackgrounds(View root, int depth) {
+        if (root == null || depth > 6) return;
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            if (depth > 0 && !root.getClass().getName().contains("Image")) {
+                group.setBackground(null);
+            }
+            for (int i = 0; i < group.getChildCount(); i++) {
+                clearPanelBackgrounds(group.getChildAt(i), depth + 1);
+            }
+        }
+    }
+
+    private void styleEmojiPanel() {
+        if (footer == null || renderer == null) return;
+        View panel = Ui.findByClassContains(footer, "SmileyPanelImpl");
+        if (panel == null) {
+            panel = Ui.findByClassContains(footer, "ChatFooterPanel");
+        }
+        if (panel == null || !panel.isShown() || panel.getHeight() <= 0) {
+            if (footer.getBackground() instanceof GlassBarDrawable) {
+                ((GlassBarDrawable) footer.getBackground()).setRadii(
+                        Ui.dp(activity, 26f), Ui.dp(activity, 26f));
+            }
+            return;
+        }
+        GlassBarDrawable panelGlass = new GlassBarDrawable(renderer, panel,
+                Ui.dp(activity, 26f), tint, border, 0);
+        panelGlass.setRadii(0f, Ui.dp(activity, 26f));
+        panel.setBackground(panelGlass);
+        if (footer.getBackground() instanceof GlassBarDrawable) {
+            ((GlassBarDrawable) footer.getBackground()).setRadii(
+                    Ui.dp(activity, 26f), 0f);
+        }
+        clearEmojiBackgrounds(panel, 0);
+        View tabBar = Ui.findByClassContains(panel, "RecyclerView");
+        if (tabBar != null) {
+            tabBar.setBackground(null);
+        }
+        View nested = Ui.findByClassContains(panel, "NestedBounceView");
+        if (nested != null) {
+            nested.setBackground(null);
+        }
+        View emojiGrid = Ui.findByClassContains(panel, "EmojiPanelGroupView");
+        if (emojiGrid != null) {
+            emojiGrid.setBackground(null);
+        }
+    }
+
+    private void clearEmojiBackgrounds(View root, int depth) {
+        if (root == null || depth > 6) return;
+        if (depth > 0 && !root.getClass().getName().contains("Image")) {
+            root.setBackground(null);
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                clearEmojiBackgrounds(group.getChildAt(i), depth + 1);
+            }
         }
     }
 
