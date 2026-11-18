@@ -193,6 +193,10 @@ final class HomeGlassHook {
                 ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight);
         overlayParams.gravity = Gravity.TOP;
         ((ViewGroup) decor).addView(overlay, overlayParams);
+        if (renderer != null) {
+            overlay.setBackground(new GlassBarDrawable(renderer, overlay, 0f,
+                    tint, border, 0));
+        }
 
         leftChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
         titleChip = new GlassChipView(activity, renderer, Ui.dp(activity, 20f), tint, border);
