@@ -1,0 +1,8 @@
+analysis/
+build/
+debug/
+out/*.apk
+release/
+*.log
+
+# Keep the final APK only as a GitHub release asset, not in git history.

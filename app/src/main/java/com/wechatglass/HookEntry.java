@@ -1,0 +1,454 @@
+package com.wechatglass;
+
+import android.app.Activity;
+import android.content.res.Configuration;
+import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
+
+import de.robv.android.xposed.IXposedHookLoadPackage;
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
+import de.robv.android.xposed.callbacks.XC_LoadPackage;
+
+/**
+ * Scope is intentionally limited to com.tencent.mm and to the chat Activity's
+ * lifecycle. No message, network, account or payment classes are touched.
+ */
+public class HookEntry implements IXposedHookLoadPackage {
+
+    private static final String WECHAT = "com.tencent.mm";
+    private static final String CHATTING_UI = "com.tencent.mm.ui.chatting.ChattingUI";
+    private static final String LAUNCHER_UI = "com.tencent.mm.ui.LauncherUI";
+    private static final String TAG = "WeChatGlass";
+
+    @Override
+    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
+        if (lpparam == null || !WECHAT.equals(lpparam.packageName)) {
+            return;
+        }
+
+        hookHomeUiTopMargin(lpparam);
+        hookDiscoverTopPadding(lpparam);
+        hookGlobalEdgeToEdge(lpparam);
+        hookLauncherBarVisibility(lpparam);
+        hookConversationListBinding(lpparam);
+        hookStatusDraw(lpparam);
+        hookActionBarOverlayDraw(lpparam);
+        hookExactBarVisibility(lpparam);
+
+        try {
+            XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
+                    Bundle.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof Activity) {
+                                    Activity activity = (Activity) param.thisObject;
+                                    ChatGlassHook.attach(activity);
+                                    GlobalEdgeToEdge.force(activity);
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " attach failed: " + throwable);
+                            }
+                        }
+                    });
+
+            XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader,
+                    "onConfigurationChanged", Configuration.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof Activity) {
+                                    // Recreate the overlay with the new night/light colors.
+                                    ChatGlassHook.attach((Activity) param.thisObject);
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " config refresh failed: " + throwable);
+                            }
+                        }
+                    });
+
+            XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onDestroy",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof Activity) {
+                                    ChatGlassHook.detach((Activity) param.thisObject);
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " detach failed: " + throwable);
+                            }
+                        }
+                    });
+
+            XposedHelpers.findAndHookMethod(LAUNCHER_UI, lpparam.classLoader, "onCreate",
+                    Bundle.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof Activity) {
+                                    Activity activity = (Activity) param.thisObject;
+                                    HomeGlassHook.attach(activity);
+                                    GlobalEdgeToEdge.force(activity);
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " home attach failed: " + throwable);
+                            }
+                        }
+                    });
+
+            XposedHelpers.findAndHookMethod(LAUNCHER_UI, lpparam.classLoader, "onDestroy",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof Activity) {
+                                    HomeGlassHook.detach((Activity) param.thisObject);
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " home detach failed: " + throwable);
+                            }
+                        }
+                    });
+
+            XposedHelpers.findAndHookMethod(LAUNCHER_UI, lpparam.classLoader,
+                    "onConfigurationChanged", Configuration.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof Activity) {
+                                    Activity activity = (Activity) param.thisObject;
+                                    HomeGlassHook.attach(activity);
+                                    GlobalEdgeToEdge.force(activity);
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " home config failed: " + throwable);
+                            }
+                        }
+                    });
+
+            hookResume(CHATTING_UI, lpparam, true);
+            hookResume(LAUNCHER_UI, lpparam, false);
+
+            XposedBridge.log(TAG + " hooks installed for " + WECHAT);
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " hook install failed: " + throwable);
+        }
+    }
+
+    /**
+     * WeChat's own target-35 fix pushes ActionBarContainer down by the status
+     * bar height. That is exactly the "old bar" strip. Cancel the margin after
+     * WeChat applies it.
+     */
+    private static void hookHomeUiTopMargin(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod("com.tencent.mm.ui.HomeUI",
+                    lpparam.classLoader, "u", Activity.class, View.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                View view = (View) param.args[1];
+                                if (view == null) {
+                                    return;
+                                }
+                                ViewGroup.LayoutParams params = view.getLayoutParams();
+                                if (params instanceof ViewGroup.MarginLayoutParams) {
+                                    ViewGroup.MarginLayoutParams margins =
+                                            (ViewGroup.MarginLayoutParams) params;
+                                    android.util.Log.i("WeChatGlassEdge",
+                                            "HomeUI.u before margin=" + margins.topMargin);
+                                    if (margins.topMargin != 0) {
+                                        margins.topMargin = 0;
+                                        view.setLayoutParams(margins);
+                                    }
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " HomeUI margin hook skipped: " + throwable);
+        }
+    }
+
+    /**
+     * FindMoreFriendsUI.N1() re-applies paddingTop=actionBarHeight every 100ms
+     * on the 发现 page. This is UI-only and never touches payment/chat data.
+     */
+    private static void hookDiscoverTopPadding(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod("com.tencent.mm.ui.FindMoreFriendsUI",
+                    lpparam.classLoader, "N1", new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                Object viewObject = XposedHelpers.callMethod(
+                                        param.thisObject, "getView");
+                                if (viewObject instanceof View) {
+                                    View view = (View) viewObject;
+                                    if (view.getPaddingTop() != 0) {
+                                        view.setPadding(view.getPaddingLeft(), 0,
+                                                view.getPaddingRight(), view.getPaddingBottom());
+                                    }
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " discover padding hook skipped: " + throwable);
+        }
+    }
+
+    private static void hookAppCompatOverlay(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod("androidx.appcompat.widget.ActionBarOverlayLayout",
+                    lpparam.classLoader, "onLayout",
+                    boolean.class, int.class, int.class, int.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (!(param.thisObject instanceof View)
+                                        || !isLauncherContext(((View) param.thisObject)
+                                        .getContext())) {
+                                    return;
+                                }
+                                Object contentObject = XposedHelpers.getObjectField(
+                                        param.thisObject, "mContent");
+                                Object actionBarObject = XposedHelpers.getObjectField(
+                                        param.thisObject, "mActionBarTop");
+                                if (contentObject instanceof View) {
+                                    View content = (View) contentObject;
+                                    int top = content.getTop();
+                                    if (top > 0) {
+                                        content.setTranslationY(-top);
+                                    }
+                                    android.util.Log.i("WeChatGlassEdge",
+                                            "overlay contentTop=" + top
+                                                    + " ty=" + content.getTranslationY()
+                                                    + " h=" + content.getHeight());
+                                }
+                                if (actionBarObject instanceof View) {
+                                    ((View) actionBarObject).setAlpha(0f);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " overlay layout hook skipped: " + throwable);
+        }
+    }
+
+    private static boolean isLauncherContext(android.content.Context context) {
+        while (context instanceof android.content.ContextWrapper) {
+            if (context.getClass().getName().contains("LauncherUI")) {
+                return true;
+            }
+            context = ((android.content.ContextWrapper) context).getBaseContext();
+        }
+        return context != null && context.getClass().getName().contains("LauncherUI");
+    }
+
+    private static void hookGlobalEdgeToEdge(final XC_LoadPackage.LoadPackageParam lpparam) {
+        // Only the LauncherUI ActionBarOverlayLayout is touched. No global
+        // Activity/PhoneWindow hook: payment and other plugin activities must
+        // remain completely untouched.
+        hookAppCompatOverlay(lpparam);
+    }
+
+    private static void hookExactBarVisibility(final XC_LoadPackage.LoadPackageParam lpparam) {
+        XC_MethodHook hook = new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                try {
+                    if (((Integer) param.args[0]) != View.VISIBLE
+                            || !(param.thisObject instanceof View)) {
+                        return;
+                    }
+                    View view = (View) param.thisObject;
+                    if (isLauncherContext(view.getContext())) {
+                        android.util.Log.i("WeChatGlassBar", "VISIBLE " + view.getClass().getName()
+                                + "\n" + android.util.Log.getStackTraceString(new Throwable()));
+                        param.args[0] = View.GONE;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        };
+        String[] classes = {
+                "androidx.appcompat.widget.ActionBarContainer",
+                "androidx.appcompat.widget.Toolbar",
+                "androidx.appcompat.widget.ActionMenuView"
+        };
+        for (String className : classes) {
+            try {
+                XposedHelpers.findAndHookMethod(className, lpparam.classLoader,
+                        "setVisibility", int.class, hook);
+            } catch (Throwable throwable) {
+                XposedBridge.log(TAG + " exact visibility hook skipped: " + className);
+            }
+        }
+    }
+
+    private static void hookLauncherBarVisibility(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod("android.view.View", null,
+                    "setVisibility", int.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            try {
+                                if (((Integer) param.args[0]) != View.VISIBLE
+                                        || !(param.thisObject instanceof View)) {
+                                    return;
+                                }
+                                String name = param.thisObject.getClass().getName();
+                                if (!name.contains("ActionBarContainer")
+                                        && !name.contains("Toolbar")
+                                        && !name.contains("ActionMenuView")) {
+                                    return;
+                                }
+                                View view = (View) param.thisObject;
+                                android.util.Log.i("WeChatGlassBarGlobal",
+                                        "VISIBLE " + name + " rootCtx="
+                                                + (view.getRootView().getContext() == null ? "null"
+                                                : view.getRootView().getContext().getClass().getName())
+                                                + "\n" + android.util.Log.getStackTraceString(new Throwable()));
+                                android.content.Context context = view.getContext();
+                                try {
+                                    context = view.getRootView().getContext();
+                                } catch (Throwable ignored) {
+                                }
+                                if (isLauncherContext(context)
+                                        || isLauncherContext(view.getContext())) {
+                                    param.args[0] = View.GONE;
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " launcher bar visibility hook skipped: " + throwable);
+        }
+    }
+
+    /**
+     * ConversationListView.attachViewToParent() injects the top-level
+     * ActionBarContainer into TaskBarAnimController.V1. Clear that binding so
+     * the TaskBar scroll animation cannot revive the old bar.
+     */
+    private static void hookConversationListBinding(
+            final XC_LoadPackage.LoadPackageParam lpparam) {
+        XC_MethodHook hook = new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                try {
+                    Object controller = XposedHelpers.getObjectField(
+                            param.thisObject, "m");
+                    if (controller != null) {
+                        XposedHelpers.setObjectField(controller, "V1", null);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        };
+        String[] classes = {
+                "com.tencent.mm.ui.conversation.ConversationListView",
+                "com.tencent.mm.ui.conversation.recycler.ConversationRecyclerView"
+        };
+        for (String className : classes) {
+            try {
+                XposedHelpers.findAndHookMethod(className, lpparam.classLoader,
+                        "attachViewToParent", View.class, int.class,
+                        ViewGroup.LayoutParams.class, hook);
+            } catch (Throwable throwable) {
+                XposedBridge.log(TAG + " list binding hook skipped: " + className);
+            }
+        }
+    }
+
+    private static void hookActionBarOverlayDraw(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "androidx.appcompat.widget.ActionBarOverlayLayout",
+                    lpparam.classLoader, "draw", android.graphics.Canvas.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof View
+                                        && isLauncherContext(((View) param.thisObject)
+                                        .getRootView().getContext())) {
+                                    XposedHelpers.setObjectField(param.thisObject, "i", null);
+                                    XposedHelpers.callMethod(param.thisObject,
+                                            "setWillNotDraw", true);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " overlay draw hook skipped: " + throwable);
+        }
+    }
+
+    private static void hookStatusDraw(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.ui.statusbar.DrawStatusBarFrameLayout",
+                    lpparam.classLoader, "dispatchDraw",
+                    android.graphics.Canvas.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof View
+                                        && isLauncherContext(((View) param.thisObject)
+                                        .getRootView().getContext())) {
+                                    XposedHelpers.setIntField(param.thisObject, "h", 0);
+                                    XposedHelpers.setIntField(param.thisObject, "i", 0);
+                                    XposedHelpers.setIntField(param.thisObject, "m", 0);
+                                    ((View) param.thisObject).setPadding(0, 0, 0, 0);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " status draw hook skipped: " + throwable);
+        }
+    }
+
+    private static void hookResume(final String className, XC_LoadPackage.LoadPackageParam lpparam,
+                                   final boolean chat) {
+        try {
+            XposedHelpers.findAndHookMethod(className, lpparam.classLoader, "onResume",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                if (!(param.thisObject instanceof Activity)) {
+                                    return;
+                                }
+                                Activity activity = (Activity) param.thisObject;
+                                GlobalEdgeToEdge.force(activity);
+                                if (chat) {
+                                    ChatGlassHook.reapplyStatusBar(activity);
+                                } else {
+                                    HomeGlassHook.reapplyStatusBar(activity);
+                                }
+                            } catch (Throwable throwable) {
+                                XposedBridge.log(TAG + " resume status failed: " + throwable);
+                            }
+                        }
+                    });
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " resume hook skipped for " + className);
+        }
+    }
+}
