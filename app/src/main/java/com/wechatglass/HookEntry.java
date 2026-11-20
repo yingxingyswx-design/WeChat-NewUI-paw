@@ -31,10 +31,6 @@ public class HookEntry implements IXposedHookLoadPackage {
         // Applies to every user that has WeChat installed (owner and secondary
         // profiles). Each profile gets its own process and its own hook state.
         hookHomeUiTopMargin(lpparam);
-        hookDiscoverTopPadding(lpparam);
-        hookGlobalEdgeToEdge(lpparam);
-        hookStatusDraw(lpparam);
-        hookActionBarOverlayDraw(lpparam);
         hookExactBarVisibility(lpparam);
         hookChatFooterPanel(lpparam);
 
@@ -47,7 +43,6 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 if (param.thisObject instanceof Activity) {
                                     Activity activity = (Activity) param.thisObject;
                                     ChatGlassHook.attach(activity);
-                                    GlobalEdgeToEdge.force(activity);
                                 }
                             } catch (Throwable throwable) {
                                 XposedBridge.log(TAG + " attach failed: " + throwable);
@@ -92,7 +87,6 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 if (param.thisObject instanceof Activity) {
                                     Activity activity = (Activity) param.thisObject;
                                     HomeGlassHook.attach(activity);
-                                    GlobalEdgeToEdge.force(activity);
                                 }
                             } catch (Throwable throwable) {
                                 XposedBridge.log(TAG + " home attach failed: " + throwable);
@@ -122,7 +116,6 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 if (param.thisObject instanceof Activity) {
                                     Activity activity = (Activity) param.thisObject;
                                     HomeGlassHook.attach(activity);
-                                    GlobalEdgeToEdge.force(activity);
                                 }
                             } catch (Throwable throwable) {
                                 XposedBridge.log(TAG + " home config failed: " + throwable);
@@ -420,7 +413,6 @@ public class HookEntry implements IXposedHookLoadPackage {
                                     return;
                                 }
                                 Activity activity = (Activity) param.thisObject;
-                                GlobalEdgeToEdge.force(activity);
                                 if (chat) {
                                     ChatGlassHook.reapplyStatusBar(activity);
                                 } else {

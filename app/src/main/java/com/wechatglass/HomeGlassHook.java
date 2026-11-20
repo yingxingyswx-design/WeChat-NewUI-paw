@@ -211,11 +211,6 @@ final class HomeGlassHook {
         clickThrough(searchChip, searchView);
         clickThrough(plusChip, plusView);
         clickThrough(aiChip, aiSlot);
-        leftChip.setBlurBackground(true);
-        titleChip.setBlurBackground(true);
-        aiChip.setBlurBackground(true);
-        searchChip.setBlurBackground(true);
-        plusChip.setBlurBackground(true);
         renderer.setHiddenViews(overlay);
 
         // 小微 takes the far-left slot; the old left/back button is removed.
@@ -557,10 +552,13 @@ final class HomeGlassHook {
 
     private void applyListTopInset(View contentRoot) {
         int inset = listTopInset();
-        if (tabMode == 1) {
-            View discover = Ui.findByClassContains(contentRoot, "PullDownListView");
-            if (discover != null) {
-                int top = Ui.statusBarHeight(decor) + actionBarHeight;
+        // Locale-independent: the discover page owns a PullDownListView. The
+        // old code keyed this off the Chinese title "发现", which never matched
+        // on Japanese/English builds.
+        View discover = Ui.findByClassContains(contentRoot, "PullDownListView");
+        if (discover != null && discover.isShown()) {
+            int top = Ui.statusBarHeight(decor) + Ui.dp(activity, 56f);
+            if (discover.getPaddingTop() != top) {
                 discover.setPadding(discover.getPaddingLeft(), top,
                         discover.getPaddingRight(), discover.getPaddingBottom());
             }
@@ -729,22 +727,12 @@ final class HomeGlassHook {
             return;
         }
         try {
-            if (lastFrostTop != topHeight) {
-                lastFrostTop = topHeight;
-                frostedContent.getClass().getMethod("setBlurRadius", int.class)
-                        .invoke(frostedContent, 50);
-                frostedContent.getClass().getMethod("setTopBlurAreaHeight", int.class)
-                        .invoke(frostedContent, topHeight);
-                frostedContent.getClass().getMethod("setFrostedColor", int.class)
-                        .invoke(frostedContent, Ui.isNight(activity) ? 0x661C1C1E : 0x66FFFFFF);
-                frostedContent.getClass().getMethod("setFrostedEnabled", boolean.class)
-                        .invoke(frostedContent, enabled);
-                frostedContent.invalidate();
-            }
-            Log.i("WeChatGlassFrost", "frost top=" + topHeight + " enabled=" + enabled
-                    + " view=" + (frostedContent == null ? "null" : frostedContent.getClass().getName()));
+            // Only toggle WeChat's frosted layer; no blur radius/area config.
+            frostedContent.getClass().getMethod("setFrostedEnabled", boolean.class)
+                    .invoke(frostedContent, enabled);
+            frostedContent.invalidate();
         } catch (Throwable throwable) {
-            Log.w("WeChatGlassFrost", "frost failed top=" + topHeight, throwable);
+            Log.w("WeChatGlassFrost", "frost toggle failed", throwable);
         }
     }
 

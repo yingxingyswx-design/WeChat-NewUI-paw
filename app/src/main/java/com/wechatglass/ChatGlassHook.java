@@ -111,7 +111,6 @@ final class ChatGlassHook {
             if (!attached) {
                 return;
             }
-            EdgeForce.apply(activity);
             applyEdgeLayout();
             updateTopGeometry();
             handler.postDelayed(this, 600L);
@@ -367,23 +366,13 @@ final class ChatGlassHook {
 
     private void applyStatusBar() {
         try {
-            android.view.Window window = activity.getWindow();
-            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
-        EdgeForce.apply(activity);
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                window.setDecorFitsSystemWindows(false);
-                android.view.WindowInsetsController controller = window.getInsetsController();
-                if (controller != null) {
-                    int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
-                    controller.setSystemBarsAppearance(Ui.isNight(activity) ? 0 : mask, mask);
-                }
-            } else {
-                decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-            }
+            // Old-session approach: only set the bar color, no insets/EtE.
+            // Re-applied from layout so WeChat's own edge-to-edge reset does
+            // not immediately override it.
+            activity.getWindow().setStatusBarColor(
+                    Ui.isNight(activity) ? 0xFF191919 : 0xFFEDEDED);
         } catch (Throwable throwable) {
-            Log.w(TAG, "status bar transparency failed", throwable);
+            Log.w(TAG, "status bar color failed", throwable);
         }
     }
 
@@ -798,6 +787,8 @@ final class ChatGlassHook {
         if (renderer == null) {
             return;
         }
+        // Re-apply after WeChat's own edge-to-edge reset.
+        applyStatusBar();
         extendChatToBottom();
         reparentActionBar();
         if (actionBar != null) {
