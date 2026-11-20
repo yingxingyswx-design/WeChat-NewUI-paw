@@ -104,6 +104,7 @@ final class ChatGlassHook {
 
     private ViewTreeObserver.OnGlobalLayoutListener globalLayoutListener;
     private ViewTreeObserver.OnScrollChangedListener scrollListener;
+    private long lastGeometrySignature = Long.MIN_VALUE;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -111,11 +112,38 @@ final class ChatGlassHook {
             if (!attached) {
                 return;
             }
-            applyEdgeLayout();
-            updateTopGeometry();
+            maybeUpdateGeometry();
             handler.postDelayed(this, 600L);
         }
     };
+
+    private void maybeUpdateGeometry() {
+        long signature = geometrySignature();
+        if (signature == lastGeometrySignature) {
+            return;
+        }
+        lastGeometrySignature = signature;
+        applyEdgeLayout();
+        updateTopGeometry();
+    }
+
+    private long geometrySignature() {
+        int decorWidth = decor == null ? 0 : decor.getWidth();
+        int decorHeight = decor == null ? 0 : decor.getHeight();
+        int barWidth = actionBar == null ? 0 : actionBar.getWidth();
+        int barHeight = actionBar == null ? 0 : actionBar.getHeight();
+        int barTop = actionBar == null ? 0 : actionBar.getTop();
+        int footerHeight = footer == null ? 0 : footer.getHeight();
+        int listPadding = list == null ? 0 : list.getPaddingTop();
+        long signature = decorWidth;
+        signature = signature * 31 + decorHeight;
+        signature = signature * 31 + barWidth;
+        signature = signature * 31 + barHeight;
+        signature = signature * 31 + barTop;
+        signature = signature * 31 + footerHeight;
+        signature = signature * 31 + listPadding;
+        return signature;
+    }
 
     private ChatGlassHook(Activity activity) {
         this.activity = activity;
@@ -267,10 +295,7 @@ final class ChatGlassHook {
                 if (!attached) {
                     return;
                 }
-                applyEdgeLayout();
-                if (renderer != null) {
-                    renderer.requestUpdate();
-                }
+                maybeUpdateGeometry();
             }
         };
         observer.addOnGlobalLayoutListener(globalLayoutListener);
@@ -278,14 +303,12 @@ final class ChatGlassHook {
         scrollListener = new ViewTreeObserver.OnScrollChangedListener() {
             @Override
             public void onScrollChanged() {
-                if (renderer != null) {
-                    renderer.requestUpdate();
-                }
             }
         };
         scrollLayout.getViewTreeObserver().addOnScrollChangedListener(scrollListener);
         attached = true;
         updateTopGeometry();
+        lastGeometrySignature = geometrySignature();
         handler.postDelayed(tick, 600L);
         renderer.requestUpdate();
         Log.i(TAG, "chat glass attached: content=" + contentFrame.getClass().getName()
