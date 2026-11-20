@@ -67,6 +67,7 @@ final class HomeGlassHook {
     private boolean installed;
     private int attempts;
     private boolean overlaySet;
+    private long lastGeometrySignature = Long.MIN_VALUE;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -74,10 +75,39 @@ final class HomeGlassHook {
             if (!installed) {
                 return;
             }
-            updateGeometry();
+            // Only re-run the expensive whole-tree pass when the geometry
+            // actually changed; a static page stays at one pass.
+            maybeUpdateGeometry();
             handler.postDelayed(this, 600L);
         }
     };
+
+    private void maybeUpdateGeometry() {
+        long signature = geometrySignature();
+        if (signature == lastGeometrySignature) {
+            return;
+        }
+        lastGeometrySignature = signature;
+        updateGeometry();
+    }
+
+    private long geometrySignature() {
+        int decorWidth = decor == null ? 0 : decor.getWidth();
+        int decorHeight = decor == null ? 0 : decor.getHeight();
+        int barWidth = actionBar == null ? 0 : actionBar.getWidth();
+        int barHeight = actionBar == null ? 0 : actionBar.getHeight();
+        int barTop = actionBar == null ? 0 : actionBar.getTop();
+        int listPadding = list == null ? 0 : list.getPaddingTop();
+        long signature = decorWidth;
+        signature = signature * 31 + decorHeight;
+        signature = signature * 31 + barWidth;
+        signature = signature * 31 + barHeight;
+        signature = signature * 31 + barTop;
+        signature = signature * 31 + listPadding;
+        signature = signature * 31 + tabMode;
+        signature = signature * 31 + (toolbar == null ? 0 : toolbar.getVisibility());
+        return signature;
+    }
 
     private HomeGlassHook(Activity activity) {
         this.activity = activity;
@@ -213,7 +243,7 @@ final class HomeGlassHook {
             @Override
             public void onLayoutChange(View v, int left, int top, int right, int bottom,
                                        int oldLeft, int oldTop, int oldRight, int oldBottom) {
-                updateGeometry();
+                maybeUpdateGeometry();
             }
         });
 
@@ -233,6 +263,7 @@ final class HomeGlassHook {
 
         installed = true;
         updateGeometry();
+        lastGeometrySignature = geometrySignature();
         handler.postDelayed(tick, 600L);
         if (renderer != null) {
             renderer.requestUpdate();
