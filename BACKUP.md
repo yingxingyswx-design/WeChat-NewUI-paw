@@ -10,7 +10,13 @@
 
 ```powershell
 cd C:\git\wechat_chat_ui
-.\backup.ps1 -Message "fix: 移除 TaskBar header 的 1px 分割线"
+.\backup.cmd -Message "fix: 移除 TaskBar header 的 1px 分割线"
+```
+
+`backup.cmd` 只是用 `-ExecutionPolicy Bypass` 转调 `backup.ps1`，规避本机“禁止运行脚本”的策略。也可以手动执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backup.ps1 -Message "..."
 ```
 
 脚本会依次完成：
