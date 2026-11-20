@@ -75,12 +75,35 @@ final class HomeGlassHook {
             if (!installed) {
                 return;
             }
-            // Only re-run the expensive whole-tree pass when the geometry
-            // actually changed; a static page stays at one pass.
+            // WeChat re-shows its ActionBar on tab switches; keep ours on top
+            // and the native one hidden without running the full geometry pass.
+            keepNativeBarHidden();
             maybeUpdateGeometry();
             handler.postDelayed(this, 600L);
         }
     };
+
+    private void keepNativeBarHidden() {
+        if (actionBar != null) {
+            if (actionBar.getVisibility() != View.GONE) {
+                actionBar.setVisibility(View.GONE);
+            }
+            if (actionBar.getAlpha() != 0f) {
+                actionBar.setAlpha(0f);
+            }
+        }
+        if (toolbar != null) {
+            if (toolbar.getVisibility() != View.GONE) {
+                toolbar.setVisibility(View.GONE);
+            }
+            if (toolbar.getAlpha() != 0f) {
+                toolbar.setAlpha(0f);
+            }
+        }
+        if (overlay != null && overlay.getParent() instanceof ViewGroup) {
+            overlay.bringToFront();
+        }
+    }
 
     private void maybeUpdateGeometry() {
         long signature = geometrySignature();

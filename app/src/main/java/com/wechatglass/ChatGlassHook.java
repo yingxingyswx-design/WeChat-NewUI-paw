@@ -112,7 +112,10 @@ final class ChatGlassHook {
             if (!attached) {
                 return;
             }
-            maybeUpdateGeometry();
+            // Footer geometry depends on WeChat's own re-measure; keep the
+            // 600ms refresh here so the input bar never drifts off-screen.
+            applyEdgeLayout();
+            updateTopGeometry();
             handler.postDelayed(this, 600L);
         }
     };
@@ -295,7 +298,7 @@ final class ChatGlassHook {
                 if (!attached) {
                     return;
                 }
-                maybeUpdateGeometry();
+                applyEdgeLayout();
             }
         };
         observer.addOnGlobalLayoutListener(globalLayoutListener);
@@ -389,11 +392,8 @@ final class ChatGlassHook {
 
     private void applyStatusBar() {
         try {
-            // Old-session approach: only set the bar color, no insets/EtE.
-            // Re-applied from layout so WeChat's own edge-to-edge reset does
-            // not immediately override it.
-            activity.getWindow().setStatusBarColor(
-                    Ui.isNight(activity) ? 0xFF191919 : 0xFFEDEDED);
+            // Status bar is transparent; WeChat's own edge-to-edge owns insets.
+            activity.getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
         } catch (Throwable throwable) {
             Log.w(TAG, "status bar color failed", throwable);
         }
@@ -816,6 +816,18 @@ final class ChatGlassHook {
         reparentActionBar();
         if (actionBar != null) {
             actionBar.setTranslationY(Ui.statusBarHeight(decor));
+        }
+        // WeChat's own bottom inset shrinks the chat container by the status
+        // bar height (107px on this device); stretch it back to full height.
+        int decorHeight = decor == null ? 0 : decor.getHeight();
+        if (decorHeight > 0 && scrollLayout != null
+                && scrollLayout.getHeight() > 0
+                && scrollLayout.getHeight() < decorHeight) {
+            ViewGroup.LayoutParams scrollParams = scrollLayout.getLayoutParams();
+            if (scrollParams != null && scrollParams.height != decorHeight) {
+                scrollParams.height = decorHeight;
+                scrollLayout.setLayoutParams(scrollParams);
+            }
         }
         enableSupportActionBarOverlay();
         forceContentBehindTop();
