@@ -81,7 +81,7 @@ New-Item -ItemType Directory -Force -Path $snapDir | Out-Null
 
 # --- 3. 源码 zip ---------------------------------------------------------
 $zipPath = Join-Path $snapDir "$snapName-source.zip"
-$items = @('app', 'docs', 'build.ps1', 'BACKUP.md', 'README.md', '.gitignore', 'debug.keystore') |
+$items = @('app', 'docs', 'build.ps1', 'BACKUP.md', 'README.md', '.gitignore', 'debug.keystore', 'publish.ps1') |
     ForEach-Object { Join-Path $repo $_ } |
     Where-Object { Test-Path $_ }
 Compress-Archive -Path $items -DestinationPath $zipPath -CompressionLevel Optimal -Force
