@@ -51,21 +51,28 @@ Expand-Archive backups\<快照名>\<快照名>-source.zip -DestinationPath <目�
 - 请单独离线备份这两个文件：丢失后无法再给已安装用户发更新，只能让用户卸载重装；
 - 需要复现旧的 debug 签名时用 `build.ps1 -DebugSigning`。
 
-## 与 `C:\codes\模块\wechat_chat_ui` 的关系
+## 两个目录的分工
 
-`C:\codes\模块\wechat_chat_ui` 是历史工作副本（含未提交的实验性改动）。**从本仓库建立基线后，以本仓库为准**：新改动直接在本仓库编辑并 `backup.ps1` 提交。
+| 目录 | 角色 | 是否提交 |
+|---|---|---|
+| `C:\codes\模块\wechat_chat_ui` | **开发区**：编辑代码、构建、装 APK | 不是 git 仓库，只保留工作树 |
+| `C:\git\wechat_chat_ui` | **备份区**：只接收快照提交 | 是 git 仓库，历史都在这里 |
 
-如果确实在旧副本里改过文件，先同步过来再提交（不要覆盖 `docs/`、`backups/`）：
+**不要在备份区直接改代码**。日常流程是：
 
 ```powershell
-robocopy "C:\codes\模块\wechat_chat_ui\app" "C:\git\wechat_chat_ui\app" /MIR /XD .git
-robocopy "C:\codes\模块\wechat_chat_ui" "C:\git\wechat_chat_ui" build.ps1 README.md debug.keystore /XO
+cd C:\codes\模块\wechat_chat_ui
+# 编辑 app/、docs/、build.ps1 ...
+.\publish.ps1 -Message "fix: ..."
 ```
+
+`publish.ps1` 会把开发区的 `app/`、`docs/`、`build.ps1`、`README.md`、`BACKUP.md`、`.gitignore`、`debug.keystore` 镜像到备份区，然后调用备份区的 `backup.ps1` 提交并生成 zip + `CHANGES.md` 快照。
 
 ## 构建验证
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+cd C:\codes\模块\wechat_chat_ui
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -DebugSigning
 ```
 
 依赖 Android SDK 36 与 JDK 17；产物在 `out\wechat-glass-1.0.apk`。
