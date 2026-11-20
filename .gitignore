@@ -1,8 +1,12 @@
 analysis/
 build/
 debug/
-out/*.apk
+out/
 release/
 *.log
+.idea/
+
+# 本地备份快照（zip 不进入 git 历史，代码由 git 提交保全）
+backups/
 
 # Keep the final APK only as a GitHub release asset, not in git history.
