@@ -84,7 +84,8 @@ final class HomeGlassHook {
     private HomeGlassHook(Activity activity) {
         this.activity = activity;
         boolean night = Ui.isNight(activity);
-        this.tint = night ? 0x8C1C1C1E : 0x8CFFFFFF;
+        // Solid WeChat white / dark grey; see ChatGlassHook for rationale.
+        this.tint = night ? 0xFF2C2C2C : 0xFFFFFFFF;
         this.border = night ? 0x1AFFFFFF : 0x1A000000;
     }
 
@@ -716,21 +717,11 @@ final class HomeGlassHook {
     }
 
     /**
-     * Reserve the original top-bar height as transparent space, without
-     * drawing a bar or an opaque background.
-     */
-    /**
-     * Enable WeChat's own FrostedContentView. It records only its children and
-     * draws a blurred top strip, so it is both 60fps and recursion-safe.
+     * WeChat's own frosted layer is kept disabled: the bars are solid now, so
+     * enabling it would reintroduce the blur we are removing.
      */
     private void configureNativeFrost(int actionBarBottomOnScreen) {
-        if (frostedContent == null) {
-            return;
-        }
-        int[] loc = new int[2];
-        frostedContent.getLocationOnScreen(loc);
-        int top = Math.max(0, actionBarBottomOnScreen - loc[1]);
-        setFrostEnabled(top > 0, top);
+        setFrostEnabled(false, 0);
     }
 
     private void setFrostEnabled(boolean enabled, int topHeight) {

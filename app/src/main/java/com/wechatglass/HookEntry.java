@@ -28,14 +28,8 @@ public class HookEntry implements IXposedHookLoadPackage {
         if (lpparam == null || !WECHAT.equals(lpparam.packageName)) {
             return;
         }
-        // This module is tuned for the owner profile only. Work-profile
-        // WeChat runs its own LSPosed scope and must stay untouched.
-        if (android.os.Process.myUid() / 100000 != 0) {
-            XposedBridge.log(TAG + " skipped non-owner user uid="
-                    + android.os.Process.myUid());
-            return;
-        }
-
+        // Applies to every user that has WeChat installed (owner and secondary
+        // profiles). Each profile gets its own process and its own hook state.
         hookHomeUiTopMargin(lpparam);
         hookDiscoverTopPadding(lpparam);
         hookGlobalEdgeToEdge(lpparam);

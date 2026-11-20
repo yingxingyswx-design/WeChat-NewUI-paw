@@ -69,8 +69,6 @@ final class ChatGlassHook {
     private View footerBottom;
 
     private View chatRoot;
-    private View frostedContent;
-    private View statusScrim;
     private View navFiller;
     private int normalPanelBaseHeight = -1;
     private int normalPanelParentBaseHeight = -1;
@@ -123,13 +121,12 @@ final class ChatGlassHook {
     private ChatGlassHook(Activity activity) {
         this.activity = activity;
         boolean night = Ui.isNight(activity);
-        this.tint = night ? 0x8C1C1C1E : 0x8CFFFFFF;
-        // A grey hairline is required on light wallpapers; a white border
-        // disappears completely in light mode.
-        // 1/4 of the previous stroke strength.
+        // Solid WeChat white / dark grey. Opaque on purpose: the blur path is
+        // gone, so every surface is a flat fill instead of a translucent tint.
+        this.tint = night ? 0xFF2C2C2C : 0xFFFFFFFF;
         this.border = night ? 0x1AFFFFFF : 0x1A000000;
-        this.chipTint = night ? 0x991C1C1E : 0x99FFFFFF;
-        this.chipBorder = night ? 0x1AFFFFFF : 0x1A000000;
+        this.chipTint = this.tint;
+        this.chipBorder = this.border;
     }
 
     static void attach(Activity activity) {
@@ -161,7 +158,6 @@ final class ChatGlassHook {
 
     private void install() {
         decor = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
-        frostedContent = Ui.findByClass(decor, "com.tencent.mm.ui.FrostedContentView");
         if (decor == null) {
             return;
         }
@@ -327,46 +323,6 @@ final class ChatGlassHook {
             if (view != null) {
                 view.setBackgroundColor(android.graphics.Color.TRANSPARENT);
             }
-        }
-    }
-
-    private void configureStatusBlur() {
-        int top = Ui.statusBarHeight(decor)
-                + (actionBar == null ? 0 : actionBar.getHeight());
-        if (frostedContent != null) {
-            try {
-                frostedContent.getClass().getMethod("setBlurRadius", int.class)
-                        .invoke(frostedContent, 40);
-                frostedContent.getClass().getMethod("setTopBlurAreaHeight", int.class)
-                        .invoke(frostedContent, top);
-                frostedContent.getClass().getMethod("setFrostedColor", int.class)
-                        .invoke(frostedContent, Ui.isNight(activity) ? 0x661C1C1E : 0x66FFFFFF);
-                frostedContent.getClass().getMethod("setFrostedEnabled", boolean.class)
-                        .invoke(frostedContent, true);
-                frostedContent.invalidate();
-                return;
-            } catch (Throwable ignored) {
-            }
-        }
-        if (statusScrim == null) {
-            View scrim = new View(activity);
-            scrim.setClickable(false);
-            scrim.setFocusable(false);
-            android.graphics.drawable.GradientDrawable gradient =
-                    new android.graphics.drawable.GradientDrawable(
-                            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                            new int[]{Ui.isNight(activity) ? 0x33000000 : 0x22FFFFFF, 0x00000000});
-            scrim.setBackground(gradient);
-            if (decor instanceof ViewGroup) {
-                ((ViewGroup) decor).addView(scrim, new FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, top + Ui.dp(activity, 8f),
-                        Gravity.TOP));
-                statusScrim = scrim;
-            }
-        } else {
-            ViewGroup.LayoutParams lp = statusScrim.getLayoutParams();
-            lp.height = top + Ui.dp(activity, 8f);
-            statusScrim.setLayoutParams(lp);
         }
     }
 
@@ -1264,12 +1220,6 @@ final class ChatGlassHook {
             if (menuChip != null) {
                 group.removeView(menuChip);
             }
-        }
-        if (statusScrim != null) {
-            if (statusScrim.getParent() instanceof ViewGroup) {
-                ((ViewGroup) statusScrim.getParent()).removeView(statusScrim);
-            }
-            statusScrim = null;
         }
         if (navFiller != null) {
             if (navFiller.getParent() instanceof ViewGroup) {

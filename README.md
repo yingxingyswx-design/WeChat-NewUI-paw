@@ -1,6 +1,6 @@
 # WeChat Glass Bar
 
-微信 8.0.79 聊天页的 LSPosed UI 模块：把顶部导航栏改成 Telegram 截图里的三段悬浮玻璃岛，把底部输入栏改成悬浮毛玻璃条。
+微信 8.0.79 聊天页的 LSPosed UI 模块：把顶部导航栏改成三段悬浮纯色岛，把底部输入栏改成悬浮纯色条。
 
 只 Hook `com.tencent.mm` 的 `ChattingUI` 生命周期，只改 View 的背景、边距和绘制层；不碰消息、通讯、账号、支付、网络相关类。
 
@@ -17,21 +17,21 @@
   - `ChatFooter` 留在 `ChattingScrollLayout` 里，但 `topMargin = -footerHeight`、`bottomMargin = 0`，净占高为 0；`ChattingContent` 因此拿到全屏高度，消息列表从输入栏下面滚过。
   - `RecyclerView` 顶部 padding = ActionBar 高度 + 6dp，底部 padding = ChatFooter 高度 + 14dp，并 `clipToPadding=false`。
   - 不再使用假壁纸层；顶部玻璃直接采样真正的聊天内容。
-- 顶部三段悬浮玻璃：
-  - 返回按钮：圆形玻璃
-  - 标题：圆角玻璃胶囊
-  - 右侧菜单：圆形/胶囊玻璃
+- 顶部三段悬浮纯色岛：
+  - 返回按钮：圆形
+  - 标题：圆角胶囊
+  - 右侧菜单：圆形/胶囊
 - 底部输入栏：
   - `ChatFooter` 背景按结构逐层清空（从 EditText 往上找祖先），不依赖易变的资源 ID
   - 左右 10dp 边距，26dp 圆角，底部 8dp 悬浮间隙
   - 输入区 `d9e` 的内层白底去掉，文字直接坐在玻璃上
   - 表情/更多/语音按钮保留原位，只做视觉透明化
-- 模糊：
-  - 捕获当前窗口，1/4 降采样，三次 box blur（stack blur），再按玻璃区域采样
-  - 抓屏时把 ActionBar/ChatFooter 的 alpha 临时设为 0，只留下真正位于它们后面的聊天内容
-  - 顶栏/输入栏共用同一个模糊源，思路参考 Telegram `du0`
-- 夜间模式：自动切换浅色/深色 tint 和边框
-- 横竖屏/深色模式切换：`onConfigurationChanged` 后重建玻璃层
+- 纯色：
+  - 浅色模式 `#FFFFFF`（微信白），暗色模式 `#2C2C2C`（微信灰），100% 不透明
+  - 不再抓屏、不再模糊：`GlassRenderer` 只画一个圆角矩形，`BlurUtil` 已删除
+  - 微信原生的 `FrostedContentView` 模糊层保持关闭
+- 夜间模式：自动切换纯色 tint 和边框
+- 横竖屏/深色模式切换：`onConfigurationChanged` 后重建悬浮层
 
 ## 安装
 
