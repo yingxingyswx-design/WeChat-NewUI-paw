@@ -47,12 +47,10 @@ final class HomeGlassHook {
     private View rightView;
     private View searchView;
     private View plusView;
-    private View aiSlot;
 
     private FrameLayout overlay;
     private GlassChipView leftChip;
     private GlassChipView titleChip;
-    private GlassChipView aiChip;
     private GlassChipView searchChip;
     private GlassChipView plusChip;
     private View topMask;
@@ -167,7 +165,6 @@ final class HomeGlassHook {
                 plusView = rg.getChildAt(1);
             }
         }
-        aiSlot = toolbar.findViewById(0x7f0a385a);
         frostedContent = Ui.findByClass(decor, "com.tencent.mm.ui.FrostedContentView");
         Log.i("WeChatGlassFrost", "find frost=" + (frostedContent == null ? "null"
                 : frostedContent.getClass().getName()));
@@ -197,12 +194,8 @@ final class HomeGlassHook {
 
         leftChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
         titleChip = new GlassChipView(activity, renderer, Ui.dp(activity, 20f), tint, border);
-        aiChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
         searchChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
         plusChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
-        aiChip.setLabel("●  ●", Ui.isNight(activity) ? 0xFFFFFFFF : 0xFF1A1A1A,
-                14f * activity.getResources().getDisplayMetrics().scaledDensity);
-        aiChip.setContentDescription("小微AI");
 
         leftChip.setIcon(copyIcon(leftView, Ui.isNight(activity)), Ui.dp(activity, 22f));
         searchChip.setIcon(copyIcon(searchView, Ui.isNight(activity)), Ui.dp(activity, 22f));
@@ -210,12 +203,9 @@ final class HomeGlassHook {
         clickThrough(leftChip, leftView);
         clickThrough(searchChip, searchView);
         clickThrough(plusChip, plusView);
-        clickThrough(aiChip, aiSlot);
         renderer.setHiddenViews(overlay);
 
-        // 小微 takes the far-left slot; the old left/back button is removed.
         addChip(overlay, titleChip, chipHeight);
-        addChip(overlay, aiChip, chipHeight);
         addChip(overlay, searchChip, chipHeight);
         addChip(overlay, plusChip, chipHeight);
 
@@ -699,13 +689,13 @@ final class HomeGlassHook {
         tabMode = mode;
         boolean full = mode == 0;
         setChipVisible(leftChip, false);
-        setChipVisible(aiChip, full);
         setChipVisible(searchChip, full);
         setChipVisible(plusChip, full);
         setChipVisible(titleChip, true);
 
         if (titleChip != null && !text.isEmpty()) {
-            titleChip.setLabel(text, Ui.isNight(activity) ? 0xFFFFFFFF : 0xFF1A1A1A,
+            titleChip.setLabel(localizeTitle(text),
+                    Ui.isNight(activity) ? 0xFFFFFFFF : 0xFF1A1A1A,
                     18f * activity.getResources().getDisplayMetrics().scaledDensity);
         }
         if (list != null) {
@@ -734,6 +724,22 @@ final class HomeGlassHook {
         } catch (Throwable throwable) {
             Log.w("WeChatGlassFrost", "frost toggle failed", throwable);
         }
+    }
+
+    private String localizeTitle(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        try {
+            java.util.Locale locale = activity.getResources()
+                    .getConfiguration().getLocales().get(0);
+            if ("ja".equals(locale.getLanguage())
+                    && ("Weixin".equalsIgnoreCase(text) || "WeChat".equalsIgnoreCase(text))) {
+                return "ウィーシン";
+            }
+        } catch (Throwable ignored) {
+        }
+        return text;
     }
 
     private void setChipVisible(View chip, boolean visible) {
@@ -924,9 +930,6 @@ final class HomeGlassHook {
             toolbar.setVisibility(View.GONE);
         }
 
-        int aiWidth = Ui.dp(activity, 72f);
-        int aiX = Ui.dp(activity, 8f);
-
         int titleW;
         int titleX;
         if (titleView != null && titleView.getWidth() > 0) {
@@ -939,7 +942,7 @@ final class HomeGlassHook {
             titleW = Ui.dp(activity, 150f);
             titleX = (width - titleW) / 2;
         }
-        titleX = clamp(titleX, aiX + aiWidth + Ui.dp(activity, 4f),
+        titleX = clamp(titleX, Ui.dp(activity, 8f),
                 width - titleW - Ui.dp(activity, 4f));
 
         // Fixed right-hand positions. Using the old toolbar child bounds made
@@ -954,7 +957,6 @@ final class HomeGlassHook {
         }
 
         applyChip(titleChip, titleX, top, titleW, chipHeight, Ui.dp(activity, 20f));
-        applyChip(aiChip, aiX, top, aiWidth, chipHeight, chipHeight / 2f);
         applyChip(searchChip, searchX, top, chipHeight, chipHeight, chipHeight / 2f);
         applyChip(plusChip, plusX, top, chipHeight, chipHeight, chipHeight / 2f);
         if (DEBUG_HIDE_OVERLAY && overlay != null) {
