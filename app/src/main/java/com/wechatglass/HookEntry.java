@@ -30,9 +30,7 @@ public class HookEntry implements IXposedHookLoadPackage {
             return;
         }
         try {
-            hookHomeUiTopMargin(lpparam);
             hookExactBarVisibility(lpparam);
-            hookChatFooterPanel(lpparam);
             hookChatLifecycle(lpparam);
             hookHomeLifecycle(lpparam);
             hookResume(CHATTING_UI, lpparam, true);
