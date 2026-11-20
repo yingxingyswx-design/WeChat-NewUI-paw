@@ -1,20 +1,20 @@
-﻿<#
+<#
 .SYNOPSIS
-    提交当前改动，并生成源码 zip 与变更说明 md 快照。
+    ???????????? zip ????? md ???
 
 .DESCRIPTION
-    1. git add -A / git commit -m <Message>（无改动时跳过）；
-    2. 在 backups\<时间>_<短SHA>\ 生成 <快照名>-source.zip 和 CHANGES.md；
-    3. 在 backups\INDEX.md 追加索引。
+    1. git add -A / git commit -m <Message>?????????
+    2. ? backups\<??>_<?SHA>\ ?? <???>-source.zip ? CHANGES.md?
+    3. ? backups\INDEX.md ?????
 
 .PARAMETER Message
-    提交说明。
+    ?????
 
 .PARAMETER NoCommit
-    不提交，只为当前 HEAD 生成快照。
+    ???????? HEAD ?????
 
 .EXAMPLE
-    .\backup.ps1 -Message "fix: 清理 TaskBar header 的 1px 分割线"
+    .\backup.ps1 -Message "fix: ?? TaskBar header ? 1px ???"
 #>
 [CmdletBinding()]
 param(
@@ -38,7 +38,7 @@ function Invoke-Git {
     $code = $LASTEXITCODE
     $ErrorActionPreference = $previous
     if ($code -ne 0) {
-        throw ("git " + ($GitArgs -join ' ') + " 失败（exit $code）：`n" + ($output -join "`n"))
+        throw ("git " + ($GitArgs -join ' ') + " ???exit $code??`n" + ($output -join "`n"))
     }
     return $output
 }
@@ -49,11 +49,11 @@ function Get-Text {
     return (($Lines | ForEach-Object { [string]$_ }) -join "`n").TrimEnd()
 }
 
-# --- 0. 前置检查 ---------------------------------------------------------
+# --- 0. ???? ---------------------------------------------------------
 $null = Invoke-Git rev-parse --is-inside-work-tree
 $branch = Get-Text (Invoke-Git rev-parse --abbrev-ref HEAD)
 
-# --- 1. 提交 -------------------------------------------------------------
+# --- 1. ?? -------------------------------------------------------------
 $pending = Get-Text (Invoke-Git status --porcelain)
 if (-not $NoCommit) {
     if ($pending) {
@@ -62,14 +62,14 @@ if (-not $NoCommit) {
         Write-Host "[commit] $Message"
     }
     else {
-        Write-Host '[commit] 没有待提交改动，仅为当前 HEAD 生成快照。'
+        Write-Host '[commit] ???????????? HEAD ?????'
     }
 }
 elseif ($pending) {
-    Write-Warning '存在未提交改动；-NoCommit 模式下这些改动不会进入快照 zip。'
+    Write-Warning '????????-NoCommit ????????????? zip?'
 }
 
-# --- 2. 快照信息 ---------------------------------------------------------
+# --- 2. ???? ---------------------------------------------------------
 $sha = Get-Text (Invoke-Git rev-parse --short HEAD)
 $fullSha = Get-Text (Invoke-Git rev-parse HEAD)
 $subject = Get-Text (Invoke-Git log -1 --format=%s)
@@ -79,70 +79,70 @@ $snapName = "${stamp}_${sha}"
 $snapDir = Join-Path $repo "backups\$snapName"
 New-Item -ItemType Directory -Force -Path $snapDir | Out-Null
 
-# --- 3. 源码 zip ---------------------------------------------------------
+# --- 3. ?? zip ---------------------------------------------------------
 $zipPath = Join-Path $snapDir "$snapName-source.zip"
-$items = @('app', 'docs', 'build.ps1', 'BACKUP.md', 'README.md', '.gitignore', 'debug.keystore') |
+$items = @('app', 'docs', 'build.ps1', 'BACKUP.md', 'README.md', '.gitignore', 'debug.keystore', 'publish.ps1') |
     ForEach-Object { Join-Path $repo $_ } |
     Where-Object { Test-Path $_ }
 Compress-Archive -Path $items -DestinationPath $zipPath -CompressionLevel Optimal -Force
 $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
 
-# --- 4. 变更说明 md ------------------------------------------------------
+# --- 4. ???? md ------------------------------------------------------
 $nameStatus = Get-Text (Invoke-Git show --name-status --format= HEAD)
 $stat = Get-Text (Invoke-Git show --stat --oneline --no-renames --format= HEAD)
-if ([string]::IsNullOrWhiteSpace($nameStatus)) { $nameStatus = '（基线快照，无文件改动）' }
+if ([string]::IsNullOrWhiteSpace($nameStatus)) { $nameStatus = '????????????' }
 
 $md = @"
-# 源码备份 ${snapName}
+# ???? ${snapName}
 
-| 项目 | 值 |
+| ?? | ? |
 |---|---|
-| 时间 | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') |
-| 分支 | ${branch} |
-| 提交 | ${sha}（${fullSha}） |
-| 提交说明 | ${subject} |
-| 提交时间 | ${commitDate} |
-| 基线 | GitHub release v0.2 |
-| 源码包 | ${snapName}-source.zip（${zipSize} MB） |
+| ?? | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') |
+| ?? | ${branch} |
+| ?? | ${sha}?${fullSha}? |
+| ???? | ${subject} |
+| ???? | ${commitDate} |
+| ?? | GitHub release v0.2 |
+| ??? | ${snapName}-source.zip?${zipSize} MB? |
 
-## 本次改动（git show --name-status）
+## ?????git show --name-status?
 
 ``````text
 ${nameStatus}
 ``````
 
-## 提交统计（git show --stat）
+## ?????git show --stat?
 
 ``````text
 ${stat}
 ``````
 
-## 源码包内容
+## ?????
 
-``app/``、``docs/``、``build.ps1``、``BACKUP.md``、``README.md``、``.gitignore``、``debug.keystore``。
-不包含 ``.git``、``tools/apktool.jar``、``out``、``build``、``.idea``、``backups``。
+``app/``?``docs/``?``build.ps1``?``BACKUP.md``?``README.md``?``.gitignore``?``debug.keystore``?
+??? ``.git``?``tools/apktool.jar``?``out``?``build``?``.idea``?``backups``?
 
-## 还原
+## ??
 
 ``````powershell
 git checkout ${sha}
-# 或
-Expand-Archive "${snapName}-source.zip" -DestinationPath <目标目录>
+# ?
+Expand-Archive "${snapName}-source.zip" -DestinationPath <????>
 ``````
 
-## 参考文档
+## ????
 
-- [TopBar 与 UI 架构总报告](../../docs/微信TopBar与UI架构总报告.md)
-- [EtE 真实性审计](../../docs/微信EtE真实性审计.md)
+- [TopBar ? UI ?????](../../docs/??TopBar?UI?????.md)
+- [EtE ?????](../../docs/??EtE?????.md)
 "@
 
 $mdPath = Join-Path $snapDir 'CHANGES.md'
 [System.IO.File]::WriteAllText($mdPath, $md, (New-Object System.Text.UTF8Encoding($false)))
 
-# --- 5. 索引 -------------------------------------------------------------
+# --- 5. ?? -------------------------------------------------------------
 $indexPath = Join-Path $repo 'backups\INDEX.md'
 if (-not (Test-Path $indexPath)) {
-    $header = "# 备份索引`n`n| 时间 | 提交 | 说明 | 快照 |`n|---|---|---|---|"
+    $header = "# ????`n`n| ?? | ?? | ?? | ?? |`n|---|---|---|---|"
     [System.IO.File]::WriteAllText($indexPath, $header + "`n", (New-Object System.Text.UTF8Encoding($false)))
 }
 $row = "| $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | ${sha} | $($subject -replace '\|', '\|') | [${snapName}](./${snapName}/CHANGES.md) |`n"
@@ -153,3 +153,4 @@ Write-Host "[snapshot] $snapDir"
 Write-Host "  - $snapName-source.zip ($zipSize MB)"
 Write-Host '  - CHANGES.md'
 Write-Host "[index] $indexPath"
+
