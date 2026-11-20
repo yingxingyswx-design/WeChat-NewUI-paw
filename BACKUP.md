@@ -44,6 +44,13 @@ git checkout <短SHA>          # 回到某次提交
 Expand-Archive backups\<快照名>\<快照名>-source.zip -DestinationPath <目标目录>
 ```
 
+## 签名密钥
+
+- `build.ps1` 默认使用 `release.keystore` + `release.keystore.properties`（随机口令），首次构建自动生成；
+- 两者已在 `.gitignore` 中，**不会进入 git，也不会进入源码 zip**；
+- 请单独离线备份这两个文件：丢失后无法再给已安装用户发更新，只能让用户卸载重装；
+- 需要复现旧的 debug 签名时用 `build.ps1 -DebugSigning`。
+
 ## 与 `C:\codes\模块\wechat_chat_ui` 的关系
 
 `C:\codes\模块\wechat_chat_ui` 是历史工作副本（含未提交的实验性改动）。**从本仓库建立基线后，以本仓库为准**：新改动直接在本仓库编辑并 `backup.ps1` 提交。

@@ -1,3 +1,7 @@
+param(
+    [switch]$DebugSigning
+)
+
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -54,24 +58,64 @@ Write-Host '=== zipalign ==='
 & "$bt\zipalign.exe" -f 4 $apk "$build\aligned.apk"
 if ($LASTEXITCODE -ne 0) { throw 'zipalign failed' }
 
-$projectKeystore = Join-Path $root 'debug.keystore'
-$keystore = Join-Path $stage 'debug.keystore'
-if (Test-Path $projectKeystore) {
-    Copy-Item $projectKeystore $keystore -Force
+# Signing: a real release key by default. The debug keystore is public (it is
+# committed), so anyone could sign an APK that Android would accept as an update
+# for debug-signed installs. New builds use release.keystore instead.
+$storePass = 'android'
+$keyPass = 'android'
+$alias = 'androiddebugkey'
+
+if ($DebugSigning) {
+    $projectKeystore = Join-Path $root 'debug.keystore'
+    $keystore = Join-Path $stage 'debug.keystore'
+    if (Test-Path $projectKeystore) {
+        Copy-Item $projectKeystore $keystore -Force
+    } else {
+        Write-Host '=== create debug keystore ==='
+        & "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -v -keystore $keystore `
+            -storepass $storePass -alias $alias -keypass $keyPass `
+            -keyalg RSA -keysize 2048 -validity 10000 `
+            -dname "CN=Android Debug,O=Android,C=US"
+        if ($LASTEXITCODE -ne 0) { throw 'keytool failed' }
+        Copy-Item $keystore $projectKeystore -Force
+    }
 } else {
-    Write-Host '=== create debug keystore ==='
-    & "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -v -keystore $keystore `
-        -storepass android -alias androiddebugkey -keypass android `
-        -keyalg RSA -keysize 2048 -validity 10000 `
-        -dname "CN=Android Debug,O=Android,C=US"
-    if ($LASTEXITCODE -ne 0) { throw 'keytool failed' }
-    Copy-Item $keystore $projectKeystore -Force
+    $projectKeystore = Join-Path $root 'release.keystore'
+    $propsFile = Join-Path $root 'release.keystore.properties'
+    $keystore = Join-Path $stage 'release.keystore'
+    $alias = 'wechatnewui'
+
+    if (Test-Path $propsFile) {
+        $line = Get-Content $propsFile |
+            Where-Object { $_ -like 'storePass=*' } |
+            Select-Object -First 1
+        if ($line) { $storePass = $line.Substring('storePass='.Length).Trim() }
+    } elseif (Test-Path $projectKeystore) {
+        throw "release.keystore exists but $propsFile is missing; cannot recover its password."
+    }
+
+    if (!(Test-Path $projectKeystore)) {
+        Write-Host '=== create release keystore (back this file up!) ==='
+        $bytes = New-Object byte[] 18
+        $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+        $rng.GetBytes($bytes)
+        $rng.Dispose()
+        $storePass = ([Convert]::ToBase64String($bytes) -replace '[+/=]', 'x')
+        "storePass=$storePass" | Set-Content -Encoding ASCII $propsFile
+        & "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -v -keystore $projectKeystore `
+            -storepass $storePass -alias $alias -keypass $storePass `
+            -keyalg RSA -keysize 2048 -validity 10000 `
+            -dname "CN=WeChat NewUI,O=Paw,C=CN"
+        if ($LASTEXITCODE -ne 0) { throw 'keytool failed' }
+    }
+    $keyPass = $storePass
+    Copy-Item $projectKeystore $keystore -Force
 }
 
 Write-Host '=== sign ==='
 $final = Join-Path $build 'wechat-glass-1.0.apk'
-& "$bt\apksigner.bat" sign --ks $keystore --ks-pass pass:android --key-pass pass:android `
-    --out $final "$build\aligned.apk"
+& "$bt\apksigner.bat" sign --ks $keystore --ks-pass "pass:$storePass" `
+    --key-pass "pass:$keyPass" --out $final "$build\aligned.apk"
 if ($LASTEXITCODE -ne 0) { throw 'apksigner failed' }
 
 Write-Host '=== verify ==='

@@ -99,6 +99,14 @@ final class ChatGlassHook {
     private int lastVisibleFooterHeight = -1;
     private boolean supportActionBarOverlaySet;
 
+    // Original host of the reparented ActionBar, so destroy() can put it back.
+    private ViewGroup actionBarOriginalParent;
+    private int actionBarOriginalIndex = -1;
+    private ViewGroup.LayoutParams actionBarOriginalParams;
+
+    private ViewTreeObserver.OnGlobalLayoutListener globalLayoutListener;
+    private ViewTreeObserver.OnScrollChangedListener scrollListener;
+
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
@@ -258,7 +266,7 @@ final class ChatGlassHook {
         applyEdgeLayout();
 
         ViewTreeObserver observer = decor.getViewTreeObserver();
-        observer.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+        globalLayoutListener = new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
                 if (!attached) {
@@ -269,17 +277,18 @@ final class ChatGlassHook {
                     renderer.requestUpdate();
                 }
             }
-        });
+        };
+        observer.addOnGlobalLayoutListener(globalLayoutListener);
 
-        scrollLayout.getViewTreeObserver().addOnScrollChangedListener(
-                new ViewTreeObserver.OnScrollChangedListener() {
-                    @Override
-                    public void onScrollChanged() {
-                        if (renderer != null) {
-                            renderer.requestUpdate();
-                        }
-                    }
-                });
+        scrollListener = new ViewTreeObserver.OnScrollChangedListener() {
+            @Override
+            public void onScrollChanged() {
+                if (renderer != null) {
+                    renderer.requestUpdate();
+                }
+            }
+        };
+        scrollLayout.getViewTreeObserver().addOnScrollChangedListener(scrollListener);
         attached = true;
         updateTopGeometry();
         handler.postDelayed(tick, 600L);
@@ -304,33 +313,6 @@ final class ChatGlassHook {
             field.setInt(footerPanel, target);
             footerPanel.requestLayout();
         } catch (Throwable ignored) {
-        }
-    }
-
-    private void installNativeFrost() {
-        if (frostedContent != null || chatRoot == null) {
-            return;
-        }
-        try {
-            ViewParent p = chatRoot.getParent();
-            if (!(p instanceof ViewGroup)) {
-                return;
-            }
-            ViewGroup parent = (ViewGroup) p;
-            int index = parent.indexOfChild(chatRoot);
-            ViewGroup.LayoutParams old = chatRoot.getLayoutParams();
-            Class<?> cls = Class.forName("com.tencent.mm.ui.FrostedContentView",
-                    false, activity.getClassLoader());
-            View frost = (View) cls.getConstructor(android.content.Context.class,
-                    android.util.AttributeSet.class).newInstance(activity, null);
-            parent.removeView(chatRoot);
-            parent.addView(frost, index, old);
-            ((ViewGroup) frost).addView(chatRoot, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT));
-            frostedContent = frost;
-        } catch (Throwable throwable) {
-            Log.w(TAG, "native frost wrap failed", throwable);
         }
     }
 
@@ -544,6 +526,11 @@ final class ChatGlassHook {
             return;
         }
         if (parent instanceof ViewGroup) {
+            if (actionBarOriginalParent == null) {
+                actionBarOriginalParent = (ViewGroup) parent;
+                actionBarOriginalIndex = actionBarOriginalParent.indexOfChild(actionBar);
+                actionBarOriginalParams = actionBar.getLayoutParams();
+            }
             ((ViewGroup) parent).removeView(actionBar);
         }
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
@@ -1251,6 +1238,14 @@ final class ChatGlassHook {
     private void destroy() {
         attached = false;
         handler.removeCallbacksAndMessages(null);
+        if (globalLayoutListener != null && decor != null) {
+            decor.getViewTreeObserver().removeOnGlobalLayoutListener(globalLayoutListener);
+            globalLayoutListener = null;
+        }
+        if (scrollListener != null && scrollLayout != null) {
+            scrollLayout.getViewTreeObserver().removeOnScrollChangedListener(scrollListener);
+            scrollListener = null;
+        }
         if (list != null && listBaseSaved) {
             list.setPadding(listBaseLeft, listBaseTop, listBaseRight, listBaseBottom);
         }
@@ -1270,6 +1265,52 @@ final class ChatGlassHook {
                 group.removeView(menuChip);
             }
         }
+        if (statusScrim != null) {
+            if (statusScrim.getParent() instanceof ViewGroup) {
+                ((ViewGroup) statusScrim.getParent()).removeView(statusScrim);
+            }
+            statusScrim = null;
+        }
+        if (navFiller != null) {
+            if (navFiller.getParent() instanceof ViewGroup) {
+                ((ViewGroup) navFiller.getParent()).removeView(navFiller);
+            }
+            navFiller = null;
+        }
+        restoreActionBarParent();
+    }
+
+    /** Put the chat ActionBar back where WeChat had it before we reparented it. */
+    private void restoreActionBarParent() {
+        if (actionBar == null || actionBarOriginalParent == null) {
+            return;
+        }
+        if (actionBar.getParent() == actionBarOriginalParent) {
+            actionBarOriginalParent = null;
+            return;
+        }
+        ViewParent current = actionBar.getParent();
+        if (current instanceof ViewGroup) {
+            ((ViewGroup) current).removeView(actionBar);
+        }
+        ViewGroup.LayoutParams lp = actionBarOriginalParams;
+        int index = actionBarOriginalIndex;
+        try {
+            if (lp != null && index >= 0) {
+                actionBarOriginalParent.addView(actionBar, index, lp);
+            } else if (lp != null) {
+                actionBarOriginalParent.addView(actionBar, lp);
+            } else if (index >= 0) {
+                actionBarOriginalParent.addView(actionBar, index);
+            } else {
+                actionBarOriginalParent.addView(actionBar);
+            }
+        } catch (Throwable throwable) {
+            Log.w(TAG, "restore actionbar failed", throwable);
+        }
+        actionBarOriginalParent = null;
+        actionBarOriginalParams = null;
+        actionBarOriginalIndex = -1;
     }
 
     private void dumpTree(View view, int depth) {

@@ -39,8 +39,6 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookHomeUiTopMargin(lpparam);
         hookDiscoverTopPadding(lpparam);
         hookGlobalEdgeToEdge(lpparam);
-        hookLauncherBarVisibility(lpparam);
-        hookConversationListBinding(lpparam);
         hookStatusDraw(lpparam);
         hookActionBarOverlayDraw(lpparam);
         hookExactBarVisibility(lpparam);
@@ -344,8 +342,6 @@ public class HookEntry implements IXposedHookLoadPackage {
                     }
                     View view = (View) param.thisObject;
                     if (isLauncherContext(view.getContext())) {
-                        android.util.Log.i("WeChatGlassBar", "VISIBLE " + view.getClass().getName()
-                                + "\n" + android.util.Log.getStackTraceString(new Throwable()));
                         param.args[0] = View.GONE;
                     }
                 } catch (Throwable ignored) {
@@ -363,82 +359,6 @@ public class HookEntry implements IXposedHookLoadPackage {
                         "setVisibility", int.class, hook);
             } catch (Throwable throwable) {
                 XposedBridge.log(TAG + " exact visibility hook skipped: " + className);
-            }
-        }
-    }
-
-    private static void hookLauncherBarVisibility(final XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            XposedHelpers.findAndHookMethod("android.view.View", null,
-                    "setVisibility", int.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            try {
-                                if (((Integer) param.args[0]) != View.VISIBLE
-                                        || !(param.thisObject instanceof View)) {
-                                    return;
-                                }
-                                String name = param.thisObject.getClass().getName();
-                                if (!name.contains("ActionBarContainer")
-                                        && !name.contains("Toolbar")
-                                        && !name.contains("ActionMenuView")) {
-                                    return;
-                                }
-                                View view = (View) param.thisObject;
-                                android.util.Log.i("WeChatGlassBarGlobal",
-                                        "VISIBLE " + name + " rootCtx="
-                                                + (view.getRootView().getContext() == null ? "null"
-                                                : view.getRootView().getContext().getClass().getName())
-                                                + "\n" + android.util.Log.getStackTraceString(new Throwable()));
-                                android.content.Context context = view.getContext();
-                                try {
-                                    context = view.getRootView().getContext();
-                                } catch (Throwable ignored) {
-                                }
-                                if (isLauncherContext(context)
-                                        || isLauncherContext(view.getContext())) {
-                                    param.args[0] = View.GONE;
-                                }
-                            } catch (Throwable ignored) {
-                            }
-                        }
-                    });
-        } catch (Throwable throwable) {
-            XposedBridge.log(TAG + " launcher bar visibility hook skipped: " + throwable);
-        }
-    }
-
-    /**
-     * ConversationListView.attachViewToParent() injects the top-level
-     * ActionBarContainer into TaskBarAnimController.V1. Clear that binding so
-     * the TaskBar scroll animation cannot revive the old bar.
-     */
-    private static void hookConversationListBinding(
-            final XC_LoadPackage.LoadPackageParam lpparam) {
-        XC_MethodHook hook = new XC_MethodHook() {
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) {
-                try {
-                    Object controller = XposedHelpers.getObjectField(
-                            param.thisObject, "m");
-                    if (controller != null) {
-                        XposedHelpers.setObjectField(controller, "V1", null);
-                    }
-                } catch (Throwable ignored) {
-                }
-            }
-        };
-        String[] classes = {
-                "com.tencent.mm.ui.conversation.ConversationListView",
-                "com.tencent.mm.ui.conversation.recycler.ConversationRecyclerView"
-        };
-        for (String className : classes) {
-            try {
-                XposedHelpers.findAndHookMethod(className, lpparam.classLoader,
-                        "attachViewToParent", View.class, int.class,
-                        ViewGroup.LayoutParams.class, hook);
-            } catch (Throwable throwable) {
-                XposedBridge.log(TAG + " list binding hook skipped: " + className);
             }
         }
     }

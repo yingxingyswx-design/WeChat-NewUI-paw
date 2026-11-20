@@ -9,4 +9,8 @@ release/
 # 本地备份快照（zip 不进入 git 历史，代码由 git 提交保全）
 backups/
 
+# 发布签名私钥与口令，绝不入库
+release.keystore
+release.keystore.properties
+
 # Keep the final APK only as a GitHub release asset, not in git history.

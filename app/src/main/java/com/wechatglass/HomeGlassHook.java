@@ -223,14 +223,6 @@ final class HomeGlassHook {
         addChip(overlay, searchChip, chipHeight);
         addChip(overlay, plusChip, chipHeight);
 
-        handler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                dumpTree(decor, 0, new int[]{0});
-                dumpLayoutParams();
-            }
-        }, 6000L);
-
         actionBar.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
             @Override
             public void onLayoutChange(View v, int left, int top, int right, int bottom,
@@ -259,12 +251,6 @@ final class HomeGlassHook {
         if (renderer != null) {
             renderer.requestUpdate();
         }
-        decor.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                dumpTop(toolbar, 0);
-            }
-        }, 800L);
         Log.i(TAG, "home glass attached");
         return true;
     }
@@ -283,35 +269,48 @@ final class HomeGlassHook {
         }
     }
 
+    /**
+     * Hide the 1px divider instead of detaching it. A GONE child contributes
+     * nothing to LinearLayout measurement, so the visual result is identical
+     * while WeChat keeps a valid view tree.
+     */
     private void removeTaskBarLine() {
         try {
             View taskBar = Ui.findByClass(decor,
                     "com.tencent.mm.plugin.taskbar.ui.TaskBarContainer");
-            removeOnePixelLine(taskBar);
+            hideOnePixelLine(taskBar);
         } catch (Throwable ignored) {
         }
     }
 
-    private boolean removeOnePixelLine(View view) {
+    private boolean hideOnePixelLine(View view) {
         if (view == null) return false;
         ViewGroup.LayoutParams lp = view.getLayoutParams();
-        if (view.getClass() == View.class && lp != null && lp.height == 1
+        if (view.getClass() == View.class && lp != null && lp.height <= 1
                 && lp.width == ViewGroup.LayoutParams.MATCH_PARENT) {
-            android.view.ViewParent parent = view.getParent();
-            if (parent instanceof ViewGroup) {
-                ((ViewGroup) parent).removeView(view);
-                return true;
+            if (view.getVisibility() != View.GONE) {
+                view.setVisibility(View.GONE);
             }
+            if (lp.height != 0) {
+                lp.height = 0;
+                view.setLayoutParams(lp);
+            }
+            return true;
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                if (removeOnePixelLine(group.getChildAt(i))) return true;
+                if (hideOnePixelLine(group.getChildAt(i))) return true;
             }
         }
         return false;
     }
 
+    /**
+     * Hide TaskBarContainer's fake top bar (cxw.xml) instead of removing it.
+     * Its parent is a FrameLayout, which ignores GONE children, so the layout
+     * is unchanged while TaskBarContainer.o keeps pointing at a live view.
+     */
     private void removeTaskBarHeader() {
         try {
             View content = decor.findViewById(android.R.id.content);
@@ -331,14 +330,21 @@ final class HomeGlassHook {
             }
             Object fake = getField(taskBar, "o");
             if (fake instanceof View) {
-                android.view.ViewParent fakeParent = ((View) fake).getParent();
-                if (fakeParent instanceof ViewGroup) {
-                    ((ViewGroup) fakeParent).removeView((View) fake);
+                View fakeBar = (View) fake;
+                if (fakeBar.getVisibility() != View.GONE) {
+                    fakeBar.setVisibility(View.GONE);
+                }
+                if (fakeBar.getAlpha() != 0f) {
+                    fakeBar.setAlpha(0f);
+                }
+                ViewGroup.LayoutParams lp = fakeBar.getLayoutParams();
+                if (lp != null && lp.height != 0) {
+                    lp.height = 0;
+                    fakeBar.setLayoutParams(lp);
                 }
             }
-            Log.i("WeChatGlassTaskBar", "removed fake TaskBar top bar");
         } catch (Throwable throwable) {
-            Log.w("WeChatGlassTaskBar", "remove header failed", throwable);
+            Log.w("WeChatGlassTaskBar", "hide header failed", throwable);
         }
     }
 
@@ -523,51 +529,10 @@ final class HomeGlassHook {
     }
 
     /**
-     * Fragment roots (FindMoreFriendsUI.N1, MoreTabUI) add paddingTop directly
-     * to their root View, not only to the list. Clear every ancestor between the
-     * list and android.R.id.content so no invisible top bar strip remains.
+     * Hide legacy ActionBar/Toolbar/ActionMenuView in place. GONE contributes
+     * zero height to both FrameLayout and ActionBarOverlayLayout, so the layout
+     * is identical to detaching them, but WeChat keeps a valid view tree.
      */
-    private void removeLegacyBars(View view) {
-        if (view == null) {
-            return;
-        }
-        java.util.ArrayList<View> remove = new java.util.ArrayList<>();
-        collectLegacyBars(view, remove);
-        for (View bar : remove) {
-            android.view.ViewParent parent = bar.getParent();
-            if (parent instanceof ViewGroup) {
-                ((ViewGroup) parent).removeView(bar);
-            }
-            bar.setLayerType(View.LAYER_TYPE_NONE, null);
-            bar.destroyDrawingCache();
-        }
-        if (!remove.isEmpty()) {
-            decor.postInvalidateOnAnimation();
-            if (frostedContent != null) {
-                frostedContent.postInvalidateOnAnimation();
-            }
-        }
-    }
-
-    private void collectLegacyBars(View view, java.util.ArrayList<View> out) {
-        if (view == null || view == overlay) {
-            return;
-        }
-        String name = view.getClass().getName();
-        if (name.contains("ActionBarContainer")
-                || name.endsWith(".Toolbar")
-                || name.contains("ActionMenuView")) {
-            out.add(view);
-            return;
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                collectLegacyBars(group.getChildAt(i), out);
-            }
-        }
-    }
-
     private void hideLegacyBars(View view) {
         if (view == null) {
             return;
@@ -576,7 +541,7 @@ final class HomeGlassHook {
         if (name.contains("ActionBarContainer")
                 || name.endsWith(".Toolbar")
                 || name.contains("ActionMenuView")) {
-            if (tabMode != 2) {
+            if (view.getVisibility() != View.GONE) {
                 view.setVisibility(View.GONE);
             }
             view.setAlpha(0f);
@@ -642,78 +607,6 @@ final class HomeGlassHook {
                 }
                 android.view.ViewParent parent = current.getParent();
                 current = parent instanceof View ? (View) parent : null;
-            }
-        }
-    }
-
-    private void dumpLayoutParams() {
-        try {
-            View content = decor.findViewById(android.R.id.content);
-            Log.i("WeChatGlassParams", "content=" + (content == null ? "null"
-                    : content.getClass().getName() + " " + content.getWidth() + "x"
-                    + content.getHeight() + " pad=" + content.getPaddingTop()));
-            if (content instanceof ViewGroup && ((ViewGroup) content).getChildCount() > 0) {
-                View child = ((ViewGroup) content).getChildAt(0);
-                ViewGroup.LayoutParams lp = child.getLayoutParams();
-                String extra = "";
-                if (lp instanceof ViewGroup.MarginLayoutParams) {
-                    ViewGroup.MarginLayoutParams m = (ViewGroup.MarginLayoutParams) lp;
-                    extra = " margins=" + m.leftMargin + "," + m.topMargin + ","
-                            + m.rightMargin + "," + m.bottomMargin;
-                }
-                Log.i("WeChatGlassParams", "child0=" + child.getClass().getName()
-                        + " " + child.getWidth() + "x" + child.getHeight()
-                        + " top=" + child.getTop() + " ty=" + child.getTranslationY()
-                        + " lp=" + (lp == null ? "null" : lp.getClass().getSimpleName()
-                        + " w=" + lp.width + " h=" + lp.height) + extra);
-            }
-            if (actionBar != null) {
-                Log.i("WeChatGlassParams", "actionBar=" + actionBar.getClass().getName()
-                        + " " + actionBar.getWidth() + "x" + actionBar.getHeight()
-                        + " top=" + actionBar.getTop() + " alpha=" + actionBar.getAlpha()
-                        + " vis=" + actionBar.getVisibility());
-            }
-        } catch (Throwable throwable) {
-            Log.w("WeChatGlassParams", "dump failed", throwable);
-        }
-    }
-
-    private void dumpTree(View view, int depth, int[] budget) {
-        if (view == null || depth > 28 || budget[0] > 180) {
-            return;
-        }
-        budget[0]++;
-        String id;
-        try {
-            id = view.getId() == View.NO_ID ? "" : "0x" + Integer.toHexString(view.getId());
-        } catch (Throwable throwable) {
-            id = "?";
-        }
-        StringBuilder indent = new StringBuilder();
-        for (int i = 0; i < depth; i++) {
-            indent.append("  ");
-        }
-        String label = "";
-        if (view instanceof TextView) {
-            label = " text=" + ((TextView) view).getText();
-        }
-        CharSequence desc = view.getContentDescription();
-        if (desc != null && desc.length() > 0) {
-            label += " desc=" + desc;
-        }
-        Log.i("WeChatGlassDump", indent + view.getClass().getSimpleName()
-                + " id=" + id
-                + " " + view.getLeft() + "," + view.getTop()
-                + "," + view.getRight() + "," + view.getBottom()
-                + " vis=" + view.getVisibility()
-                + " alpha=" + view.getAlpha()
-                + " ty=" + view.getTranslationY()
-                + " pad=" + view.getPaddingTop() + "/" + view.getPaddingBottom()
-                + label);
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                dumpTree(group.getChildAt(i), depth + 1, budget);
             }
         }
     }
@@ -996,7 +889,6 @@ final class HomeGlassHook {
         clearAncestorPaddingForLists(contentRoot);
         applyListTopInset(contentRoot);
         hideLegacyBars(decor);
-        removeLegacyBars(decor);
         removeTaskBarLine();
         removeTaskBarHeader();
         forceWrapperEtE();
@@ -1112,35 +1004,6 @@ final class HomeGlassHook {
         chip.setGlass(radius, tint, border);
     }
 
-    private void dumpTop(View view, int depth) {
-        if (view == null || depth > 5) {
-            return;
-        }
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < depth; i++) {
-            builder.append("  ");
-        }
-        builder.append(view.getClass().getName());
-        builder.append(" id=0x").append(Integer.toHexString(view.getId()));
-        builder.append(" ").append(view.getLeft()).append(',').append(view.getTop())
-                .append(',').append(view.getRight()).append(',').append(view.getBottom());
-        builder.append(" vis=").append(view.getVisibility());
-        if (view instanceof TextView) {
-            builder.append(" text=").append(((TextView) view).getText());
-        }
-        CharSequence desc = view.getContentDescription();
-        if (desc != null) {
-            builder.append(" desc=").append(desc);
-        }
-        Log.i(TAG, builder.toString());
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                dumpTop(group.getChildAt(i), depth + 1);
-            }
-        }
-    }
-
     private void destroy() {
         installed = false;
         handler.removeCallbacksAndMessages(null);
@@ -1155,6 +1018,10 @@ final class HomeGlassHook {
         if (actionBar != null) {
             actionBar.setVisibility(View.VISIBLE);
             actionBar.setAlpha(1f);
+        }
+        if (toolbar != null && toolbar != actionBar) {
+            toolbar.setVisibility(View.VISIBLE);
+            toolbar.setAlpha(1f);
         }
         if (list != null) {
             list.setPadding(list.getPaddingLeft(), listTopInset(),
