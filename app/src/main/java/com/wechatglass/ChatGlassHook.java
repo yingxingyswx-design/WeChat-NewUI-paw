@@ -881,7 +881,6 @@ final class ChatGlassHook {
             }
         }
 
-        logFooterGeometry();
         applyListPadding(lastVisibleFooterHeight > 0 ? lastVisibleFooterHeight : footerHeight);
         applyInputHeight();
         styleEmojiPanel();
@@ -907,7 +906,6 @@ final class ChatGlassHook {
     private void ensureNavFiller() {
         if (!(decor instanceof ViewGroup)) return;
         int nav = navigationBarHeight();
-        Log.i(TAG, "nav filler nav=" + nav + " decorH=" + (decor == null ? -1 : decor.getHeight()));
         if (nav <= 0) {
             if (navFiller != null) navFiller.setVisibility(View.GONE);
             return;
@@ -1044,27 +1042,6 @@ final class ChatGlassHook {
                 pp.height = target;
                 parent.setLayoutParams(pp);
             }
-        }
-    }
-
-    private void logFooterGeometry() {
-        if (footer == null) return;
-        int[] fLoc = new int[2];
-        int[] pLoc = new int[2];
-        footer.getLocationInWindow(fLoc);
-        View parent = (View) footer.getParent();
-        if (parent != null) parent.getLocationInWindow(pLoc);
-        Log.i(TAG, "footer geom top=" + fLoc[1] + " h=" + footer.getHeight()
-                + " parent=" + (parent == null ? "null" : parent.getClass().getName())
-                + " ptop=" + (parent == null ? -1 : pLoc[1])
-                + " ph=" + (parent == null ? -1 : parent.getHeight()));
-        View q = parent;
-        for (int i = 0; i < 5 && q != null; i++) {
-            Log.i(TAG, "composition " + i + " " + q.getClass().getName()
-                    + " h=" + q.getHeight() + " top=" + q.getTop()
-                    + " padB=" + q.getPaddingBottom()
-                    + " lp=" + (q.getLayoutParams() == null ? "null" : q.getLayoutParams().height));
-            q = q.getParent() instanceof View ? (View) q.getParent() : null;
         }
     }
 
