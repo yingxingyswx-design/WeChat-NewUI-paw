@@ -64,6 +64,8 @@ final class GlassFooterDrawable extends Drawable {
         canvas.translate(al[0] - fl[0], al[1] - fl[1]);
         canvas.clipPath(shape);
         canvas.drawRenderNode(node);
+        tintPaint.setColor(Ui.isNight(footer.getContext()) ? 0x14000000 : 0x10FFFFFF);
+        canvas.drawPath(shape, tintPaint);
         canvas.restoreToCount(save);
     }
 
