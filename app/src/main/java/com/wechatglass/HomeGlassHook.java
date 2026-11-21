@@ -34,6 +34,11 @@ final class HomeGlassHook {
     private static final boolean DEBUG_HIDE_OVERLAY = false;
     private static final Map<Activity, HomeGlassHook> INSTANCES = new WeakHashMap<>();
     private static volatile boolean nativeBarAllowed;
+    private static volatile int barShift;
+
+    static int getBarShift() {
+        return barShift;
+    }
 
     static boolean isNativeBarAllowed() {
         return nativeBarAllowed;
@@ -244,16 +249,17 @@ final class HomeGlassHook {
         actionBar.setAlpha(0f);
         disableWindowContentOverlay();
 
+        // The native bar's position is controlled by ActionBarOverlayLayout,
+        // which ignores margins. HookEntry offsets its child after layout
+        // using this value.
+        barShift = Math.max(0, actionBarHeight - Ui.statusBarHeight(decor));
+
         int chipHeight = Ui.dp(activity, 40f);
         overlay = new FrameLayout(activity);
         overlay.setClipChildren(false);
         FrameLayout.LayoutParams overlayParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight);
         overlayParams.gravity = Gravity.TOP;
-        // Real layout offset (not a render translation): place the bar over the
-        // list so the glass has content behind it.
-        overlayParams.topMargin = Math.max(0,
-                actionBarHeight - Ui.statusBarHeight(decor));
         ((ViewGroup) decor).addView(overlay, overlayParams);
 
         leftChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);

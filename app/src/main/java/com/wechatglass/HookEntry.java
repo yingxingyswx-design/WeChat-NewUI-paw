@@ -31,6 +31,7 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
         try {
             hookExactBarVisibility(lpparam);
+            hookActionBarOverlayLayout(lpparam);
             hookChatLifecycle(lpparam);
             hookHomeLifecycle(lpparam);
             hookResume(CHATTING_UI, lpparam, true);
@@ -38,6 +39,37 @@ public class HookEntry implements IXposedHookLoadPackage {
             XposedBridge.log(TAG + " hooks installed for " + WECHAT);
         } catch (Throwable throwable) {
             XposedBridge.log(TAG + " hook install failed: " + throwable);
+        }
+    }
+
+    private static void hookActionBarOverlayLayout(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "androidx.appcompat.widget.ActionBarOverlayLayout",
+                    lpparam.classLoader,
+                    "onLayout",
+                    boolean.class, int.class, int.class, int.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                int shift = HomeGlassHook.getBarShift();
+                                if (shift <= 0 || !(param.thisObject instanceof ViewGroup)) {
+                                    return;
+                                }
+                                ViewGroup group = (ViewGroup) param.thisObject;
+                                for (int i = 0; i < group.getChildCount(); i++) {
+                                    View child = group.getChildAt(i);
+                                    if (child.getClass().getName().contains("ActionBarContainer")) {
+                                        child.layout(child.getLeft(), shift,
+                                                child.getRight(), shift + child.getHeight());
+                                    }
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable ignored) {
         }
     }
 
