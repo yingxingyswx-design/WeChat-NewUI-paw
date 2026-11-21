@@ -915,7 +915,9 @@ final class ChatGlassHook {
         applyStatusBar();
         extendChatToBottom();
         reparentActionBar();
-        ensureStatusScrim();
+        // Status scrim disabled: it painted a white gradient over the status
+        // bar and read as a duplicate top bar in screenshots.
+        // ensureStatusScrim();
         if (actionBar != null) {
             actionBar.setTranslationY(Ui.statusBarHeight(decor));
         }

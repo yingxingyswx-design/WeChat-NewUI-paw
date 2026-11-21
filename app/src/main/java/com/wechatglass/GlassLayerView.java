@@ -99,6 +99,10 @@ final class GlassLayerView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        int[] gl = new int[2];
+        getLocationOnScreen(gl);
+        android.util.Log.i("WeChatGlass", "layer onDraw geom=" + gl[0] + "," + gl[1]
+                + " " + getWidth() + "x" + getHeight());
         if (node == null || !node.hasDisplayList() || host == null) {
             return;
         }
