@@ -21,6 +21,15 @@ public final class LiquidPanelFactory {
 
 
 
+    public static View createRounded(Context ctx, ViewGroup backdrop, float density,
+                                     boolean night, float radiusPx) {
+        View v = create(ctx, backdrop, density, night);
+        if (v instanceof LiquidGlassPanel) {
+            ((LiquidGlassPanel) v).setCornerRadius(radiusPx);
+        }
+        return v;
+    }
+
     public static void setWallpaper(android.graphics.Bitmap bmp) {
         Backdrop.sWallpaper = bmp;
     }

@@ -289,4 +289,53 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
         return context != null && context.getClass().getName().contains("LauncherUI");
     }
+
+    private static boolean inPanel(android.view.View v) {
+        String self = v.getClass().getSimpleName();
+        if (self.contains("Smiley") || self.contains("Emoji")
+                || self.contains("AppPanel") || self.contains("NestedBounce")
+                || self.contains("ChatFooter")) {
+            return true;
+        }
+        android.view.ViewParent p = v.getParent();
+        int guard = 0;
+        while (p instanceof android.view.View && guard++ < 12) {
+            String cn = p.getClass().getSimpleName();
+            if (cn.contains("Smiley") || cn.contains("Emoji") || cn.contains("AppPanel")
+                    || cn.contains("NestedBounce") || cn.contains("ChatFooter")) {
+                return true;
+            }
+            p = ((android.view.View) p).getParent();
+        }
+        return false;
+    }
+
+    private static void hookBlockPanelBg() { // blockPanelBg
+        try {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.view.View.class, "setBackgroundResource", int.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
+                        }
+                    });
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.view.View.class, "setBackground",
+                    android.graphics.drawable.Drawable.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
+                        }
+                    });
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.view.View.class, "setBackgroundColor", int.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
 }

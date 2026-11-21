@@ -48,6 +48,8 @@ import java.lang.ref.WeakReference;
  * redrawn on the CPU every frame the pages move.
  */
 final class LiquidGlassPanel extends View {
+    private float mRadiusOverride = -1f;
+
 
     /** RenderNode capture and RenderEffect blur; below this there is no glass panel. */
     static final int MIN_SDK = 31;
@@ -227,6 +229,11 @@ final class LiquidGlassPanel extends View {
         invalidate();
     }
 
+    void setCornerRadius(float px) {
+        mRadiusOverride = px;
+        invalidate();
+    }
+
     void setTheme(boolean night) {
         mNight = night;
         mSurfacePaint.setColor(night ? 0x002C2C2E : 0x00F2F2F7); // wash off for test
@@ -279,7 +286,10 @@ final class LiquidGlassPanel extends View {
         mCaptured = true;
         ViewGeom.unscaledScreenPos(this, mCapturedAt);
         mCapturedScale = ViewGeom.cumulativeScale(this);
-        drawPanel(canvas, w, h, h * 0.5f, mNode, mCapturedAt, mCapturedScale);
+        float rr = mRadiusOverride > 0 ? mRadiusOverride : h * 0.5f;
+        mClip.reset();
+        mClip.addRoundRect(0, 0, w, h, rr, rr, Path.Direction.CW);
+        drawPanel(canvas, w, h, rr, mNode, mCapturedAt, mCapturedScale);
     }
 
     @Override

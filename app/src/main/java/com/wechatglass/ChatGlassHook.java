@@ -888,7 +888,6 @@ final class ChatGlassHook {
     private long lastWallMod = -1;
     private boolean wallProbeLogged;
     private boolean scopeLogged;
-    private boolean appbrandLogged;
 
     private void syncWallpaperFromProvider() {
         long now = System.currentTimeMillis();
@@ -988,6 +987,7 @@ final class ChatGlassHook {
             @Override public void run() {
                 assertWallScope();
                 ensureLiquidPills();
+                ensureUnionLiquid();
                 ensureFooterLiquid();
                 syncWallpaperFromProvider();
                 ensureWallpaperLayer();
@@ -1010,17 +1010,126 @@ final class ChatGlassHook {
         }
     }
 
-    private void ensureLiquidPills() {
-        if (decor == null || activity == null) return;
-        String actName = activity.getClass().getName();
-        if (actName.contains("AppBrand") || actName.contains("appbrand")) {
-            if (!appbrandLogged) {
-                appbrandLogged = true;
-                android.util.Log.i("WeChatGlass", "CB skip pills on " + actName);
+    private View findInputRowLocal() {
+        if (footer == null) return null;
+        java.util.ArrayDeque<View> q = new java.util.ArrayDeque<>();
+        q.add(footer);
+        View best = null;
+        while (!q.isEmpty()) {
+            View v = q.poll();
+            String cn = v.getClass().getSimpleName();
+            if (!cn.contains("EditText") && v.getWidth() > 600
+                    && v.getHeight() >= 90 && v.getHeight() <= 200
+                    && (best == null || v.getWidth() > best.getWidth())) {
+                best = v;
             }
-            removeLiquidPills();
+            if (v instanceof ViewGroup) {
+                ViewGroup g = (ViewGroup) v;
+                for (int i = 0; i < g.getChildCount(); i++) q.add(g.getChildAt(i));
+            }
+        }
+        return best;
+    }
+
+    private View unionLiquid;
+
+    private View findOpenPanel() {
+        if (footer == null) return null;
+        java.util.ArrayDeque<View> q = new java.util.ArrayDeque<>();
+        q.add(footer);
+        View best = null;
+        while (!q.isEmpty()) {
+            View v = q.poll();
+            String cn = v.getClass().getSimpleName();
+            if (v.isShown() && v.getHeight() > 400 && v.getWidth() > 500
+                    && (cn.contains("Smiley") || cn.contains("Emoji") || cn.contains("AppPanel"))) {
+                best = v;
+            }
+            if (v instanceof ViewGroup) {
+                ViewGroup g = (ViewGroup) v;
+                for (int i = 0; i < g.getChildCount(); i++) q.add(g.getChildAt(i));
+            }
+        }
+        return best;
+    }
+
+    private void clearMgrBg(View panel) {
+        try {
+            java.lang.reflect.Field mgrField = null;
+            for (java.lang.reflect.Field f : panel.getClass().getDeclaredFields()) {
+                if (f.getType().getName().equals("com.tencent.mm.view.manager.d")) { mgrField = f; break; }
+            }
+            if (mgrField == null) return;
+            mgrField.setAccessible(true);
+            Object mgr = mgrField.get(panel);
+            if (mgr == null) return;
+            for (java.lang.reflect.Field f : mgr.getClass().getDeclaredFields()) {
+                f.setAccessible(true);
+                Object v = f.get(mgr);
+                if (v instanceof View) {
+                    View vv = (View) v;
+                    if (vv.getClass().getSimpleName().contains("NestedBounce")) {
+                        vv.setBackground(null);
+                        android.util.Log.i("WeChatGlass", "CB mgr clear " + f.getName());
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void ensureUnionLiquid() {
+        if (decor == null || activity == null) return;
+        View panel = findOpenPanel();
+        if (panel == null) {
+            if (unionLiquid != null && unionLiquid.getParent() instanceof ViewGroup) {
+                ((ViewGroup) unionLiquid.getParent()).removeView(unionLiquid);
+            }
+            unionLiquid = null;
             return;
         }
+        clearMgrBg(panel);
+        View bar = footer == null ? null : findInputRowLocal();
+        if (bar == null) return;
+        int[] bl = new int[2];
+        int[] pl = new int[2];
+        bar.getLocationOnScreen(bl);
+        panel.getLocationOnScreen(pl);
+        int top = bl[1];
+        int h = pl[1] + panel.getHeight() - top;
+        int w = bar.getWidth();
+        int x = bl[0];
+        if (h <= 0 || w <= 0) return;
+        View cf = Ui.findByClassContains(decor, "ContentFrameLayout");
+        ViewGroup frame = (cf instanceof ViewGroup) ? (ViewGroup) cf : (ViewGroup) decor;
+        frame.setClipChildren(false);
+        int[] fl = new int[2];
+        frame.getLocationOnScreen(fl);
+        if (unionLiquid != null && unionLiquid.getParent() == frame) {
+            FrameLayout.LayoutParams lp0 = (FrameLayout.LayoutParams) unionLiquid.getLayoutParams();
+            lp0.width = w; lp0.height = h;
+            lp0.leftMargin = x - fl[0]; lp0.topMargin = top - fl[1];
+            unionLiquid.setLayoutParams(lp0);
+            return;
+        }
+        View bg = Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+        if (!(bg instanceof ViewGroup)) return;
+        View lp = com.wechatglass.liquid.LiquidPanelFactory.createRounded(activity,
+                (ViewGroup) bg,
+                activity.getResources().getDisplayMetrics().density,
+                Ui.isNight(activity),
+                bar.getHeight() / 2f);
+        if (lp == null) return;
+        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(w, h);
+        flp.leftMargin = x - fl[0];
+        flp.topMargin = top - fl[1];
+        frame.addView(lp, 0, flp);
+        unionLiquid = lp;
+        android.util.Log.i("WeChatGlass", "CB union glass " + w + "x" + h);
+    }
+
+    private void ensureLiquidPills() {
+        if (decor == null || activity == null) return;
         if (!HookConfig.glassEnabled(activity)) {
             removeLiquidPills();
             return;
