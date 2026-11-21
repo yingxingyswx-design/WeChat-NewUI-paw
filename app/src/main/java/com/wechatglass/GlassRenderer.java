@@ -1,8 +1,10 @@
 package com.wechatglass;
 
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.Rect;
 import android.graphics.RecordingCanvas;
 import android.graphics.RectF;
 import android.graphics.RenderEffect;
@@ -135,6 +137,12 @@ final class GlassRenderer {
         drawBorder(canvas, borderColor);
     }
 
+    private Bitmap bandBitmap;
+    private Canvas bandCanvas;
+    private final Rect srcRect = new Rect();
+    private final RectF dstRect = new RectF();
+    private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+
     private void drawGpu(Canvas canvas, View target, float left, float top,
                          float right, float bottom, int tintColor) {
         int pad = (int) dp(6f);
@@ -145,34 +153,44 @@ final class GlassRenderer {
         int bandLeft = -pad;
         int bandTop = loc[1] + (int) top - pad;
 
-        if (node == null) {
-            node = new RenderNode("wxGlassBand");
+        float scale = 0.25f;
+        int bw = Math.max(1, (int) (bandWidth * scale));
+        int bh = Math.max(1, (int) (height * scale));
+        if (bandBitmap == null || bandBitmap.getWidth() != bw
+                || bandBitmap.getHeight() != bh) {
+            bandBitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+            bandCanvas = new Canvas(bandBitmap);
+        } else {
+            bandBitmap.eraseColor(0);
+            bandCanvas.setBitmap(bandBitmap);
         }
-        node.setPosition(0, 0, bandWidth, height);
-        RecordingCanvas rc = node.beginRecording(bandWidth, height);
-        // Transparent base: the white band came from this fill, not the page.
-        rc.drawColor(0x00000000);
-        BackdropLite.draw(rc, backdrop, bandLeft, bandTop, bandWidth, height);
-        node.endRecording();
 
-        if (effect == null) {
-            effect = RenderEffect.createBlurEffect(
-                    dp(16f), dp(16f), Shader.TileMode.CLAMP);
+        bandCanvas.save();
+        bandCanvas.scale(scale, scale);
+        bandCanvas.clipRect(bandLeft, bandTop, bandLeft + bandWidth, bandTop + height);
+        bandCanvas.translate(-bandLeft, -bandTop);
+        try {
+            backdrop.draw(bandCanvas);
+        } catch (Throwable throwable) {
+            Log.e("WeChatGlass", "backdrop software draw failed", throwable);
         }
-        node.setRenderEffect(effect);
+        bandCanvas.restore();
+
+        StackBlur.blur(bandBitmap, 8);
 
         if (draws < 12) {
             draws++;
-            Log.i("WeChatGlass", "gpu band target=" + target.getClass().getSimpleName()
-                    + " band=" + bandWidth + "x" + height
-                    + " at=" + bandLeft + "," + bandTop
+            Log.i("WeChatGlass", "cpu glass band=" + bandWidth + "x" + height
+                    + " bmp=" + bw + "x" + bh
                     + " backdrop=" + backdrop.getClass().getSimpleName());
         }
 
         int save = canvas.save();
         canvas.clipPath(shape);
         canvas.translate(bandLeft - loc[0], bandTop - loc[1]);
-        canvas.drawRenderNode(node);
+        srcRect.set(0, 0, bw, bh);
+        dstRect.set(0, 0, bandWidth, height);
+        canvas.drawBitmap(bandBitmap, srcRect, dstRect, bitmapPaint);
         canvas.restoreToCount(save);
     }
 
