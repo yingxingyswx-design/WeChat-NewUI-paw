@@ -293,6 +293,10 @@ final class HomeGlassHook {
             overlay.addView(layer, 0, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight));
             layer.setBackdrop((ViewGroup) list);
+            layer.setClickable(false);
+            overlay.bringChildToFront(titleChip);
+            overlay.bringChildToFront(searchChip);
+            overlay.bringChildToFront(plusChip);
         }
 
         decor.getViewTreeObserver().addOnGlobalLayoutListener(

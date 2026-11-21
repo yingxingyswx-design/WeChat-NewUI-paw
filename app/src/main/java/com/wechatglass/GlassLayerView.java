@@ -80,6 +80,9 @@ final class GlassLayerView extends View {
             effect = RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP);
         }
         node.setRenderEffect(effect);
+        // Redraw with the freshly recorded node; without this the layer's first
+        // (empty) draw is never followed by one that has content.
+        invalidate();
     }
 
     @Override

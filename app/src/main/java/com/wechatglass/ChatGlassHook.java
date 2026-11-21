@@ -475,6 +475,10 @@ final class ChatGlassHook {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT));
             layer.setBackdrop((ViewGroup) scrollLayout);
+            layer.setClickable(false);
+            group.bringChildToFront(backChip);
+            group.bringChildToFront(titleChip);
+            group.bringChildToFront(menuChip);
         }
 
         View.OnLayoutChangeListener listener = new View.OnLayoutChangeListener() {
