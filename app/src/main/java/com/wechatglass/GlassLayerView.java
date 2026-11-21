@@ -122,7 +122,6 @@ final class GlassLayerView extends View {
             int save = canvas.save();
             canvas.clipPath(shape);
             canvas.drawRenderNode(node);
-            tintPaint.setColor(0x40FF0000); // diag red top
             canvas.drawPath(shape, tintPaint);
             tintPaint.setColor(night ? 0x14000000 : 0x0FFFFFFF);
             canvas.drawPath(shape, tintPaint);

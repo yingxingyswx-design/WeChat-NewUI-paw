@@ -456,7 +456,7 @@ final class ChatGlassHook {
         // WeChat 8.0.79 draws its own white capsule behind the title; it would
         // sit on top of our glass, so hide the native title layer completely.
         if (titleView != null) {
-            titleView.setAlpha(0f);
+            titleView.setAlpha(1f);
             if (titleView.getParent() instanceof View
                     && ((View) titleView.getParent()).getBackground() != null) {
                 ((View) titleView.getParent()).setBackground(null);
@@ -464,6 +464,8 @@ final class ChatGlassHook {
         }
 
         ViewGroup group = (ViewGroup) actionBar;
+        group.setClipChildren(false); // enlarge visible range
+        group.setClipToPadding(false);
         int chipHeight = Ui.dp(activity, 44f);
         backChip = new GlassChipView(activity, renderer, chipHeight / 2f, chipTint, chipBorder);
         titleChip = new GlassChipView(activity, renderer, Ui.dp(activity, 22f), chipTint, chipBorder);
@@ -475,6 +477,20 @@ final class ChatGlassHook {
         renderer.addSkipTarget(backChip);
         renderer.addSkipTarget(titleChip);
         renderer.addSkipTarget(menuChip);
+        for (int ci = 0; ci < group.getChildCount(); ci++) {
+            View cv = group.getChildAt(ci);
+            int[] cl = new int[2];
+            cv.getLocationOnScreen(cl);
+            android.util.Log.i("WeChatGlass", "barChild[" + ci + "]=" + cv.getClass().getSimpleName()
+                    + " ty=" + cv.getTranslationY() + " vis=" + cv.getVisibility()
+                    + " at=" + cl[0] + "," + cl[1] + " " + cv.getWidth() + "x" + cv.getHeight());
+            if (cv.getClass().getSimpleName().equals("Toolbar")) {
+                cv.setBackground(null);
+            }
+        }
+        for (int ci = 0; ci < group.getChildCount(); ci++) {
+            View cv = group.getChildAt(ci);
+        }
         android.util.Log.i("WeChatGlass", "topbar chipTop=" + titleChip.getTop()
                 + " chipH=" + titleChip.getHeight()
                 + " barH=" + actionBar.getHeight()
@@ -937,6 +953,10 @@ final class ChatGlassHook {
      * ticker as heights settle and from global layout.
      */
     private void applyEdgeLayout() {
+        // tick: re-apply top offset (WeChat resets translation on its layout)
+        if (actionBar != null) {
+            actionBar.setTranslationY(Ui.statusBarHeight(decor));
+        }
         ensureFooterGlass();
         if (renderer == null) {
             return;
@@ -949,7 +969,7 @@ final class ChatGlassHook {
         // bar and read as a duplicate top bar in screenshots.
         // ensureStatusScrim();
         if (actionBar != null) {
-            actionBar.setTranslationY(Ui.statusBarHeight(decor) - 3f);
+            actionBar.setTranslationY(Ui.statusBarHeight(decor));
         }
         // WeChat's own bottom inset shrinks the chat container by the status
         // bar height (107px on this device); stretch it back to full height.

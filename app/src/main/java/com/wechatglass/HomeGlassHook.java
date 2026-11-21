@@ -54,6 +54,7 @@ final class HomeGlassHook {
     private View plusView;
 
     private FrameLayout overlay;
+    private GlassLayerView glassLayer;
     private GlassChipView leftChip;
     private GlassChipView titleChip;
     private GlassChipView searchChip;
@@ -292,7 +293,8 @@ final class HomeGlassHook {
         if (list instanceof ViewGroup && overlay != null
                 && HookConfig.glassEnabled(activity)) {
             renderer.setLayerMode(true);
-            GlassLayerView layer = new GlassLayerView(activity, overlay);
+            glassLayer = new GlassLayerView(activity, overlay);
+            GlassLayerView layer = glassLayer;
             overlay.addView(layer, 0, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight));
             layer.setBackdrop(findVisibleList(decor));
@@ -963,6 +965,9 @@ final class HomeGlassHook {
                                        int oldScrollY) {
                 if (renderer != null) {
                     renderer.requestUpdate();
+                }
+                if (glassLayer != null) {
+                    glassLayer.invalidate();
                 }
             }
         });

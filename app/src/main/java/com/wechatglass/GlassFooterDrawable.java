@@ -56,7 +56,7 @@ final class GlassFooterDrawable extends Drawable {
             effect = RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP);
         }
         node.setRenderEffect(effect);
-        float radius = 18f * anchor.getResources().getDisplayMetrics().density;
+        float radius = height / 2f;
         shape.reset();
         rect.set(0, 0, width, height);
         shape.addRoundRect(rect, radius, radius, Path.Direction.CW);
@@ -69,12 +69,12 @@ final class GlassFooterDrawable extends Drawable {
         canvas.translate(al[0] - fl[0], al[1] - fl[1]);
         canvas.clipPath(shape);
         canvas.drawRenderNode(node);
-        tintPaint.setColor(0x40FF0000); // diag red foot
+        // WeChat-gray hairline around the capsule
+        tintPaint.setStyle(android.graphics.Paint.Style.STROKE);
+        tintPaint.setStrokeWidth(footer.getResources().getDisplayMetrics().density);
+        tintPaint.setColor(Ui.isNight(footer.getContext()) ? 0x22FFFFFF : 0x33000000);
         canvas.drawPath(shape, tintPaint);
-        tintPaint.setColor(0x40FF0000); // diag red
-        canvas.drawPath(shape, tintPaint);
-        tintPaint.setColor(Ui.isNight(footer.getContext()) ? 0x14000000 : 0x10FFFFFF);
-        canvas.drawPath(shape, tintPaint);
+        tintPaint.setStyle(android.graphics.Paint.Style.FILL);
         canvas.restoreToCount(save);
     }
 
