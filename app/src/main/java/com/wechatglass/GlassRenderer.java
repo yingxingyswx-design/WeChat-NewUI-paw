@@ -35,6 +35,11 @@ final class GlassRenderer {
 
     private ViewGroup backdrop;
     private boolean glass;
+    private boolean layerMode;
+
+    void setLayerMode(boolean enabled) {
+        layerMode = enabled;
+    }
     private RenderNode node;
     private RenderEffect effect;
     private boolean loggedGpu;
@@ -92,7 +97,8 @@ final class GlassRenderer {
 
     void drawGlass(Canvas canvas, View target, float left, float top, float right, float bottom,
                    float topRadius, float bottomRadius, int tintColor, int borderColor) {
-        if (canvas == null || target == null || right <= left || bottom <= top) {
+        if (canvas == null || target == null || right <= left || bottom <= top
+                || layerMode) {
             return;
         }
         shape.reset();
