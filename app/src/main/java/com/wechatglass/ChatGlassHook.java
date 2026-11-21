@@ -68,6 +68,7 @@ final class ChatGlassHook {
     private View footerPanel;
     private View footerBar;
     private boolean blurSyncStarted;
+    private boolean frostedHooked;
     private int blurSyncFrames;
     private View footerBottom;
 
@@ -762,6 +763,22 @@ final class ChatGlassHook {
         return null;
     }
 
+    private void logChatGeometry() {
+        try {
+            View sl = decor == null ? null : Ui.findByClassContains(decor, "ChattingScrollLayout");
+            View rv = decor == null ? null : Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+            int[] a = new int[2];
+            int[] b = new int[2];
+            if (sl != null) sl.getLocationOnScreen(a);
+            if (rv != null) rv.getLocationOnScreen(b);
+            android.util.Log.i("WeChatGlass", "CB geom scroll="
+                    + (sl == null ? "null" : sl.getClass().getSimpleName() + "@" + a[0] + "," + a[1]
+                    + " " + sl.getWidth() + "x" + sl.getHeight() + " pad=" + sl.getPaddingTop())
+                    + " rv=" + (rv == null ? "null" : "@" + b[0] + "," + b[1]
+                    + " " + rv.getWidth() + "x" + rv.getHeight() + " pad=" + rv.getPaddingTop()));
+        } catch (Throwable ignored) { }
+    }
+
     private void attachBlurBehind(View target) {
         if (true) { return; } // BlurView disabled: runtime field names differ (JADX renames)
         if (target instanceof GlassChipView) { return; } // chips: tint only (perf)
@@ -853,12 +870,75 @@ final class ChatGlassHook {
         }
     }
 
+    private void hookFrostedClip() {
+        if (frostedHooked) { return; }
+        frostedHooked = true;
+        try {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.ui.FrostedContentView", decor.getContext().getClassLoader(),
+                    "onDraw", android.graphics.Canvas.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            android.graphics.Canvas c = (android.graphics.Canvas) p.args[0];
+                            android.view.View v = (android.view.View) p.thisObject;
+                            int w = v.getWidth(), h = v.getHeight();
+                            if (w <= 0 || h <= 0) return;
+                            float r = Math.min(w, h) / 2f;
+                            android.graphics.Path path = new android.graphics.Path();
+                            path.addRoundRect(0, 0, w, h, new float[]{r,r,r,r,r,r,r,r},
+                                    android.graphics.Path.Direction.CW);
+                            int save = c.save();
+                            c.clipPath(path);
+                            p.setObjectExtra("saved", save);
+                        }
+                        @Override protected void afterHookedMethod(MethodHookParam p) {
+                            Object s2 = p.getObjectExtra("saved");
+                            if (s2 instanceof Integer) {
+                                ((android.graphics.Canvas) p.args[0]).restoreToCount((Integer) s2);
+                            }
+                        }
+                    });
+            android.util.Log.i("WeChatGlass", "CB frosted clip hooked");
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB frosted clip hook fail", t);
+        }
+    }
+
+    private void enableFrosted() {
+        if (decor == null) return;
+        View fv = Ui.findByClassContains(decor, "FrostedContentView");
+        android.util.Log.i("WeChatGlass", "CB frosted found="
+                + (fv == null ? "null" : fv.getClass().getSimpleName()));
+        if (fv == null) return;
+        try {
+            Class<?> c = fv.getClass();
+            c.getMethod("setFrostedEnabled", boolean.class).invoke(fv, true);
+            c.getMethod("setBlurRadius", int.class).invoke(fv, 50);
+            int bh = actionBar == null ? 0 : actionBar.getHeight();
+            c.getMethod("setTopBlurAreaHeight", int.class).invoke(fv, 0);
+            int fc = Ui.isNight(activity) ? 0x33000000 : 0x33FFFFFF;
+            c.getMethod("setFrostedColor", int.class).invoke(fv, fc);
+            fv.setTranslationY(0f);
+            int bottom = footerBar == null ? 0 : footerBar.getHeight();
+            if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
+                bottom += footerPanel.getHeight();
+            }
+            bottom += (footerBar == null ? 0 : footerBar.getHeight() / 2);
+            c.getMethod("setBottomBlurAreaHeight", int.class).invoke(fv, bottom);
+            fv.setVisibility(View.VISIBLE);
+            android.util.Log.i("WeChatGlass", "CB frosted enabled top=" + bh);
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB frosted fail", t);
+        }
+    }
+
     private void refreshChatBlurs() {
         if (decor == null) return;
         attachBlurBehind(backChip);
         attachBlurBehind(titleChip);
         attachBlurBehind(menuChip);
-        if (footerBar != null) attachBlurBehind(footerBar);
+        enableFrosted();
+        if (footerBar != null) { logChatGeometry(); attachBlurBehind(footerBar); }
         if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
             attachBlurBehind(footerPanel);
         } else if (footerPanel != null && decor instanceof ViewGroup) {
