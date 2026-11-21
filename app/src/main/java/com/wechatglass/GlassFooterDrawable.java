@@ -30,10 +30,15 @@ final class GlassFooterDrawable extends Drawable {
     @Override
     public void draw(Canvas canvas) {
         int width = anchor.getWidth();
-        int height = anchor.getHeight();
+        int screenH = footer.getResources().getDisplayMetrics().heightPixels;
+        int[] al0 = new int[2];
+        anchor.getLocationOnScreen(al0);
+        int height = Math.min(anchor.getHeight(), Math.max(1, screenH - al0[1]));
         if (Build.VERSION.SDK_INT < 31 || backdrop == null || width <= 0 || height <= 0) {
             return;
         }
+        android.util.Log.i("WeChatGlass", "footer drawable called anchor=" + anchor.getClass().getSimpleName()
+                + " w=" + width + " h=" + height);
         int[] fl = new int[2];
         footer.getLocationOnScreen(fl);
         int[] al = new int[2];
