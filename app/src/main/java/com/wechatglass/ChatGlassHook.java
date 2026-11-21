@@ -419,8 +419,6 @@ final class ChatGlassHook {
         Ui.clearActionBarBackground(actionBar);
         Ui.transparent(toolbar);
         Ui.transparent(actionBar.findViewById(ID_ACTION_BAR_ROOT));
-        toolbar.setBackground(null);
-        actionBar.setBackground(null);
 
         backView = actionBar.findViewById(ID_BACK);
         if (backView == null) {
@@ -448,15 +446,6 @@ final class ChatGlassHook {
         }
         if (backView == null) {
             backView = Ui.findByClassContains(actionBar, "WeImageView");
-        }
-        // WeChat 8.0.79 draws its own white capsule behind the title; it would
-        // sit on top of our glass, so hide the native title layer completely.
-        if (titleView != null) {
-            titleView.setAlpha(0f);
-            if (titleView.getParent() instanceof View
-                    && ((View) titleView.getParent()).getBackground() != null) {
-                ((View) titleView.getParent()).setBackground(null);
-            }
         }
 
         ViewGroup group = (ViewGroup) actionBar;

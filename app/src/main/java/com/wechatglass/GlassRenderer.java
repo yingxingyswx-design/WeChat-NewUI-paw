@@ -1,10 +1,8 @@
 package com.wechatglass;
 
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.Rect;
 import android.graphics.RecordingCanvas;
 import android.graphics.RectF;
 import android.graphics.RenderEffect;
@@ -137,52 +135,57 @@ final class GlassRenderer {
         drawBorder(canvas, borderColor);
     }
 
-    private Bitmap bandBitmap;
-    private Canvas bandCanvas;
-    private final Rect srcRect = new Rect();
-    private final RectF dstRect = new RectF();
-    private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
-
     private void drawGpu(Canvas canvas, View target, float left, float top,
                          float right, float bottom, int tintColor) {
-        int pad = (int) dp(6f);
-        int bandWidth = Math.max(1, source.getWidth() + pad * 2);
+        int pad = (int) dp(10f);
+        int width = Math.max(1, (int) Math.ceil(right - left) + pad * 2);
         int height = Math.max(1, (int) Math.ceil(bottom - top) + pad * 2);
+        Log.i("WeChatGlass", "gpu draw target=" + target.getClass().getSimpleName()
+                + " bounds=" + left + "," + top + "," + right + "," + bottom
+                + " node=" + width + "x" + height);
+
+        if (node == null) {
+            node = new RenderNode("wxGlassBar");
+        }
+        node.setPosition(0, 0, width, height);
+        RecordingCanvas rc = node.beginRecording(width, height);
+        int night = Ui.isNight(source.getContext()) ? 0xFF191919 : 0xFFFFFFFF;
+        rc.drawColor(night);
         int[] loc = new int[2];
         target.getLocationOnScreen(loc);
-        int bandLeft = -pad;
-        int bandTop = loc[1] + (int) top - pad;
-
-        float scale = 0.25f;
-        int bw = Math.max(1, (int) (bandWidth * scale));
-        int bh = Math.max(1, (int) (height * scale));
-        if (node == null) {
-            node = new RenderNode("wxGlassBand");
-        }
-        node.setPosition(0, 0, bandWidth, height);
-        RecordingCanvas rc = node.beginRecording(bandWidth, height);
-        rc.drawColor(0x00000000);
-        BackdropLite.draw(rc, backdrop, bandLeft, bandTop, bandWidth, height);
+        BackdropLite.draw(rc, backdrop,
+                loc[0] + (int) left - pad, loc[1] + (int) top - pad, width, height);
         node.endRecording();
 
         if (effect == null) {
             effect = RenderEffect.createBlurEffect(
-                    dp(12f), dp(12f), Shader.TileMode.CLAMP);
+                    dp(16f), dp(16f), Shader.TileMode.CLAMP);
         }
         node.setRenderEffect(effect);
+        node.setAlpha(0.92f);
 
-        if (draws < 12) {
-            draws++;
-            Log.i("WeChatGlass", "gpu glass band=" + bandWidth + "x" + height
-                    + " hw=" + canvas.isHardwareAccelerated()
-                    + " backdrop=" + backdrop.getClass().getSimpleName());
+        if (!loggedGpu) {
+            loggedGpu = true;
+            Log.i("WeChatGlass", "gpu glass captured " + width + "x" + height
+                    + " backdrop=" + backdrop.getClass().getName()
+                    + " " + backdrop.getWidth() + "x" + backdrop.getHeight());
         }
+
+        // Tinted base under the glass; alpha low enough that the blur reads.
+        fillPaint.setColor(Ui.isNight(source.getContext())
+                ? 0x4D000000 : 0x59FFFFFF);
+        canvas.drawPath(shape, fillPaint);
 
         int save = canvas.save();
         canvas.clipPath(shape);
-        canvas.translate(bandLeft - loc[0], bandTop - loc[1]);
+        canvas.translate(left - pad, top - pad);
         canvas.drawRenderNode(node);
         canvas.restoreToCount(save);
+
+        // Frost wash + border on top of the blur.
+        fillPaint.setColor(Ui.isNight(source.getContext())
+                ? 0x26000000 : 0x33FFFFFF);
+        canvas.drawPath(shape, fillPaint);
     }
 
     private void drawBorder(Canvas canvas, int borderColor) {
