@@ -301,6 +301,21 @@ final class ChatGlassHook {
             renderer.addClient(menuChip);
         }
         setupFooter();
+        if (footer != null && scrollLayout != null
+                && HookConfig.glassEnabled(activity)) {
+            ViewGroup page = null;
+            for (int i = 0; i < ((ViewGroup) scrollLayout).getChildCount(); i++) {
+                View ch = ((ViewGroup) scrollLayout).getChildAt(i);
+                if (ch.getClass().getName().contains("ChattingContent") && ch instanceof ViewGroup) {
+                    int[] l = new int[2];
+                    ch.getLocationOnScreen(l);
+                    if (Math.abs(l[0]) < 10) { page = (ViewGroup) ch; break; }
+                }
+            }
+            if (page != null) {
+                footer.setBackground(new GlassFooterDrawable(footer, page));
+            }
+        }
         setupList();
         applyEdgeLayout();
 
