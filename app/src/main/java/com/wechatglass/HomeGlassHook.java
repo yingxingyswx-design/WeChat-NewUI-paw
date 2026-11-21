@@ -1060,6 +1060,10 @@ final class HomeGlassHook {
         top = Math.min(top, Math.max(0, height - chipHeight - Ui.dp(activity, 2f)));
 
         if (overlay != null) {
+            if (barShift > 0 && actionBar != null
+                    && actionBar.getTop() != barShift) {
+                actionBar.offsetTopAndBottom(barShift - actionBar.getTop());
+            }
             int overlayHeight = Math.max(height, top + chipHeight + Ui.dp(activity, 4f));
             ViewGroup.LayoutParams op = overlay.getLayoutParams();
             if (op != null && op.height != overlayHeight) {
