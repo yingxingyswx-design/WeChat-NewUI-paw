@@ -13,6 +13,9 @@
 .PARAMETER NoCommit
     不提交，只为当前 HEAD 生成快照。
 
+.PARAMETER Important
+    快照目录名追加 -important 后缀，用于标记里程碑版本。
+
 .EXAMPLE
     .\backup.ps1 -Message "fix: 清理 TaskBar header 的 1px 分割线"
 #>
@@ -21,7 +24,9 @@ param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$Message,
 
-    [switch]$NoCommit
+    [switch]$NoCommit,
+
+    [switch]$Important
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,7 +80,7 @@ $fullSha = Get-Text (Invoke-Git rev-parse HEAD)
 $subject = Get-Text (Invoke-Git log -1 --format=%s)
 $commitDate = Get-Text (Invoke-Git log -1 --format=%ci)
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$snapName = "${stamp}_${sha}"
+$snapName = if ($Important) { "${stamp}_${sha}-important" } else { "${stamp}_${sha}" }
 $snapDir = Join-Path $repo "backups\$snapName"
 New-Item -ItemType Directory -Force -Path $snapDir | Out-Null
 

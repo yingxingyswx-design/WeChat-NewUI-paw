@@ -301,7 +301,7 @@ final class HomeGlassHook {
                             }
                         }
                         if (homeWallTicks++ % 8 == 0) {
-                            android.util.Log.i("WeChatGlass", "CB home wall tick n=" + homeWallTicks);
+                            
                         }
                     }
                     if (decor != null) decor.postDelayed(this, 120);

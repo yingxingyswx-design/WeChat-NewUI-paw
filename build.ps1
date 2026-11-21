@@ -38,9 +38,16 @@ if ($LASTEXITCODE -ne 0) { throw 'aapt2 link failed' }
 
 Write-Host '=== javac ==='
 $sources = Get-ChildItem "$app\java" -Recurse -Filter *.java | ForEach-Object { $_.FullName }
-& "$env:JAVA_HOME\bin\javac.exe" -encoding UTF-8 --release 8 `
+# javac writes deprecation notes to stderr; PowerShell 5.1 turns a native
+# command's stderr into a terminating error under $ErrorActionPreference='Stop',
+# which aborted the build before the exit code was ever looked at.
+$pref = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& "$env:JAVA_HOME\bin\javac.exe" -encoding UTF-8 --release 8 -nowarn `
     -cp "$androidJar;$xposedApi" -d "$build\classes" $sources
-if ($LASTEXITCODE -ne 0) { throw 'javac failed' }
+$javacCode = $LASTEXITCODE
+$ErrorActionPreference = $pref
+if ($javacCode -ne 0) { throw 'javac failed' }
 
 Write-Host '=== d8 ==='
 $classes = Get-ChildItem "$build\classes" -Recurse -Filter *.class | ForEach-Object { $_.FullName }

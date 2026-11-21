@@ -291,7 +291,8 @@ final class ChatGlassHook {
         // content list instead, which never contains our surfaces.
         View chatContent = Ui.findByClassContains(scrollLayout, "ChattingContent");
         if (chatContent instanceof ViewGroup) {
-            renderer.setBackdrop((ViewGroup) chatContent);
+            chatContentGroup = (ViewGroup) chatContent;
+            renderer.setBackdrop(chatContentGroup);
         }
         renderer.addClient(footer);
 
@@ -987,7 +988,6 @@ final class ChatGlassHook {
             @Override public void run() {
                 assertWallScope();
                 ensureLiquidPills();
-                ensureUnionLiquid();
                 ensureFooterLiquid();
                 syncWallpaperFromProvider();
                 ensureWallpaperLayer();
@@ -1030,103 +1030,12 @@ final class ChatGlassHook {
         }
         return best;
     }
-
-    private View unionLiquid;
-
-    private View findOpenPanel() {
-        if (footer == null) return null;
-        java.util.ArrayDeque<View> q = new java.util.ArrayDeque<>();
-        q.add(footer);
-        View best = null;
-        while (!q.isEmpty()) {
-            View v = q.poll();
-            String cn = v.getClass().getSimpleName();
-            if (v.isShown() && v.getHeight() > 400 && v.getWidth() > 500
-                    && (cn.contains("Smiley") || cn.contains("Emoji") || cn.contains("AppPanel"))) {
-                best = v;
-            }
-            if (v instanceof ViewGroup) {
-                ViewGroup g = (ViewGroup) v;
-                for (int i = 0; i < g.getChildCount(); i++) q.add(g.getChildAt(i));
-            }
-        }
-        return best;
-    }
-
-    private void clearMgrBg(View panel) {
-        try {
-            java.lang.reflect.Field mgrField = null;
-            for (java.lang.reflect.Field f : panel.getClass().getDeclaredFields()) {
-                if (f.getType().getName().equals("com.tencent.mm.view.manager.d")) { mgrField = f; break; }
-            }
-            if (mgrField == null) return;
-            mgrField.setAccessible(true);
-            Object mgr = mgrField.get(panel);
-            if (mgr == null) return;
-            for (java.lang.reflect.Field f : mgr.getClass().getDeclaredFields()) {
-                f.setAccessible(true);
-                Object v = f.get(mgr);
-                if (v instanceof View) {
-                    View vv = (View) v;
-                    if (vv.getClass().getSimpleName().contains("NestedBounce")) {
-                        vv.setBackground(null);
-                        android.util.Log.i("WeChatGlass", "CB mgr clear " + f.getName());
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void ensureUnionLiquid() {
-        if (decor == null || activity == null) return;
-        View panel = findOpenPanel();
-        if (panel == null) {
-            if (unionLiquid != null && unionLiquid.getParent() instanceof ViewGroup) {
-                ((ViewGroup) unionLiquid.getParent()).removeView(unionLiquid);
-            }
-            unionLiquid = null;
-            return;
-        }
-        clearMgrBg(panel);
-        View bar = footer == null ? null : findInputRowLocal();
-        if (bar == null) return;
-        int[] bl = new int[2];
-        int[] pl = new int[2];
-        bar.getLocationOnScreen(bl);
-        panel.getLocationOnScreen(pl);
-        int top = bl[1];
-        int h = pl[1] + panel.getHeight() - top;
-        int w = bar.getWidth();
-        int x = bl[0];
-        if (h <= 0 || w <= 0) return;
-        View cf = Ui.findByClassContains(decor, "ContentFrameLayout");
-        ViewGroup frame = (cf instanceof ViewGroup) ? (ViewGroup) cf : (ViewGroup) decor;
-        frame.setClipChildren(false);
-        int[] fl = new int[2];
-        frame.getLocationOnScreen(fl);
-        if (unionLiquid != null && unionLiquid.getParent() == frame) {
-            FrameLayout.LayoutParams lp0 = (FrameLayout.LayoutParams) unionLiquid.getLayoutParams();
-            lp0.width = w; lp0.height = h;
-            lp0.leftMargin = x - fl[0]; lp0.topMargin = top - fl[1];
-            unionLiquid.setLayoutParams(lp0);
-            return;
-        }
-        View bg = Ui.findByClassContains(decor, "ScrollControlRecyclerView");
-        if (!(bg instanceof ViewGroup)) return;
-        View lp = com.wechatglass.liquid.LiquidPanelFactory.createRounded(activity,
-                (ViewGroup) bg,
-                activity.getResources().getDisplayMetrics().density,
-                Ui.isNight(activity),
-                bar.getHeight() / 2f);
-        if (lp == null) return;
-        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(w, h);
-        flp.leftMargin = x - fl[0];
-        flp.topMargin = top - fl[1];
-        frame.addView(lp, 0, flp);
-        unionLiquid = lp;
-        android.util.Log.i("WeChatGlass", "CB union glass " + w + "x" + h);
-    }
+    /** ChattingContent: holds the chat wallpaper that the footer panels sit on. */
+    private ViewGroup chatContentGroup;
+    private boolean panelWasOpen;
+    /** The input row carrying GlassFooterDrawable; its corners follow the panel. */
+    private View inputRow;
+    private long lastTreeDump;
 
     private void ensureLiquidPills() {
         if (decor == null || activity == null) return;
@@ -1215,10 +1124,15 @@ final class ChatGlassHook {
             pv = pv.getParent() instanceof View ? (View) pv.getParent() : null;
         }
         android.util.Log.i("WeChatGlass", diag.toString());
-        bar.setBackground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
-        android.util.Log.i("WeChatGlass", "CL footer apply on " + bar.getClass().getSimpleName()
-                + " h=" + bar.getHeight());
-        makeTranslucent(bar, 204);
+        // Only build the drawable once: re-creating it every pass threw away
+        // its corner state and allocated on every frame.
+        if (!(bar.getBackground() instanceof GlassFooterDrawable)) {
+            bar.setBackground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
+            android.util.Log.i("WeChatGlass", "CL footer apply on "
+                    + bar.getClass().getSimpleName() + " h=" + bar.getHeight());
+            makeTranslucent(bar, 204);
+        }
+        inputRow = bar;
         footerGlassSet = true;
         android.util.Log.i("WeChatGlass", "footer glass set on " + bar.getClass().getSimpleName());
     }
@@ -1262,6 +1176,7 @@ final class ChatGlassHook {
 
         dumpFooterEditors(footer, 0);
         dumpVisibleGeometry();
+
 
         footer.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
             @Override
@@ -1332,7 +1247,11 @@ final class ChatGlassHook {
         if (root instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) root;
             boolean button = root.getClass().getName().contains("Button");
-            if (!button && group.getBackground() != null
+            // depth 0 is the panel itself: its background is the glass we just
+            // installed, and clearing it here re-installed it every frame.
+            if (depth > 0 && !button && group.getBackground() != null
+                    && !com.wechatglass.liquid.LiquidPanelFactory
+                            .isPanelGlass(group.getBackground())
                     && group.getWidth() > footer.getWidth() * 0.6f
                     && group.getHeight() > Ui.dp(activity, 60f)) {
                 group.setBackground(null);
@@ -1472,28 +1391,70 @@ final class ChatGlassHook {
             nestedBounce.setBackground(null);
         }
 
-        // When the plus/emoji panel is open WeChat translates the footer up and
-        // reveals the 400dp panel. Let the same glass cover the whole footer so
-        // the input row and the panel look like one floating card.
+        // When a panel is open WeChat slides the footer up and reveals it below
+        // the input row. The panel carries its own liquid glass now, so the
+        // footer's fill must stay behind the input row only: with the inset
+        // dropped to 8dp it painted an opaque slab under the panel and the
+        // panel's glass had nothing to show through.
+        View smileyPanel = Ui.findByClassContains(footer, "SmileyPanelImpl");
+        if (smileyPanel == null) {
+            smileyPanel = Ui.findByClassContains(footer, "ChatFooterPanel");
+        }
+        // isShown() reports false for this panel even while it is painted (the
+        // footer sits at a layout position off the bottom of the window and is
+        // slid into view), so visibility has to be judged by flags and size.
+        boolean emojiOpen = isLaidOutVisible(smileyPanel);
+        boolean plusOpen = isLaidOutVisible(resolveFooterPanel());
+        boolean anyPanelOpen = emojiOpen || plusOpen;
         if (footer.getBackground() instanceof GlassBarDrawable) {
-            boolean panelOpen = footerPanel != null
-                    && footerPanel.getVisibility() == View.VISIBLE
-                    && footerPanel.getHeight() > 0;
             GlassBarDrawable glass = (GlassBarDrawable) footer.getBackground();
-            if (panelOpen) {
-                glass.setBottomInset(Ui.dp(activity, 8f));
-                clearLargePanelBackgrounds(footerBottom, 0);
-                clearLargePanelBackgrounds(footerPanel, 0);
-            } else if (footerHeight > 0 && lastVisibleFooterHeight > 0) {
+            if (footerHeight > 0 && lastVisibleFooterHeight > 0) {
                 glass.setBottomInset(Math.max(0, footerHeight - lastVisibleFooterHeight)
                         + Ui.dp(activity, 8f));
             }
+            if (plusOpen) {
+                clearLargePanelBackgrounds(footerBottom, 0);
+                clearLargePanelBackgrounds(footerPanel, 0);
+            }
+        }
+        // One card: the input row squares its bottom off against the panel.
+        if (inputRow != null && inputRow.getBackground() instanceof GlassFooterDrawable) {
+            float r = inputRow.getHeight() / 2f;
+            ((GlassFooterDrawable) inputRow.getBackground())
+                    .setRadii(r, anyPanelOpen ? 0f : r);
         }
 
         applyListPadding(lastVisibleFooterHeight > 0 ? lastVisibleFooterHeight : footerHeight);
         applyInputHeight();
+        scanPanels(true);
         styleEmojiPanel();
+        styleFooterPanel();
         ensureNavFiller();
+        debugDumpIfRequested(smileyPanel);
+    }
+
+    /** Periodic tree dump while debug.wxglass.panel.log=1; 1 per 2s. */
+    private void debugDumpIfRequested(View emojiPanel) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastTreeDump < 2000L) {
+            return;
+        }
+        lastTreeDump = now;
+        if (!"1".equals(prop("debug.wxglass.panel.log"))) {
+            return;
+        }
+        dumpPanelChain(emojiPanel, emojiPanel != null && emojiPanel.isShown());
+    }
+
+    private static String prop(String key) {
+        try {
+            Object value = Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String.class, String.class)
+                    .invoke(null, key, "");
+            return value instanceof String ? (String) value : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     private int navigationBarHeight() {
@@ -1539,13 +1500,16 @@ final class ChatGlassHook {
         }
     }
 
+    /**
+     * The "+"/更多 panel: same liquid glass as the emoji panel. It used to get a
+     * {@link GlassBarDrawable}, which is flat, and it was only ever called from
+     * nowhere, so the panel itself was transparent over the footer's opaque
+     * fill — a white slab.
+     */
     private void styleFooterPanel() {
-        if (footerPanel == null || footerPanel.getVisibility() != View.VISIBLE) {
-            return;
-        }
-        footerPanel.setBackground(new GlassBarDrawable(renderer, footerPanel,
-                Ui.dp(activity, 18f), tint, border, 0));
-        clearPanelBackgrounds(footerPanel, 0);
+        logPanelStyle("plus", footerPanel);
+        watchPanel(resolveFooterPanel());
+        ensurePanelGlass(footerPanel);
     }
 
     private void clearPanelBackgrounds(View root, int depth) {
@@ -1561,26 +1525,270 @@ final class ChatGlassHook {
         }
     }
 
+    /**
+     * Gives the 笑脸/表情 panel the same liquid glass as the top islands.
+     *
+     * <p>It used to get a {@link GlassBarDrawable}, which is the flat path:
+     * {@code GlassRenderer.setGlassEnabled} pins {@code glass=false}, so that
+     * drawable paints {@link #tint} — an opaque white — over the panel and over
+     * whatever sat behind it. Nothing about that could ever blur.
+     *
+     * <p>The panel is <em>in</em> the footer, below the message list, so no chat
+     * content is behind it. Its backdrop is the chat wallpaper: WeChat's
+     * wallpaper {@code ImageView} is the sibling of the list inside
+     * {@code ChattingContent} and covers the whole chat area, which is exactly
+     * the container the pills sample. See {@code PanelGlassDrawable}.
+     */
+    private void dumpPanelChain(View panel, boolean open) {
+        android.util.Log.i(TAG, "CB panel chain open=" + open
+                + " panel=" + (panel == null ? "null" : panel.getClass().getSimpleName()));
+        if (panel != null) {
+            View v = panel;
+            for (int i = 0; i < 9 && v != null; i++) {
+                int[] loc = new int[2];
+                v.getLocationOnScreen(loc);
+                android.util.Log.i(TAG, "  chain[" + i + "] " + v.getClass().getSimpleName()
+                        + " id=0x" + Integer.toHexString(v.getId())
+                        + " top=" + v.getTop() + " left=" + v.getLeft()
+                        + " y=" + v.getY() + " ty=" + v.getTranslationY()
+                        + " size=" + v.getWidth() + "x" + v.getHeight()
+                        + " vis=" + v.getVisibility() + " shown=" + v.isShown()
+                        + " screen=" + loc[0] + "," + loc[1]
+                        + " scrollY=" + v.getScrollY());
+                ViewParent p = v.getParent();
+                v = p instanceof View ? (View) p : null;
+            }
+        }
+        int[] cl = new int[2];
+        if (chatContentGroup != null) {
+            chatContentGroup.getLocationOnScreen(cl);
+            android.util.Log.i(TAG, "  backdrop " + chatContentGroup.getClass().getSimpleName()
+                    + " screen=" + cl[0] + "," + cl[1]
+                    + " size=" + chatContentGroup.getWidth() + "x"
+                    + chatContentGroup.getHeight()
+                    + " scrollY=" + chatContentGroup.getScrollY());
+        }
+        // Every view under the footer that is big enough to be a panel, so a
+        // second (or third) panel instance cannot hide from the styling pass.
+        dumpPanelCandidates(footer, 0);
+    }
+
+    private void dumpPanelCandidates(View view, int depth) {
+        if (view == null || depth > 8) return;
+        boolean interesting = view.getHeight() > Ui.dp(activity, 40f)
+                && view.getWidth() > footer.getWidth() * 0.5f;
+        if (interesting) {
+            int[] loc = new int[2];
+            view.getLocationOnScreen(loc);
+            android.util.Log.i(TAG, "  cand[" + depth + "] "
+                    + view.getClass().getSimpleName()
+                    + " id=0x" + Integer.toHexString(view.getId())
+                    + " size=" + view.getWidth() + "x" + view.getHeight()
+                    + " screen=" + loc[0] + "," + loc[1]
+                    + " vis=" + view.getVisibility() + " shown=" + view.isShown()
+                    + " bg=" + String.valueOf(view.getBackground()));
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                dumpPanelCandidates(group.getChildAt(i), depth + 1);
+            }
+        }
+    }
+
+    /**
+     * A panel is "open" when it is laid out with a size and not GONE/INVISIBLE.
+     * {@code isShown()} cannot be used: WeChat keeps the footer at a layout
+     * position below the window and slides it in, so isShown() reports false for
+     * a panel that is plainly on screen — gating on it silently skipped the
+     * glass pass and left the panel transparent after the first re-open.
+     */
+    private static boolean isLaidOutVisible(View view) {
+        return view != null
+                && view.getVisibility() == View.VISIBLE
+                && view.getWidth() > 0
+                && view.getHeight() > 0
+                && view.getParent() != null;
+    }
+
+    /**
+     * The "+" panel is inflated lazily (ViewStub) and re-created by WeChat, so a
+     * cached reference can point at a view that is no longer in the tree — the
+     * panel then silently stops being styled and renders transparent. Re-resolve
+     * whenever the cached view is gone or detached.
+     */
+    private View resolveFooterPanel() {
+        if (footer != null && (footerPanel == null
+                || !footerPanel.isAttachedToWindow()
+                || footerPanel.getParent() == null)) {
+            View found = Ui.findByClassContains(footer, "AppPanel");
+            if (found == null) {
+                found = footer.findViewById(ID_FOOTER_PANEL);
+            }
+            if (found != null && found != footerPanel) {
+                footerPanel = found;
+                android.util.Log.i(TAG, "footerPanel resolved "
+                        + found.getClass().getName());
+            }
+        }
+        return footerPanel;
+    }
+
+    private long lastPanelStyleLog;
+    private long lastPanelScan;
+
+    /**
+     * Styles every panel instance in the footer, not just the first one found.
+     *
+     * <p>WeChat does not reuse a panel between opens: each open inflates a fresh
+     * {@code AppPanel}/{@code SmileyPanelImpl}, and the previous one stays in the
+     * tree (hidden). {@code Ui.findByClassContains} returns the first match, i.e.
+     * permanently the stale instance, so only the first open of a session ever
+     * showed glass. Walking the subtree and styling every instance fixes that,
+     * whichever one WeChat decides to show.
+     */
+    private void scanPanels(boolean force) {
+        if (footer == null) {
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!force && now - lastPanelScan < 48L) {
+            return;
+        }
+        lastPanelScan = now;
+        scanPanels(footer, 0);
+    }
+
+    private void scanPanels(View view, int depth) {
+        if (view == null || depth > 9) {
+            return;
+        }
+        String name = view.getClass().getSimpleName();
+        if (name.contains("AppPanel") || name.contains("SmileyPanelImpl")
+                || name.contains("ChatFooterPanel")) {
+            if (view.getWidth() > 0 && view.getHeight() > 0) {
+                watchPanel(view);
+                ensurePanelGlass(view);
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                scanPanels(group.getChildAt(i), depth + 1);
+            }
+        }
+    }
+    private final java.util.HashSet<View> watchedPanels = new java.util.HashSet<>();
+
+    /**
+     * Puts the liquid glass on a panel, and keeps it there.
+     *
+     * <p>WeChat clears a panel's background itself and re-creates the panel view
+     * outright between opens (the log shows a different identity hash each
+     * time). A 600ms poll reliably misses the moment it is visible, which is
+     * exactly the "first open is glass, second open is not" bug. A pre-draw
+     * listener re-asserts the drawable on the frame the panel is about to be
+     * painted, so whoever cleared it cannot win.
+     */
+    private void watchPanel(final View panel) {
+        if (panel == null || watchedPanels.contains(panel)) {
+            return;
+        }
+        watchedPanels.add(panel);
+        // A layout listener, not a pre-draw one: ensurePanelGlass() sets a
+        // background, which requests layout. Doing that inside the draw pass
+        // stalls the next traversal, and the chat page then stops refreshing
+        // altogether. onLayoutChange fires exactly when the panel is laid out or
+        // becomes visible, which is when the glass has to be there.
+        panel.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                                       int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                ensurePanelGlass(v);
+            }
+        });
+        android.util.Log.i(TAG, "watch panel " + panel.getClass().getSimpleName());
+    }
+
+    private boolean ensurePanelGlass(View panel) {
+        if (!isLaidOutVisible(panel)) {
+            return false;
+        }
+        float radius = Ui.dp(activity, 26f);
+        boolean night = Ui.isNight(activity);
+        android.graphics.drawable.Drawable bg = panel.getBackground();
+        if (com.wechatglass.liquid.LiquidPanelFactory.isPanelGlass(bg)) {
+            com.wechatglass.liquid.LiquidPanelFactory.setPanelRadii(bg, 0f, radius);
+            com.wechatglass.liquid.LiquidPanelFactory.setPanelTheme(bg, night);
+            return true;
+        }
+        android.graphics.drawable.Drawable glass =
+                com.wechatglass.liquid.LiquidPanelFactory.createPanelGlass(
+                        panel, chatContentGroup, night, 0f, radius);
+        if (glass == null) {
+            return false;
+        }
+        panel.setBackground(glass);
+        android.util.Log.i(TAG, "panel glass set on " + panel.getClass().getSimpleName()
+                + " h=" + panel.getHeight());
+        return true;
+    }
+
+    /** Rate-limited state line so a panel that stops being styled is visible. */
+    private void logPanelStyle(String tag, View panel) {
+        if (!"1".equals(prop("debug.wxglass.panel.log"))) {
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastPanelStyleLog < 900L) {
+            return;
+        }
+        lastPanelStyleLog = now;
+        android.util.Log.i(TAG, "style " + tag
+                + " panel=" + (panel == null ? "null"
+                : panel.getClass().getSimpleName() + "@"
+                + Integer.toHexString(System.identityHashCode(panel)))
+                + " vis=" + (panel == null ? -1 : panel.getVisibility())
+                + " size=" + (panel == null ? 0 : panel.getWidth()) + "x"
+                + (panel == null ? 0 : panel.getHeight())
+                + " parent=" + (panel == null || panel.getParent() == null
+                ? "null" : "ok")
+                + " attached=" + (panel != null && panel.isAttachedToWindow())
+                + " bg=" + (panel == null ? "null"
+                : String.valueOf(panel.getBackground()).replace("com.wechatglass.", "")));
+    }
+
     private void styleEmojiPanel() {
-        if (footer == null || renderer == null) return;
+        if (footer == null) return;
         View panel = Ui.findByClassContains(footer, "SmileyPanelImpl");
         if (panel == null) {
             panel = Ui.findByClassContains(footer, "ChatFooterPanel");
         }
-        if (panel == null || !panel.isShown() || panel.getHeight() <= 0) {
+        logPanelStyle("emoji", panel);
+        float radius = Ui.dp(activity, 26f);
+        boolean open = isLaidOutVisible(panel);
+        if (open != panelWasOpen) {
+            panelWasOpen = open;
+            android.util.Log.i(TAG, "CB panel open=" + open
+                    + " cls=" + (panel == null ? "null" : panel.getClass().getSimpleName())
+                    + " size=" + (panel == null ? 0 : panel.getWidth()) + "x"
+                    + (panel == null ? 0 : panel.getHeight())
+                    + " bg=" + (panel == null ? "null" : String.valueOf(panel.getBackground()))
+                    + " backdrop=" + (chatContentGroup == null ? "null"
+                    : chatContentGroup.getClass().getSimpleName())
+                    + " night=" + Ui.isNight(activity));
+            dumpPanelChain(panel, open);
+        }
+        if (panel == null || !open) {
             if (footer.getBackground() instanceof GlassBarDrawable) {
-                ((GlassBarDrawable) footer.getBackground()).setRadii(
-                        Ui.dp(activity, 26f), Ui.dp(activity, 26f));
+                ((GlassBarDrawable) footer.getBackground()).setRadii(radius, radius);
             }
             return;
         }
-        GlassBarDrawable panelGlass = new GlassBarDrawable(renderer, panel,
-                Ui.dp(activity, 26f), tint, border, 0);
-        panelGlass.setRadii(0f, Ui.dp(activity, 26f));
-        panel.setBackground(panelGlass);
+        watchPanel(panel);
+        ensurePanelGlass(panel);
         if (footer.getBackground() instanceof GlassBarDrawable) {
-            ((GlassBarDrawable) footer.getBackground()).setRadii(
-                    Ui.dp(activity, 26f), 0f);
+            ((GlassBarDrawable) footer.getBackground()).setRadii(radius, 0f);
         }
         clearEmojiBackgrounds(panel, 0);
         View tabBar = Ui.findByClassContains(panel, "RecyclerView");

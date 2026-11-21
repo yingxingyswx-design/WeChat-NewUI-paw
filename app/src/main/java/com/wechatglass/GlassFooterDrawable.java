@@ -21,11 +21,28 @@ final class GlassFooterDrawable extends Drawable {
     private final Path shape = new Path();
     private final android.graphics.Paint tintPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
+    private final float[] radii = new float[8];
+    /** Negative means "half the height", i.e. the resting capsule. */
+    private float radiusTop = -1f;
+    private float radiusBottom = -1f;
 
     GlassFooterDrawable(View footer, View anchor, ViewGroup backdrop) {
         this.footer = footer;
         this.anchor = anchor;
         this.backdrop = backdrop;
+    }
+
+    /**
+     * Corner radii. With a panel open the input row is the top half of one card,
+     * so its bottom corners have to square off against the panel below it.
+     */
+    void setRadii(float top, float bottom) {
+        if (radiusTop == top && radiusBottom == bottom) {
+            return;
+        }
+        radiusTop = top;
+        radiusBottom = bottom;
+        invalidateSelf();
     }
 
     @Override
@@ -64,9 +81,19 @@ final class GlassFooterDrawable extends Drawable {
         }
         node.setRenderEffect(effect);
         float radius = height / 2f;
+        float top = radiusTop >= 0f ? radiusTop : radius;
+        float bottom = radiusBottom >= 0f ? radiusBottom : radius;
+        radii[0] = top;
+        radii[1] = top;
+        radii[2] = top;
+        radii[3] = top;
+        radii[4] = bottom;
+        radii[5] = bottom;
+        radii[6] = bottom;
+        radii[7] = bottom;
         shape.reset();
         rect.set(0, 0, width, height);
-        shape.addRoundRect(rect, radius, radius, Path.Direction.CW);
+        shape.addRoundRect(rect, radii, Path.Direction.CW);
         android.graphics.Rect cb = new android.graphics.Rect();
         canvas.getClipBounds(cb);
         android.util.Log.i("WeChatGlass", "draw diag anchor=" + anchor.getClass().getSimpleName()

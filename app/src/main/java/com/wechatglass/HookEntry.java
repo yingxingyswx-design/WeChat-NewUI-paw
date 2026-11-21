@@ -42,6 +42,10 @@ public class HookEntry implements IXposedHookLoadPackage {
     }
 
     private static void hookChatLifecycle(final XC_LoadPackage.LoadPackageParam lpparam) {
+        hookPanelBgMethods(lpparam.classLoader);
+        hookLogPanelBg(lpparam.classLoader);
+        hookFreGriest(lpparam.classLoader);
+        hookShadowLoader();
         XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
                 Bundle.class, new XC_MethodHook() {
                     @Override
@@ -335,6 +339,137 @@ public class HookEntry implements IXposedHookLoadPackage {
                         }
                     });
         } catch (Throwable ignored) {
+        }
+    }
+
+
+    private static void hookPanelBgMethods(ClassLoader cl) { // hookPanelBgMethods
+        // SmileyPanelImpl.setPanelBackgroundColor writes an opaque colour onto
+        // the emoji content container (NestedBounceView) every time the panel
+        // opens, which paints over the panel's liquid glass. The other names are
+        // the tab-bar variants and older releases' API.
+        String[] names = {"setEmojiPanelBackground", "setEmojiPanelTabBackground",
+                "setPanelBackground", "setPanelBackgroundColor",
+                "setTabBackgroundColor", "setTabBackgroundResource"};
+        for (String n : names) {
+            try {
+                de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                        "com.tencent.mm.view.SmileyPanelImpl", cl, n, int.class,
+                        new de.robv.android.xposed.XC_MethodHook() {
+                            @Override protected void beforeHookedMethod(MethodHookParam p) {
+                                p.setResult(null);
+                            }
+                        });
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+
+    private static final java.util.HashSet<String> SEEN_BG = new java.util.HashSet<>();
+
+    private static void hookLogPanelBg(ClassLoader cl) { // hookLogPanelBg
+        try {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.view.View.class, "setBackgroundResource", int.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            try {
+                                android.view.View v = (android.view.View) p.thisObject;
+                                if (!inPanel(v)) return;
+                                StackTraceElement[] st = new Throwable().getStackTrace();
+                                StringBuilder sb = new StringBuilder("CB bgCaller "
+                                        + v.getClass().getSimpleName());
+                                for (int i = 1; i < Math.min(st.length, 9); i++) {
+                                    sb.append(" <- ").append(st[i].getClassName())
+                                      .append("#").append(st[i].getMethodName());
+                                }
+                                String line = sb.toString();
+                                if (SEEN_BG.add(line)) {
+                                    android.util.Log.i("WeChatGlass", line);
+                                }
+                            } catch (Throwable ignored) { }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+
+    private static void hookFreGriest(ClassLoader cl) { // hookFreGriest
+        try {
+            Class<?> c = de.robv.android.xposed.XposedHelpers.findClass(
+                    "android$net$FreGriest", cl);
+            de.robv.android.xposed.XposedBridge.hookAllMethods(c, "setBackgroundResource",
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (p.thisObject instanceof android.view.View
+                                    && inPanel((android.view.View) p.thisObject)) {
+                                p.setResult(null);
+                                android.util.Log.i("WeChatGlass", "CB block FreGriest bg");
+                            }
+                        }
+                    });
+            de.robv.android.xposed.XposedBridge.hookAllMethods(c, "setBackground",
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (p.thisObject instanceof android.view.View
+                                    && inPanel((android.view.View) p.thisObject)) {
+                                p.setResult(null);
+                            }
+                        }
+                    });
+            de.robv.android.xposed.XposedBridge.hookAllMethods(c, "setBackgroundColor",
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam p) {
+                            if (p.thisObject instanceof android.view.View
+                                    && inPanel((android.view.View) p.thisObject)) {
+                                p.setResult(null);
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB FreGriest hook fail", t);
+        }
+    }
+
+
+    private static boolean SHADOW_HOOKED;
+
+    private static void hookShadowLoader() { // hookShadowLoader
+        try {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    ClassLoader.class, "loadClass", String.class, boolean.class,
+                    new de.robv.android.xposed.XC_MethodHook() {
+                        @Override protected void afterHookedMethod(MethodHookParam p) {
+                            if (SHADOW_HOOKED) return;
+                            Object r = p.getResult();
+                            if (!(r instanceof Class)) return;
+                            Class<?> c = (Class<?>) r;
+                            String n = c.getName();
+                            if (!n.contains("FreGriest")) return;
+                            SHADOW_HOOKED = true;
+                            android.util.Log.i("WeChatGlass", "CB shadow found " + n);
+                            String[] ms = {"setBackgroundResource", "setBackground",
+                                    "setBackgroundColor", "setBackgroundDrawable"};
+                            for (String m : ms) {
+                                try {
+                                    de.robv.android.xposed.XposedBridge.hookAllMethods(c, m,
+                                            new de.robv.android.xposed.XC_MethodHook() {
+                                                @Override protected void beforeHookedMethod(
+                                                        MethodHookParam q) {
+                                                    if (q.thisObject instanceof android.view.View
+                                                            && inPanel((android.view.View) q.thisObject)) {
+                                                        q.setResult(null);
+                                                    }
+                                                }
+                                            });
+                                } catch (Throwable ignored) { }
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB loader hook fail", t);
         }
     }
 
