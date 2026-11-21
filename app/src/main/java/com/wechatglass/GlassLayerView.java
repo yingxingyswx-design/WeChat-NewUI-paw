@@ -36,6 +36,13 @@ final class GlassLayerView extends View {
     }
 
     void setBackdrop(ViewGroup view) {
+        int[] bl = new int[2];
+        if (view != null) { view.getLocationOnScreen(bl); }
+        android.util.Log.i("WeChatGlass", "GL setBackdrop "
+                + (view == null ? "null" : view.getClass().getSimpleName())
+                + " at=" + bl[0] + "," + bl[1]
+                + " " + (view == null ? 0 : view.getWidth()) + "x"
+                + (view == null ? 0 : view.getHeight()));
         detach();
         backdrop = view;
         attach();
@@ -70,6 +77,7 @@ final class GlassLayerView extends View {
     }
 
     private void capture() {
+        if (getWindowVisibility() != View.VISIBLE) { return; } // foreground gate
         if (Build.VERSION.SDK_INT < 31 || backdrop == null
                 || !backdrop.isShown() || getWidth() <= 0 || getHeight() <= 0
                 || !isShown()) {
@@ -87,6 +95,9 @@ final class GlassLayerView extends View {
         rc.drawColor(0x00000000);
         Backdrop.draw(rc, backdrop, loc[0], loc[1], width, height);
         node.endRecording();
+        android.util.Log.i("WeChatGlass", "GL cap done " + width + "x" + height
+                + " hasList=" + node.hasDisplayList()
+                + " backdrop=" + (backdrop == null ? "null" : backdrop.getClass().getSimpleName()));
         if (effect == null) {
             effect = RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP);
         }
@@ -103,9 +114,13 @@ final class GlassLayerView extends View {
         getLocationOnScreen(gl);
         android.util.Log.i("WeChatGlass", "layer onDraw geom=" + gl[0] + "," + gl[1]
                 + " " + getWidth() + "x" + getHeight());
+        if (getWindowVisibility() != View.VISIBLE) { return; } // foreground gate
         if (node == null || !node.hasDisplayList() || host == null) {
             return;
         }
+        RenderEffect fresh = RenderEffect.createBlurEffect(48f, 48f, Shader.TileMode.CLAMP); // fresh effect
+        node.setRenderEffect(fresh);
+        android.util.Log.i("WeChatGlass", "GL effect set blur=48 hasList=" + node.hasDisplayList());
         boolean night = Ui.isNight(getContext());
         for (int i = 0; i < host.getChildCount(); i++) {
             View child = host.getChildAt(i);
@@ -123,7 +138,7 @@ final class GlassLayerView extends View {
             canvas.clipPath(shape);
             canvas.drawRenderNode(node);
             canvas.drawPath(shape, tintPaint);
-            tintPaint.setColor(night ? 0x14000000 : 0x0FFFFFFF);
+            tintPaint.setColor(night ? 0x33000000 : 0x33FFFFFF);
             canvas.drawPath(shape, tintPaint);
             borderPaint.setStyle(Paint.Style.STROKE);
             borderPaint.setStrokeWidth(Math.max(1f, 1f * getResources().getDisplayMetrics().density));

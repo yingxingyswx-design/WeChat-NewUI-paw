@@ -799,6 +799,8 @@ final class ChatGlassHook {
         }
         android.util.Log.i("WeChatGlass", diag.toString());
         bar.setBackground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
+        android.util.Log.i("WeChatGlass", "CL footer apply on " + bar.getClass().getSimpleName()
+                + " h=" + bar.getHeight());
         makeTranslucent(bar, 204);
         footerGlassSet = true;
         android.util.Log.i("WeChatGlass", "footer glass set on " + bar.getClass().getSimpleName());
@@ -965,6 +967,16 @@ final class ChatGlassHook {
         applyStatusBar();
         extendChatToBottom();
         reparentActionBar();
+        if (actionBar != null && actionBar.getParent() instanceof ViewGroup) {
+            ViewGroup pv = (ViewGroup) actionBar.getParent();
+            StringBuilder sb = new StringBuilder("CO order parent=" + pv.getClass().getSimpleName());
+            for (int i = 0; i < pv.getChildCount(); i++) {
+                View c = pv.getChildAt(i);
+                sb.append(' ').append(i).append(':').append(c.getClass().getSimpleName())
+                  .append('@').append(c.getVisibility());
+            }
+            android.util.Log.i("WeChatGlass", sb.toString());
+        }
         // Status scrim disabled: it painted a white gradient over the status
         // bar and read as a duplicate top bar in screenshots.
         // ensureStatusScrim();

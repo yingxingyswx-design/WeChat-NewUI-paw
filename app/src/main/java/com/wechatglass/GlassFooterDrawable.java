@@ -30,6 +30,11 @@ final class GlassFooterDrawable extends Drawable {
 
     @Override
     public void draw(Canvas canvas) {
+        int[] fdl = new int[2];
+        footer.getLocationOnScreen(fdl);
+        android.util.Log.i("WeChatGlass", "GF draw anchor=" + anchor.getClass().getSimpleName()
+                + " a=" + anchor.getWidth() + "x" + anchor.getHeight()
+                + " footerAt=" + fdl[0] + "," + fdl[1]);
         int width = anchor.getWidth();
         int screenH = footer.getResources().getDisplayMetrics().heightPixels;
         int[] al0 = new int[2];
@@ -52,6 +57,8 @@ final class GlassFooterDrawable extends Drawable {
         rc.drawColor(0x00000000);
         Backdrop.draw(rc, backdrop, al[0], al[1], width, height);
         node.endRecording();
+        android.util.Log.i("WeChatGlass", "GF cap hasList=" + node.hasDisplayList()
+                + " " + width + "x" + height);
         if (effect == null) {
             effect = RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP);
         }
@@ -69,6 +76,10 @@ final class GlassFooterDrawable extends Drawable {
         canvas.translate(al[0] - fl[0], al[1] - fl[1]);
         canvas.clipPath(shape);
         canvas.drawRenderNode(node);
+        // frost fill
+        tintPaint.setStyle(android.graphics.Paint.Style.FILL);
+        tintPaint.setColor(Ui.isNight(footer.getContext()) ? 0x33000000 : 0x33FFFFFF);
+        canvas.drawPath(shape, tintPaint);
         // WeChat-gray hairline around the capsule
         tintPaint.setStyle(android.graphics.Paint.Style.STROKE);
         tintPaint.setStrokeWidth(footer.getResources().getDisplayMetrics().density);

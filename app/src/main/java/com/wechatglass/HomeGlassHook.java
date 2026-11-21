@@ -55,6 +55,7 @@ final class HomeGlassHook {
 
     private FrameLayout overlay;
     private GlassLayerView glassLayer;
+    private int scrollLogCount;
     private GlassChipView leftChip;
     private GlassChipView titleChip;
     private GlassChipView searchChip;
@@ -293,16 +294,33 @@ final class HomeGlassHook {
         if (list instanceof ViewGroup && overlay != null
                 && HookConfig.glassEnabled(activity)) {
             renderer.setLayerMode(true);
-            glassLayer = new GlassLayerView(activity, overlay);
-            GlassLayerView layer = glassLayer;
-            overlay.addView(layer, 0, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight));
-            layer.setBackdrop(findVisibleList(decor));
-            StringBuilder order = new StringBuilder("overlay order:");
-            for (int i = 0; i < overlay.getChildCount(); i++) {
-                order.append(' ').append(overlay.getChildAt(i).getClass().getSimpleName());
-            }
-            android.util.Log.i("WeChatGlass", order.toString());
+            final int tintColor = Ui.isNight(activity) ? 0x33000000 : 0x33FFFFFF;
+            final View[] blurChips = {titleChip, searchChip, plusChip};
+            overlay.post(new Runnable() {
+                @Override public void run() {
+                    boolean any = false;
+                    for (View ch : blurChips) {
+                        if (ch == null || ch.getWidth() <= 0 || ch.getHeight() <= 0) {
+                            continue;
+                        }
+                        View bv = WeChatBlurBar.create(activity, (ViewGroup) decor,
+                                ch.getWidth(), ch.getHeight(), tintColor);
+                        if (bv == null) {
+                            continue;
+                        }
+                        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                                ch.getWidth(), ch.getHeight());
+                        lp.leftMargin = ch.getLeft();
+                        lp.topMargin = ch.getTop();
+                        overlay.addView(bv, 0, lp);
+                        any = true;
+                    }
+                    overlay.bringChildToFront(titleChip);
+                    overlay.bringChildToFront(searchChip);
+                    overlay.bringChildToFront(plusChip);
+                    android.util.Log.i("WeChatGlass", "HL blur chips any=" + any);
+                }
+            });
         }
 
         decor.getViewTreeObserver().addOnGlobalLayoutListener(
@@ -632,7 +650,7 @@ final class HomeGlassHook {
         // on Japanese/English builds.
         View discover = Ui.findByClassContains(contentRoot, "PullDownListView");
         if (discover != null && discover.isShown()) {
-            int top = Ui.statusBarHeight(decor) + Ui.dp(activity, 56f);
+            int top = Ui.statusBarHeight(decor) + Ui.dp(activity, 8f);
             if (discover.getPaddingTop() != top) {
                 discover.setPadding(discover.getPaddingLeft(), top,
                         discover.getPaddingRight(), discover.getPaddingBottom());
@@ -897,7 +915,7 @@ final class HomeGlassHook {
             return 0;
         }
         if (legacyTopInset > 0) {
-            return legacyTopInset;
+            return Ui.statusBarHeight(decor) + Ui.dp(activity, 8f);
         }
         int status = Ui.statusBarHeight(decor);
         int bar = actionBar == null ? 0 : actionBar.getHeight();
@@ -959,6 +977,15 @@ final class HomeGlassHook {
         if (list instanceof ViewGroup) {
             ((ViewGroup) list).setClipToPadding(false);
         }
+        if (list != null) {
+            int[] ll = new int[2];
+            list.getLocationOnScreen(ll);
+            android.util.Log.i("WeChatGlass", "HL geom listTop=" + ll[1]
+                    + " listH=" + list.getHeight()
+                    + " padTop=" + list.getPaddingTop()
+                    + " clipPad=" + ((ViewGroup) list).getClipToPadding()
+                    + " overlayTop=" + (overlay == null ? -1 : overlay.getTop()));
+        }
         list.setOnScrollChangeListener(new View.OnScrollChangeListener() {
             @Override
             public void onScrollChange(View v, int scrollX, int scrollY, int oldScrollX,
@@ -968,6 +995,9 @@ final class HomeGlassHook {
                 }
                 if (glassLayer != null) {
                     glassLayer.invalidate();
+                    if (++scrollLogCount % 30 == 0) {
+                        android.util.Log.i("WeChatGlass", "HL scroll invalidate n=" + scrollLogCount);
+                    }
                 }
             }
         });
