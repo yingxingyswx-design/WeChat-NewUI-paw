@@ -268,6 +268,9 @@ final class HomeGlassHook {
         addChip(overlay, titleChip, chipHeight);
         addChip(overlay, searchChip, chipHeight);
         addChip(overlay, plusChip, chipHeight);
+        renderer.addSkipTarget(titleChip);
+        renderer.addSkipTarget(searchChip);
+        renderer.addSkipTarget(plusChip);
         renderer.addClient(titleChip);
         renderer.addClient(searchChip);
         renderer.addClient(plusChip);

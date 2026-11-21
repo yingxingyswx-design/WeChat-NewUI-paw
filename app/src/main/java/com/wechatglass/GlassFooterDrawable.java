@@ -60,6 +60,11 @@ final class GlassFooterDrawable extends Drawable {
         shape.reset();
         rect.set(0, 0, width, height);
         shape.addRoundRect(rect, radius, radius, Path.Direction.CW);
+        android.graphics.Rect cb = new android.graphics.Rect();
+        canvas.getClipBounds(cb);
+        android.util.Log.i("WeChatGlass", "draw diag anchor=" + anchor.getClass().getSimpleName()
+                + " aLoc=" + al[0] + "," + al[1] + " hw=" + width + "x" + height
+                + " clip=" + cb + " host=" + footer.getClass().getSimpleName());
         int save = canvas.save();
         canvas.translate(al[0] - fl[0], al[1] - fl[1]);
         canvas.clipPath(shape);

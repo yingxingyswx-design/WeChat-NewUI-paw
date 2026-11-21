@@ -472,6 +472,9 @@ final class ChatGlassHook {
         addChip(group, backChip, chipHeight);
         addChip(group, titleChip, chipHeight);
         addChip(group, menuChip, chipHeight);
+        renderer.addSkipTarget(backChip);
+        renderer.addSkipTarget(titleChip);
+        renderer.addSkipTarget(menuChip);
         if (scrollLayout instanceof ViewGroup && HookConfig.glassEnabled(activity)) {
             ViewGroup tp = null;
             ViewGroup sl = (ViewGroup) scrollLayout;
@@ -722,12 +725,19 @@ final class ChatGlassHook {
     }
 
     private void ensureFooterGlass() {
-        if (footerGlassSet || footer == null || !(scrollLayout instanceof ViewGroup)) {
-            android.util.Log.i("WeChatGlass", "footer glass skip footer=" + (footer == null)
-                    + " scroll=" + (scrollLayout == null));
+        ViewGroup root = scrollLayout instanceof ViewGroup
+                ? (ViewGroup) scrollLayout
+                : (decor instanceof ViewGroup ? (ViewGroup) decor : null);
+        if (footer == null || root == null) {
+            android.util.Log.i("WeChatGlass", "footer glass skip set=" + footerGlassSet
+                    + " footerNull=" + (footer == null)
+                    + " rootNull=" + (root == null)
+                    + " decorVG=" + (decor instanceof ViewGroup)
+                    + " scrollCls=" + (scrollLayout == null ? "null"
+                    : scrollLayout.getClass().getSimpleName()));
             return;
         }
-        View rv = Ui.findByClassContains(scrollLayout, "RecyclerView");
+        View rv = Ui.findByClassContains(root, "RecyclerView");
         if (!(rv instanceof ViewGroup)) {
             android.util.Log.i("WeChatGlass", "footer glass skip rv=null");
             return;
@@ -740,8 +750,21 @@ final class ChatGlassHook {
             if (hh >= 90 && hh <= 200 && cur.getWidth() > 600) { bar = cur; break; }
             cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
         }
-        if (bar == null) { android.util.Log.i("WeChatGlass", "footer glass skip: no input row"); return; }
-        bar.setForeground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
+        if (bar == null || bar.getHeight() > 220) { android.util.Log.i("WeChatGlass", "footer glass skip bad h=" + (bar == null ? -1 : bar.getHeight())); decor.postDelayed(new Runnable() { @Override public void run() { ensureFooterGlass(); } }, 800L); return; }
+        renderer.addSkipTarget(bar);
+        renderer.addSkipTarget(footer);
+        StringBuilder diag = new StringBuilder("anchor diag");
+        View pv = bar;
+        for (int k = 0; k < 4 && pv != null; k++) {
+            int[] pl = new int[2];
+            pv.getLocationOnScreen(pl);
+            diag.append(' ').append(pv.getClass().getSimpleName())
+                .append('[').append(pl[0]).append(',').append(pl[1]).append(']')
+                .append(pl[0]).append('/').append(pv.getWidth()).append('x').append(pv.getHeight());
+            pv = pv.getParent() instanceof View ? (View) pv.getParent() : null;
+        }
+        android.util.Log.i("WeChatGlass", diag.toString());
+        bar.setBackground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
         footerGlassSet = true;
         android.util.Log.i("WeChatGlass", "footer glass set on " + bar.getClass().getSimpleName());
     }
@@ -856,7 +879,7 @@ final class ChatGlassHook {
     }
 
     private void setupList() {
-        list = Ui.findByClassContains(scrollLayout, "RecyclerView");
+        list = Ui.findByClassContains(decor, "RecyclerView");
         if (list == null) {
             return;
         }
@@ -884,6 +907,7 @@ final class ChatGlassHook {
      * ticker as heights settle and from global layout.
      */
     private void applyEdgeLayout() {
+        ensureFooterGlass();
         if (renderer == null) {
             return;
         }

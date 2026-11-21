@@ -36,6 +36,7 @@ final class GlassRenderer {
     private ViewGroup backdrop;
     private boolean glass;
     private boolean layerMode;
+    private final java.util.ArrayList<View> skipTargets = new java.util.ArrayList<>();
 
     void setLayerMode(boolean enabled) {
         layerMode = enabled;
@@ -98,7 +99,7 @@ final class GlassRenderer {
     void drawGlass(Canvas canvas, View target, float left, float top, float right, float bottom,
                    float topRadius, float bottomRadius, int tintColor, int borderColor) {
         if (canvas == null || target == null || right <= left || bottom <= top
-                || layerMode) {
+                || (layerMode && skipTargets.contains(target))) {
             return;
         }
         shape.reset();
@@ -211,6 +212,10 @@ final class GlassRenderer {
         backdrop = null;
         node = null;
         effect = null;
+    }
+
+    void addSkipTarget(View view) {
+        if (view != null) { skipTargets.add(view); }
     }
 
     private float dp(float value) {
