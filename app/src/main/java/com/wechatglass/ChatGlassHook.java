@@ -313,6 +313,8 @@ final class ChatGlassHook {
                 }
             }
             if (page != null) {
+                View mr = Ui.findByClassContains(page, "RecyclerView");
+                if (mr instanceof ViewGroup) { page = (ViewGroup) mr; }
                 View bar = Ui.findByClassContains(footer, "ChatFooterBottom");
                 footer.setBackground(new GlassFooterDrawable(bar != null ? bar : footer, page));
             }
@@ -496,6 +498,8 @@ final class ChatGlassHook {
                 }
             }
             if (tp != null) {
+                View tmr = Ui.findByClassContains(tp, "RecyclerView");
+                if (tmr instanceof ViewGroup) { tp = (ViewGroup) tmr; }
                 renderer.setLayerMode(true);
                 GlassLayerView layer = new GlassLayerView(activity, group);
                 group.addView(layer, 0, new FrameLayout.LayoutParams(
