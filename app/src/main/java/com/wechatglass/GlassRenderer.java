@@ -156,41 +156,32 @@ final class GlassRenderer {
         float scale = 0.25f;
         int bw = Math.max(1, (int) (bandWidth * scale));
         int bh = Math.max(1, (int) (height * scale));
-        if (bandBitmap == null || bandBitmap.getWidth() != bw
-                || bandBitmap.getHeight() != bh) {
-            bandBitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
-            bandCanvas = new Canvas(bandBitmap);
-        } else {
-            bandBitmap.eraseColor(0);
-            bandCanvas.setBitmap(bandBitmap);
+        if (node == null) {
+            node = new RenderNode("wxGlassBand");
         }
+        node.setPosition(0, 0, bandWidth, height);
+        RecordingCanvas rc = node.beginRecording(bandWidth, height);
+        rc.drawColor(0x00000000);
+        BackdropLite.draw(rc, backdrop, bandLeft, bandTop, bandWidth, height);
+        node.endRecording();
 
-        bandCanvas.save();
-        bandCanvas.scale(scale, scale);
-        bandCanvas.clipRect(bandLeft, bandTop, bandLeft + bandWidth, bandTop + height);
-        bandCanvas.translate(-bandLeft, -bandTop);
-        try {
-            backdrop.draw(bandCanvas);
-        } catch (Throwable throwable) {
-            Log.e("WeChatGlass", "backdrop software draw failed", throwable);
+        if (effect == null) {
+            effect = RenderEffect.createBlurEffect(
+                    dp(12f), dp(12f), Shader.TileMode.CLAMP);
         }
-        bandCanvas.restore();
-
-        StackBlur.blur(bandBitmap, 8);
+        node.setRenderEffect(effect);
 
         if (draws < 12) {
             draws++;
-            Log.i("WeChatGlass", "cpu glass band=" + bandWidth + "x" + height
-                    + " bmp=" + bw + "x" + bh
+            Log.i("WeChatGlass", "gpu glass band=" + bandWidth + "x" + height
+                    + " hw=" + canvas.isHardwareAccelerated()
                     + " backdrop=" + backdrop.getClass().getSimpleName());
         }
 
         int save = canvas.save();
         canvas.clipPath(shape);
         canvas.translate(bandLeft - loc[0], bandTop - loc[1]);
-        srcRect.set(0, 0, bw, bh);
-        dstRect.set(0, 0, bandWidth, height);
-        canvas.drawBitmap(bandBitmap, srcRect, dstRect, bitmapPaint);
+        canvas.drawRenderNode(node);
         canvas.restoreToCount(save);
     }
 
