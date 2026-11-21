@@ -110,6 +110,7 @@ final class GlassLayerView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        if (!canvas.isHardwareAccelerated()) { return; } // SW guard
         int[] gl = new int[2];
         getLocationOnScreen(gl);
         android.util.Log.i("WeChatGlass", "layer onDraw geom=" + gl[0] + "," + gl[1]

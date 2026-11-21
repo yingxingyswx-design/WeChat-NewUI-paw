@@ -66,6 +66,9 @@ final class ChatGlassHook {
     private View menuView;
     private View footer;
     private View footerPanel;
+    private View footerBar;
+    private boolean blurSyncStarted;
+    private int blurSyncFrames;
     private View footerBottom;
 
     private View chatRoot;
@@ -477,6 +480,7 @@ final class ChatGlassHook {
         renderer.addSkipTarget(backChip);
         renderer.addSkipTarget(titleChip);
         renderer.addSkipTarget(menuChip);
+        startBlurSync();
         for (int ci = 0; ci < group.getChildCount(); ci++) {
             View cv = group.getChildAt(ci);
             int[] cl = new int[2];
@@ -758,6 +762,130 @@ final class ChatGlassHook {
         return null;
     }
 
+    private void attachBlurBehind(View target) {
+        if (true) { return; } // BlurView disabled: runtime field names differ (JADX renames)
+        if (target instanceof GlassChipView) { return; } // chips: tint only (perf)
+        if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0) return;
+        ViewGroup decorRoot = (decor instanceof ViewGroup) ? (ViewGroup) decor : null;
+        if (decorRoot == null) return;
+        int w = target.getWidth(), h = target.getHeight();
+        int[] loc = new int[2];
+        int[] dec = new int[2];
+        target.getLocationOnScreen(loc);
+        decor.getLocationOnScreen(dec);
+        int x = loc[0] - dec[0], y = loc[1] - dec[1];
+        View existing = null;
+        for (int i = decorRoot.getChildCount() - 1; i >= 0; i--) {
+            View c = decorRoot.getChildAt(i);
+            if (c.getTag() != target) continue;
+            if (existing == null) existing = c; else decorRoot.removeView(c);
+        }
+        if (existing != null) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) existing.getLayoutParams();
+            if (lp.width != w || lp.height != h || lp.leftMargin != x || lp.topMargin != y) {
+                lp.width = w; lp.height = h; lp.leftMargin = x; lp.topMargin = y;
+                existing.setLayoutParams(lp);
+            }
+            if (existing instanceof RoundClipLayout) {
+                boolean isPanel = target.getClass().getSimpleName().contains("AppPanel");
+                boolean open = footerPanel != null && footerPanel.isShown()
+                        && footerPanel.getHeight() > 0;
+                float r2 = h / 2f;
+                float c2 = Math.round(24f * decor.getResources().getDisplayMetrics().density);
+                RoundClipLayout rc = (RoundClipLayout) existing;
+                if (isPanel) rc.setRadii(0f, 0f, c2, c2);
+                else if (open) rc.setRadii(r2, r2, 0f, 0f);
+                else rc.setRadii(r2, r2, r2, r2);
+            }
+            return;
+        }
+        boolean dark = Ui.isNight(activity);
+        if (titleView instanceof android.widget.TextView) {
+            dark = (((android.widget.TextView) titleView).getCurrentTextColor() & 0xFFFFFF) > 0x999999;
+        }
+        boolean panel = target.getClass().getSimpleName().contains("AppPanel");
+        float r = h / 2f;
+        float corner = Math.round(24f * decor.getResources().getDisplayMetrics().density);
+        int radius = panel ? Math.round(corner) : Math.round(r);
+        View bv = WeChatBlurBar.create(activity, decorRoot, w, h,
+                dark ? 0x33000000 : 0x33FFFFFF, radius);
+        if (bv == null) return;
+        View wrap;
+        if (panel) {
+            RoundClipLayout rc = new RoundClipLayout(activity);
+            rc.addView(bv, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            rc.setRadii(0f, 0f, corner, corner);            // panel: bottom only
+            wrap = rc;
+        } else {
+            wrap = bv;                                       // input row: BlurView clips itself
+        }
+        wrap.setTag(target);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, h);
+        lp.leftMargin = x; lp.topMargin = y;
+        if (target instanceof GlassChipView && target.getParent() instanceof ViewGroup) {
+            ViewGroup host = (ViewGroup) target.getParent();
+            FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(w, h);
+            clp.leftMargin = target.getLeft();
+            clp.topMargin = target.getTop();
+            host.addView(wrap, Math.max(0, host.indexOfChild(target)), clp);
+        } else if (target.getParent() instanceof ViewGroup) {
+            ViewGroup host = (ViewGroup) target.getParent();
+            FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(w, h);
+            host.addView(wrap, Math.max(0, host.indexOfChild(target)), hlp);
+            wrap.setX(target.getLeft());
+            wrap.setY(target.getTop());
+        } else {
+            decorRoot.addView(wrap, lp);
+        }
+        android.util.Log.i("WeChatGlass", "CB blur sync " + target.getClass().getSimpleName()
+                + " " + w + "x" + h + " at=" + x + "," + y);
+    }
+
+    private void makePanelTransparent(View v, int depth) {
+        if (v == null || depth > 8) return;
+        if (v instanceof ViewGroup) {
+            v.setBackground(null);
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                makePanelTransparent(g.getChildAt(i), depth + 1);
+            }
+        }
+    }
+
+    private void refreshChatBlurs() {
+        if (decor == null) return;
+        attachBlurBehind(backChip);
+        attachBlurBehind(titleChip);
+        attachBlurBehind(menuChip);
+        if (footerBar != null) attachBlurBehind(footerBar);
+        if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
+            attachBlurBehind(footerPanel);
+        } else if (footerPanel != null && decor instanceof ViewGroup) {
+            ViewGroup dr = (ViewGroup) decor;
+            for (int i = dr.getChildCount() - 1; i >= 0; i--) {
+                if (dr.getChildAt(i).getTag() == footerPanel) {
+                    dr.removeViewAt(i);
+                    android.util.Log.i("WeChatGlass", "CB panel blur removed");
+                }
+            }
+        }
+    }
+
+    private void startBlurSync() {
+        if (blurSyncStarted || decor == null) return;
+        blurSyncStarted = true;
+        decor.postDelayed(new Runnable() {
+            @Override public void run() {
+                refreshChatBlurs();
+                if (decor != null && blurSyncStarted) {
+                    decor.postDelayed(this, 120);
+                }
+            }
+        }, 120);
+        android.util.Log.i("WeChatGlass", "CB blur sync loop started");
+    }
+
     private void ensureFooterGlass() {
         ViewGroup root = scrollLayout instanceof ViewGroup
                 ? (ViewGroup) scrollLayout
@@ -798,7 +926,16 @@ final class ChatGlassHook {
             pv = pv.getParent() instanceof View ? (View) pv.getParent() : null;
         }
         android.util.Log.i("WeChatGlass", diag.toString());
-        bar.setBackground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
+        footerBar = bar;
+        clearFooterBackgrounds(); // restore transparent footer chain
+        Ui.transparent(bar);
+        if (footerBottom != null) { Ui.transparent(footerBottom); }
+        bar.setBackground(null);
+        attachBlurBehind(bar);
+        if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
+            attachBlurBehind(footerPanel);
+        }
+        // bar background now provided by WeChatBlurBar (BlurView); GlassFooterDrawable disabled
         android.util.Log.i("WeChatGlass", "CL footer apply on " + bar.getClass().getSimpleName()
                 + " h=" + bar.getHeight());
         makeTranslucent(bar, 204);
@@ -955,6 +1092,12 @@ final class ChatGlassHook {
      * ticker as heights settle and from global layout.
      */
     private void applyEdgeLayout() {
+        // chat top blur chips
+        if (renderer != null) {
+            attachBlurBehind(backChip);
+            attachBlurBehind(titleChip);
+            attachBlurBehind(menuChip);
+        }
         // tick: re-apply top offset (WeChat resets translation on its layout)
         if (actionBar != null) {
             actionBar.setTranslationY(Ui.statusBarHeight(decor));

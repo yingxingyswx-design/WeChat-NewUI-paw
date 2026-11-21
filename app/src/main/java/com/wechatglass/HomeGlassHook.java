@@ -310,15 +310,21 @@ final class HomeGlassHook {
                             continue;
                         }
                         View bv = WeChatBlurBar.create(activity, (ViewGroup) decor,
-                                ch.getWidth(), ch.getHeight(), tintColor);
+                                ch.getWidth(), ch.getHeight(), tintColor, 0);
                         if (bv == null) {
                             continue;
                         }
+                        RoundClipLayout wrap = new RoundClipLayout(activity);
+                        wrap.addView(bv, new FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT));
+                        float rr = ch.getHeight() / 2f;
+                        wrap.setRadii(rr, rr, rr, rr);
                         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                                 ch.getWidth(), ch.getHeight());
                         lp.leftMargin = ch.getLeft();
                         lp.topMargin = ch.getTop();
-                        overlay.addView(bv, 0, lp);
+                        overlay.addView(wrap, 0, lp);
                         any = true;
                     }
                     overlay.bringChildToFront(titleChip);
