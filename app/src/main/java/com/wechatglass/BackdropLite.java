@@ -30,20 +30,7 @@ final class BackdropLite {
             canvas.translate(loc[0] - left, loc[1] - top);
             // After the translate the capture rect starts at (0,0).
             canvas.clipRect(0, 0, width, height);
-            Method drawChild = drawChild();
-            long time = root.getDrawingTime();
-            for (int i = 0; i < root.getChildCount(); i++) {
-                View child = root.getChildAt(i);
-                if (child.getVisibility() != View.VISIBLE
-                        || child.getWidth() <= 0 || child.getHeight() <= 0) {
-                    continue;
-                }
-                if (drawChild != null) {
-                    drawChild.invoke(root, canvas, child, time);
-                } else {
-                    child.draw(canvas);
-                }
-            }
+            root.draw(canvas);
         } catch (Throwable ignored) {
         } finally {
             canvas.restoreToCount(save);

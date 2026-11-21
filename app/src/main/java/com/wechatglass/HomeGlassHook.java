@@ -34,11 +34,6 @@ final class HomeGlassHook {
     private static final boolean DEBUG_HIDE_OVERLAY = false;
     private static final Map<Activity, HomeGlassHook> INSTANCES = new WeakHashMap<>();
     private static volatile boolean nativeBarAllowed;
-    private static volatile int barShift;
-
-    static int getBarShift() {
-        return barShift;
-    }
 
     static boolean isNativeBarAllowed() {
         return nativeBarAllowed;
@@ -249,11 +244,6 @@ final class HomeGlassHook {
         actionBar.setAlpha(0f);
         disableWindowContentOverlay();
 
-        // The native bar's position is controlled by ActionBarOverlayLayout,
-        // which ignores margins. HookEntry offsets its child after layout
-        // using this value.
-        barShift = Math.max(0, actionBarHeight - Ui.statusBarHeight(decor));
-
         int chipHeight = Ui.dp(activity, 40f);
         overlay = new FrameLayout(activity);
         overlay.setClipChildren(false);
@@ -294,7 +284,7 @@ final class HomeGlassHook {
         forceContentBehindTop();
         setupList();
         if (list != null && list.getParent() instanceof ViewGroup) {
-            renderer.setBackdrop((ViewGroup) list);
+            renderer.setBackdrop((ViewGroup) list.getParent());
         }
 
         decor.getViewTreeObserver().addOnGlobalLayoutListener(
@@ -1060,10 +1050,6 @@ final class HomeGlassHook {
         top = Math.min(top, Math.max(0, height - chipHeight - Ui.dp(activity, 2f)));
 
         if (overlay != null) {
-            if (barShift > 0 && actionBar != null
-                    && actionBar.getTop() != barShift) {
-                actionBar.offsetTopAndBottom(barShift - actionBar.getTop());
-            }
             int overlayHeight = Math.max(height, top + chipHeight + Ui.dp(activity, 4f));
             ViewGroup.LayoutParams op = overlay.getLayoutParams();
             if (op != null && op.height != overlayHeight) {
