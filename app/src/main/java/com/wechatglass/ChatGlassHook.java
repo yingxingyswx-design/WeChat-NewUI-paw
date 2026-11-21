@@ -316,7 +316,7 @@ final class ChatGlassHook {
                 View mr = Ui.findByClassContains(page, "RecyclerView");
                 if (mr instanceof ViewGroup) { page = (ViewGroup) mr; }
                 View bar = Ui.findByClassContains(footer, "ChatFooterBottom");
-                footer.setBackground(new GlassFooterDrawable(bar != null ? bar : footer, page));
+                footer.setBackground(new GlassFooterDrawable(footer, bar != null ? bar : footer, page));
             }
         }
         setupList();
