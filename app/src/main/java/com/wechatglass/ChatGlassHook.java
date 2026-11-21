@@ -888,6 +888,7 @@ final class ChatGlassHook {
     private long lastWallMod = -1;
     private boolean wallProbeLogged;
     private boolean scopeLogged;
+    private boolean appbrandLogged;
 
     private void syncWallpaperFromProvider() {
         long now = System.currentTimeMillis();
@@ -1011,6 +1012,15 @@ final class ChatGlassHook {
 
     private void ensureLiquidPills() {
         if (decor == null || activity == null) return;
+        String actName = activity.getClass().getName();
+        if (actName.contains("AppBrand") || actName.contains("appbrand")) {
+            if (!appbrandLogged) {
+                appbrandLogged = true;
+                android.util.Log.i("WeChatGlass", "CB skip pills on " + actName);
+            }
+            removeLiquidPills();
+            return;
+        }
         if (!HookConfig.glassEnabled(activity)) {
             removeLiquidPills();
             return;

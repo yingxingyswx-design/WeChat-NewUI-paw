@@ -57,6 +57,7 @@ final class HomeGlassHook {
     private GlassLayerView glassLayer;
     private boolean homeWallLoop;
     private int homeWallTicks;
+    private boolean homeWasFocused;
     private int scrollLogCount;
     private GlassChipView leftChip;
     private GlassChipView titleChip;
@@ -291,18 +292,20 @@ final class HomeGlassHook {
             homeWallLoop = true;
             decor.postDelayed(new Runnable() {
                 @Override public void run() {
-                    if (activity != null && activity.hasWindowFocus()) {
+                    if (activity == null) { return; }
+                    if (!activity.hasWindowFocus()) {
+                        homeWasFocused = false;
+                    } else {
                         com.wechatglass.liquid.LiquidPanelFactory.enableCaptureWallpaper(false);
-                        if (decor instanceof ViewGroup) {
+                        if (!homeWasFocused && decor instanceof ViewGroup) {
                             ViewGroup g = (ViewGroup) decor;
                             for (int i = 0; i < g.getChildCount(); i++) {
                                 com.wechatglass.liquid.LiquidPanelFactory
                                         .forceRecapture(g.getChildAt(i));
                             }
+                            android.util.Log.i("WeChatGlass", "CB home recapture once");
                         }
-                        if (homeWallTicks++ % 8 == 0) {
-                            android.util.Log.i("WeChatGlass", "CB home wall tick n=" + homeWallTicks);
-                        }
+                        homeWasFocused = true;
                     }
                     if (decor != null) decor.postDelayed(this, 120);
                 }
