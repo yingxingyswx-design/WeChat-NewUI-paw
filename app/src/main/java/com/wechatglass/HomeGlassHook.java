@@ -294,7 +294,13 @@ final class HomeGlassHook {
         if (list instanceof ViewGroup && overlay != null
                 && HookConfig.glassEnabled(activity)) {
             renderer.setLayerMode(true);
-            final int tintColor = Ui.isNight(activity) ? 0x33000000 : 0x33FFFFFF;
+            boolean darkTheme = Ui.isNight(activity);
+            if (titleView instanceof android.widget.TextView) {
+                int tc = ((android.widget.TextView) titleView).getCurrentTextColor();
+                darkTheme = (tc & 0xFFFFFF) > 0x999999;
+            }
+            final int tintColor = darkTheme ? 0x33000000 : 0x33FFFFFF;
+            android.util.Log.i("WeChatGlass", "HL theme dark=" + darkTheme + " tint=" + Integer.toHexString(tintColor));
             final View[] blurChips = {titleChip, searchChip, plusChip};
             overlay.post(new Runnable() {
                 @Override public void run() {
