@@ -55,6 +55,8 @@ final class HomeGlassHook {
 
     private FrameLayout overlay;
     private GlassLayerView glassLayer;
+    private boolean homeWallLoop;
+    private int homeWallTicks;
     private int scrollLogCount;
     private GlassChipView leftChip;
     private GlassChipView titleChip;
@@ -285,7 +287,64 @@ final class HomeGlassHook {
             }
         });
 
+        if (!homeWallLoop) {
+            homeWallLoop = true;
+            decor.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (activity != null && activity.hasWindowFocus()) {
+                        com.wechatglass.liquid.LiquidPanelFactory.enableCaptureWallpaper(false);
+                        if (decor instanceof ViewGroup) {
+                            ViewGroup g = (ViewGroup) decor;
+                            for (int i = 0; i < g.getChildCount(); i++) {
+                                com.wechatglass.liquid.LiquidPanelFactory
+                                        .forceRecapture(g.getChildAt(i));
+                            }
+                        }
+                        if (homeWallTicks++ % 8 == 0) {
+                            android.util.Log.i("WeChatGlass", "CB home wall tick n=" + homeWallTicks);
+                        }
+                    }
+                    if (decor != null) decor.postDelayed(this, 120);
+                }
+            }, 500);
+        }
+        com.wechatglass.liquid.LiquidPanelFactory.enableCaptureWallpaper(false);
+        android.util.Log.i("WeChatGlass", "CB scope home page OFF");
         enableOverlay();
+        final android.app.Activity act = activity;
+        final ViewGroup ov = overlay;
+        if (ov != null) {
+            ov.post(new Runnable() {
+                @Override public void run() {
+                    View[] chips = {titleChip, searchChip, plusChip};
+                    View bg = findVisibleList(decor);
+                    for (View ch : chips) {
+                        if (ch == null || ch.getWidth() <= 0 || ch.getHeight() <= 0) continue;
+                        try {
+                            if (bg instanceof ViewGroup) {
+                                com.wechatglass.liquid.LiquidPanelFactory
+                                        .setWallpaperEnabled((ViewGroup) bg, false);
+                                android.util.Log.i("WeChatGlass", "CB scope home OFF "
+                                        + bg.getClass().getSimpleName() + "@" + System.identityHashCode(bg));
+                            }
+                            View lp = com.wechatglass.liquid.LiquidPanelFactory.create(act,
+                                    (ViewGroup) (bg == null ? decor : bg),
+                                    act.getResources().getDisplayMetrics().density,
+                                    Ui.isNight(act));
+                            if (lp == null) continue;
+                            FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
+                                    ch.getWidth(), ch.getHeight());
+                            flp.leftMargin = ch.getLeft();
+                            flp.topMargin = ch.getTop();
+                            ov.addView(lp, 0, flp);
+                            android.util.Log.i("WeChatGlass", "HL liquid pill " + ch.getWidth() + "x" + ch.getHeight());
+                        } catch (Throwable t) {
+                            android.util.Log.e("WeChatGlass", "HL liquid pill fail", t);
+                        }
+                    }
+                }
+            });
+        }
         forceContentBehindTop();
         setupList();
         if (list != null && list.getParent() instanceof ViewGroup) {
@@ -310,21 +369,15 @@ final class HomeGlassHook {
                             continue;
                         }
                         View bv = WeChatBlurBar.create(activity, (ViewGroup) decor,
-                                ch.getWidth(), ch.getHeight(), tintColor, 0);
+                                ch.getWidth(), ch.getHeight(), tintColor);
                         if (bv == null) {
                             continue;
                         }
-                        RoundClipLayout wrap = new RoundClipLayout(activity);
-                        wrap.addView(bv, new FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT));
-                        float rr = ch.getHeight() / 2f;
-                        wrap.setRadii(rr, rr, rr, rr);
                         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                                 ch.getWidth(), ch.getHeight());
                         lp.leftMargin = ch.getLeft();
                         lp.topMargin = ch.getTop();
-                        overlay.addView(wrap, 0, lp);
+                        overlay.addView(bv, 0, lp);
                         any = true;
                     }
                     overlay.bringChildToFront(titleChip);

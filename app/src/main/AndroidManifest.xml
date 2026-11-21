@@ -37,5 +37,9 @@
             android:name="xposedscope"
             android:resource="@array/xposedscope" />
 
+            <provider
+            android:name=".ConfigProvider"
+            android:authorities="com.wechatglass.config"
+            android:exported="true" />
     </application>
 </manifest>

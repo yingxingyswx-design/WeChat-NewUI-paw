@@ -66,10 +66,6 @@ final class ChatGlassHook {
     private View menuView;
     private View footer;
     private View footerPanel;
-    private View footerBar;
-    private boolean blurSyncStarted;
-    private boolean frostedHooked;
-    private int blurSyncFrames;
     private View footerBottom;
 
     private View chatRoot;
@@ -481,7 +477,7 @@ final class ChatGlassHook {
         renderer.addSkipTarget(backChip);
         renderer.addSkipTarget(titleChip);
         renderer.addSkipTarget(menuChip);
-        startBlurSync();
+        startPillLoop();
         for (int ci = 0; ci < group.getChildCount(); ci++) {
             View cv = group.getChildAt(ci);
             int[] cl = new int[2];
@@ -763,215 +759,301 @@ final class ChatGlassHook {
         return null;
     }
 
-    private void logChatGeometry() {
+    private boolean pillLoopStarted;
+    private boolean bgLogged;
+    private int wallHits;
+    private boolean wallpaperTried;
+    private boolean footerProbeLogged;
+    private View footerLiquid;
+
+    private String readConfig(String key) {
         try {
-            View sl = decor == null ? null : Ui.findByClassContains(decor, "ChattingScrollLayout");
-            View rv = decor == null ? null : Ui.findByClassContains(decor, "ScrollControlRecyclerView");
-            int[] a = new int[2];
-            int[] b = new int[2];
-            if (sl != null) sl.getLocationOnScreen(a);
-            if (rv != null) rv.getLocationOnScreen(b);
-            android.util.Log.i("WeChatGlass", "CB geom scroll="
-                    + (sl == null ? "null" : sl.getClass().getSimpleName() + "@" + a[0] + "," + a[1]
-                    + " " + sl.getWidth() + "x" + sl.getHeight() + " pad=" + sl.getPaddingTop())
-                    + " rv=" + (rv == null ? "null" : "@" + b[0] + "," + b[1]
-                    + " " + rv.getWidth() + "x" + rv.getHeight() + " pad=" + rv.getPaddingTop()));
-        } catch (Throwable ignored) { }
-    }
-
-    private void attachBlurBehind(View target) {
-        if (true) { return; } // BlurView disabled: runtime field names differ (JADX renames)
-        if (target instanceof GlassChipView) { return; } // chips: tint only (perf)
-        if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0) return;
-        ViewGroup decorRoot = (decor instanceof ViewGroup) ? (ViewGroup) decor : null;
-        if (decorRoot == null) return;
-        int w = target.getWidth(), h = target.getHeight();
-        int[] loc = new int[2];
-        int[] dec = new int[2];
-        target.getLocationOnScreen(loc);
-        decor.getLocationOnScreen(dec);
-        int x = loc[0] - dec[0], y = loc[1] - dec[1];
-        View existing = null;
-        for (int i = decorRoot.getChildCount() - 1; i >= 0; i--) {
-            View c = decorRoot.getChildAt(i);
-            if (c.getTag() != target) continue;
-            if (existing == null) existing = c; else decorRoot.removeView(c);
-        }
-        if (existing != null) {
-            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) existing.getLayoutParams();
-            if (lp.width != w || lp.height != h || lp.leftMargin != x || lp.topMargin != y) {
-                lp.width = w; lp.height = h; lp.leftMargin = x; lp.topMargin = y;
-                existing.setLayoutParams(lp);
-            }
-            if (existing instanceof RoundClipLayout) {
-                boolean isPanel = target.getClass().getSimpleName().contains("AppPanel");
-                boolean open = footerPanel != null && footerPanel.isShown()
-                        && footerPanel.getHeight() > 0;
-                float r2 = h / 2f;
-                float c2 = Math.round(24f * decor.getResources().getDisplayMetrics().density);
-                RoundClipLayout rc = (RoundClipLayout) existing;
-                if (isPanel) rc.setRadii(0f, 0f, c2, c2);
-                else if (open) rc.setRadii(r2, r2, 0f, 0f);
-                else rc.setRadii(r2, r2, r2, r2);
-            }
-            return;
-        }
-        boolean dark = Ui.isNight(activity);
-        if (titleView instanceof android.widget.TextView) {
-            dark = (((android.widget.TextView) titleView).getCurrentTextColor() & 0xFFFFFF) > 0x999999;
-        }
-        boolean panel = target.getClass().getSimpleName().contains("AppPanel");
-        float r = h / 2f;
-        float corner = Math.round(24f * decor.getResources().getDisplayMetrics().density);
-        int radius = panel ? Math.round(corner) : Math.round(r);
-        View bv = WeChatBlurBar.create(activity, decorRoot, w, h,
-                dark ? 0x33000000 : 0x33FFFFFF, radius);
-        if (bv == null) return;
-        View wrap;
-        if (panel) {
-            RoundClipLayout rc = new RoundClipLayout(activity);
-            rc.addView(bv, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            rc.setRadii(0f, 0f, corner, corner);            // panel: bottom only
-            wrap = rc;
-        } else {
-            wrap = bv;                                       // input row: BlurView clips itself
-        }
-        wrap.setTag(target);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, h);
-        lp.leftMargin = x; lp.topMargin = y;
-        if (target instanceof GlassChipView && target.getParent() instanceof ViewGroup) {
-            ViewGroup host = (ViewGroup) target.getParent();
-            FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(w, h);
-            clp.leftMargin = target.getLeft();
-            clp.topMargin = target.getTop();
-            host.addView(wrap, Math.max(0, host.indexOfChild(target)), clp);
-        } else if (target.getParent() instanceof ViewGroup) {
-            ViewGroup host = (ViewGroup) target.getParent();
-            FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(w, h);
-            host.addView(wrap, Math.max(0, host.indexOfChild(target)), hlp);
-            wrap.setX(target.getLeft());
-            wrap.setY(target.getTop());
-        } else {
-            decorRoot.addView(wrap, lp);
-        }
-        android.util.Log.i("WeChatGlass", "CB blur sync " + target.getClass().getSimpleName()
-                + " " + w + "x" + h + " at=" + x + "," + y);
-    }
-
-    private void makePanelTransparent(View v, int depth) {
-        if (v == null || depth > 8) return;
-        if (v instanceof ViewGroup) {
-            v.setBackground(null);
-            ViewGroup g = (ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) {
-                makePanelTransparent(g.getChildAt(i), depth + 1);
-            }
-        }
-    }
-
-    private void hookFrostedClip() {
-        if (frostedHooked) { return; }
-        frostedHooked = true;
-        try {
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    "com.tencent.mm.ui.FrostedContentView", decor.getContext().getClassLoader(),
-                    "onDraw", android.graphics.Canvas.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void beforeHookedMethod(MethodHookParam p) {
-                            android.graphics.Canvas c = (android.graphics.Canvas) p.args[0];
-                            android.view.View v = (android.view.View) p.thisObject;
-                            int w = v.getWidth(), h = v.getHeight();
-                            if (w <= 0 || h <= 0) return;
-                            float r = Math.min(w, h) / 2f;
-                            android.graphics.Path path = new android.graphics.Path();
-                            path.addRoundRect(0, 0, w, h, new float[]{r,r,r,r,r,r,r,r},
-                                    android.graphics.Path.Direction.CW);
-                            int save = c.save();
-                            c.clipPath(path);
-                            p.setObjectExtra("saved", save);
-                        }
-                        @Override protected void afterHookedMethod(MethodHookParam p) {
-                            Object s2 = p.getObjectExtra("saved");
-                            if (s2 instanceof Integer) {
-                                ((android.graphics.Canvas) p.args[0]).restoreToCount((Integer) s2);
-                            }
-                        }
-                    });
-            android.util.Log.i("WeChatGlass", "CB frosted clip hooked");
+            Class<?> c = Class.forName("de.robv.android.xposed.XSharedPreferences");
+            Object sp = c.getConstructor(String.class, String.class)
+                    .newInstance("com.wechatglass", "settings");
+            c.getMethod("reload").invoke(sp);
+            Object v = c.getMethod("getString", String.class, String.class)
+                    .invoke(sp, key, null);
+            return (String) v;
         } catch (Throwable t) {
-            android.util.Log.e("WeChatGlass", "CB frosted clip hook fail", t);
+            android.util.Log.e("WeChatGlass", "CB xsp read fail " + key, t);
         }
+        return null;
     }
 
-    private void enableFrosted() {
-        if (decor == null) return;
-        View fv = Ui.findByClassContains(decor, "FrostedContentView");
-        android.util.Log.i("WeChatGlass", "CB frosted found="
-                + (fv == null ? "null" : fv.getClass().getSimpleName()));
-        if (fv == null) return;
+    private void loadWallpaper() {
         try {
-            Class<?> c = fv.getClass();
-            c.getMethod("setFrostedEnabled", boolean.class).invoke(fv, true);
-            c.getMethod("setBlurRadius", int.class).invoke(fv, 50);
-            int bh = actionBar == null ? 0 : actionBar.getHeight();
-            c.getMethod("setTopBlurAreaHeight", int.class).invoke(fv, 0);
-            int fc = Ui.isNight(activity) ? 0x33000000 : 0x33FFFFFF;
-            c.getMethod("setFrostedColor", int.class).invoke(fv, fc);
-            fv.setTranslationY(0f);
-            int bottom = footerBar == null ? 0 : footerBar.getHeight();
-            if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
-                bottom += footerPanel.getHeight();
-            }
-            bottom += (footerBar == null ? 0 : footerBar.getHeight() / 2);
-            c.getMethod("setBottomBlurAreaHeight", int.class).invoke(fv, bottom);
-            fv.setVisibility(View.VISIBLE);
-            android.util.Log.i("WeChatGlass", "CB frosted enabled top=" + bh);
-        } catch (Throwable t) {
-            android.util.Log.e("WeChatGlass", "CB frosted fail", t);
-        }
-    }
-
-    private void refreshChatBlurs() {
-        if (decor == null) return;
-        attachBlurBehind(backChip);
-        attachBlurBehind(titleChip);
-        attachBlurBehind(menuChip);
-        enableFrosted();
-        if (footerBar != null) {
-            logChatGeometry();
-            if (footerBar.getBackground() instanceof GlassFooterDrawable) {
-                boolean open = footerPanel != null && footerPanel.isShown()
-                        && footerPanel.getHeight() > 0;
-                ((GlassFooterDrawable) footerBar.getBackground()).setPanelOpen(open);
-            }
-            attachBlurBehind(footerBar);
-        }
-        if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
-            attachBlurBehind(footerPanel);
-        } else if (footerPanel != null && decor instanceof ViewGroup) {
-            ViewGroup dr = (ViewGroup) decor;
-            for (int i = dr.getChildCount() - 1; i >= 0; i--) {
-                if (dr.getChildAt(i).getTag() == footerPanel) {
-                    dr.removeViewAt(i);
-                    android.util.Log.i("WeChatGlass", "CB panel blur removed");
+            String cfg = readConfig("wallpaper_uri");
+            if (cfg != null && !cfg.isEmpty()) {
+                java.io.InputStream cin = activity.getContentResolver()
+                        .openInputStream(android.net.Uri.parse(cfg));
+                android.graphics.Bitmap cb = android.graphics.BitmapFactory.decodeStream(cin);
+                if (cin != null) cin.close();
+                if (cb != null) {
+                    com.wechatglass.liquid.LiquidPanelFactory.setWallpaper(cb);
+                    android.util.Log.i("WeChatGlass", "CB wallpaper provider " + cb.getWidth() + "x" + cb.getHeight());
+                    return;
                 }
             }
+            android.net.Uri uri = android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+            android.database.Cursor c = activity.getContentResolver().query(uri,
+                    new String[]{android.provider.MediaStore.Images.Media._ID},
+                    null, null, android.provider.MediaStore.Images.Media.DATE_ADDED + " DESC");
+            if (c == null) return;
+            try {
+                if (!c.moveToFirst()) return;
+                long id = c.getLong(0);
+                android.net.Uri img = android.content.ContentUris.withAppendedId(uri, id);
+                java.io.InputStream in = activity.getContentResolver().openInputStream(img);
+                android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(in);
+                if (in != null) in.close();
+                if (bmp != null) {
+                    com.wechatglass.liquid.LiquidPanelFactory.setWallpaper(bmp);
+                    android.util.Log.i("WeChatGlass", "CB wallpaper loaded " + bmp.getWidth() + "x" + bmp.getHeight());
+                }
+            } finally { c.close(); }
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB wallpaper fail", t);
         }
     }
 
-    private void startBlurSync() {
-        if (blurSyncStarted || decor == null) return;
-        blurSyncStarted = true;
+    private void scanWallpaperConfig() {
+        try {
+            java.io.File prefs = new java.io.File(activity.getApplicationInfo().dataDir,
+                    "shared_prefs");
+            java.io.File[] fs = prefs.listFiles();
+            if (fs != null) {
+                for (java.io.File f : fs) {
+                    String n = f.getName();
+                    if (n.contains("background") || n.contains("wall") || n.contains("bg")) {
+                        android.util.Log.i("WeChatGlass", "CB bgpref " + n + " " + f.length());
+                    }
+                }
+            }
+            String[] keys = {"chat_background", "background", "wallpaper", "chat_bg_path"};
+            android.content.SharedPreferences sp = activity.getSharedPreferences(
+                    "com.tencent.mm_preferences", 0);
+            java.util.Map<String, ?> all = sp.getAll();
+            for (String k : all.keySet()) {
+                String lk = k.toLowerCase();
+                if (lk.contains("bg") || lk.contains("wall") || lk.contains("background")) {
+                    android.util.Log.i("WeChatGlass", "CB bgkey " + k + "=" + all.get(k));
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB bgscan fail", t);
+        }
+    }
+
+    private void scanWall(View v, int depth) {
+        if (v == null || depth > 9 || wallHits >= 15) return;
+        android.graphics.drawable.Drawable d = v.getBackground();
+        boolean hit = d instanceof android.graphics.drawable.BitmapDrawable;
+        if (hit) {
+            wallHits++;
+            android.util.Log.i("WeChatGlass", "CB wall " + v.getClass().getName()
+                    + " " + v.getWidth() + "x" + v.getHeight() + " bg=" + d);
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) scanWall(g.getChildAt(i), depth + 1);
+        }
+    }
+
+    private View findInputRow() {
+        if (footer == null) return null;
+        View best = null;
+        java.util.ArrayDeque<View> q = new java.util.ArrayDeque<>();
+        q.add(footer);
+        while (!q.isEmpty()) {
+            View v = q.poll();
+            boolean edit = v.getClass().getSimpleName().contains("EditText");
+            if (!edit && v.getWidth() > 600 && v.getHeight() >= 90 && v.getHeight() <= 200
+                    && (best == null || v.getWidth() > best.getWidth())) {
+                best = v;
+            }
+            if (v instanceof ViewGroup) {
+                ViewGroup g = (ViewGroup) v;
+                for (int i = 0; i < g.getChildCount(); i++) q.add(g.getChildAt(i));
+            }
+        }
+        return best;
+    }
+
+    private android.widget.ImageView wallpaperLayer;
+    private View wallpaperTarget;
+
+    private String lastWallUri;
+    private long lastWallCheck;
+    private long lastWallMod = -1;
+    private boolean wallProbeLogged;
+    private boolean scopeLogged;
+
+    private void syncWallpaperFromProvider() {
+        long now = System.currentTimeMillis();
+        if (now - lastWallCheck < 2000) return;
+        lastWallCheck = now;
+        try {
+            java.io.File f = new java.io.File(
+                    android.os.Environment.getExternalStorageDirectory(),
+                    "Android/data/com.wechatglass/files/wallpaper.png");
+            if (!wallProbeLogged) {
+                wallProbeLogged = true;
+                android.util.Log.i("WeChatGlass", "CB wall probe path=" + f.getAbsolutePath()
+                        + " exists=" + f.exists() + " len=" + f.length()
+                        + " extDir=" + android.os.Environment.getExternalStorageDirectory());
+            }
+            if (!f.exists()) return;
+            long mod = f.lastModified();
+            if (mod == lastWallMod) return;
+            android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath());
+            if (bmp == null) return;
+            lastWallMod = mod;
+            com.wechatglass.liquid.LiquidPanelFactory.setWallpaper(bmp);
+            com.wechatglass.liquid.LiquidPanelFactory.enableCaptureWallpaper(true);
+            View rvp = Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+            if (rvp instanceof ViewGroup) {
+                com.wechatglass.liquid.LiquidPanelFactory
+                        .setWallpaperEnabled((ViewGroup) rvp, true);
+            }
+            android.util.Log.i("WeChatGlass", "CB wall file " + bmp.getWidth() + "x" + bmp.getHeight());
+        } catch (Throwable t) {
+            android.util.Log.e("WeChatGlass", "CB wall file fail", t);
+        }
+    }
+
+    private void ensureWallpaperLayer() { }
+
+    private void ensureFooterLiquid() {
+        if (decor == null || activity == null) return;
+        if (!HookConfig.glassEnabled(activity)) return;
+        View bar = findInputRow();
+        if (!footerProbeLogged) {
+            footerProbeLogged = true;
+            android.util.Log.i("WeChatGlass", "CB footer probe footer=" + footer
+                    + " " + (footer == null ? "" : footer.getWidth() + "x" + footer.getHeight())
+                    + " row=" + bar
+                    + (bar == null ? "" : " " + bar.getWidth() + "x" + bar.getHeight()));
+        }
+        if (bar == null) return;
+        if (bar.getWidth() <= 0 || bar.getHeight() <= 0) return;
+        View anchorChild = bar;
+        android.view.ViewParent vp = bar.getParent();
+        android.widget.FrameLayout frame = null;
+        while (vp instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) vp;
+            if (g instanceof android.widget.FrameLayout) { frame = (android.widget.FrameLayout) g; break; }
+            anchorChild = g;
+            vp = g.getParent();
+        }
+        if (frame == null) return;
+        if (footerLiquid != null && footerLiquid.getParent() == frame) return;
+        int[] bl = new int[2];
+        int[] fl = new int[2];
+        bar.getLocationOnScreen(bl);
+        frame.getLocationOnScreen(fl);
+        View bgv = Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+        if (!(bgv instanceof ViewGroup)) return;
+        View lp = com.wechatglass.liquid.LiquidPanelFactory.create(activity,
+                (ViewGroup) bgv,
+                activity.getResources().getDisplayMetrics().density,
+                Ui.isNight(activity));
+        if (lp == null) return;
+        lp.setTag(bar);
+        footerLiquid = lp;
+        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
+                bar.getWidth(), bar.getHeight());
+        flp.leftMargin = bl[0] - fl[0];
+        flp.topMargin = bl[1] - fl[1];
+        frame.addView(lp, Math.max(0, frame.indexOfChild(anchorChild)), flp);
+        android.util.Log.i("WeChatGlass", "CB liquid footer " + bar.getWidth() + "x" + bar.getHeight());
+    }
+
+    private void removeLiquidPills() {
+        ViewGroup host = decor instanceof ViewGroup ? (ViewGroup) decor : null;
+        if (host == null) return;
+        for (int i = host.getChildCount() - 1; i >= 0; i--) {
+            View c = host.getChildAt(i);
+            if (c.getClass().getName().startsWith("com.wechatglass.liquid")) {
+                host.removeViewAt(i);
+            }
+        }
+    }
+
+    private void startPillLoop() {
+        if (pillLoopStarted || decor == null) return;
+        pillLoopStarted = true;
         decor.postDelayed(new Runnable() {
             @Override public void run() {
-                refreshChatBlurs();
-                if (decor != null && blurSyncStarted) {
-                    decor.postDelayed(this, 120);
-                }
+                assertWallScope();
+                ensureLiquidPills();
+                ensureFooterLiquid();
+                syncWallpaperFromProvider();
+                ensureWallpaperLayer();
+                if (decor != null) decor.postDelayed(this, 250);
             }
-        }, 120);
-        android.util.Log.i("WeChatGlass", "CB blur sync loop started");
+        }, 250);
+        android.util.Log.i("WeChatGlass", "CB pill loop started");
+    }
+
+    private void assertWallScope() {
+        if (activity == null || !activity.hasWindowFocus()) return;
+        View rv = Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+        if (rv instanceof ViewGroup) {
+            com.wechatglass.liquid.LiquidPanelFactory.enableCaptureWallpaper(true);
+            if (!scopeLogged) {
+                scopeLogged = true;
+                android.util.Log.i("WeChatGlass", "CB scope chat ON "
+                        + rv.getClass().getSimpleName() + "@" + System.identityHashCode(rv));
+            }
+        }
+    }
+
+    private void ensureLiquidPills() {
+        if (decor == null || activity == null) return;
+        if (!HookConfig.glassEnabled(activity)) {
+            removeLiquidPills();
+            return;
+        }
+        View bgView = Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+        if (!(bgView instanceof ViewGroup)) return;
+        View bgParent = (bgView.getParent() instanceof ViewGroup)
+                ? (View) bgView.getParent() : bgView;
+        if (!wallpaperTried) { wallpaperTried = true; scanWall(decor, 0); loadWallpaper(); }
+        if (!bgLogged && bgView instanceof View) {
+            bgLogged = true;
+            View v = (View) bgView;
+            while (v != null) {
+                android.util.Log.i("WeChatGlass", "CB bg chain " + v.getClass().getSimpleName()
+                        + " bg=" + v.getBackground());
+                android.view.ViewParent pp = v.getParent();
+                v = (pp instanceof View) ? (View) pp : null;
+            }
+        }
+        View[] chips = {backChip, titleChip, menuChip};
+        boolean night = Ui.isNight(activity);
+        float density = activity.getResources().getDisplayMetrics().density;
+        for (View ch : chips) {
+            if (ch == null || ch.getWidth() <= 0 || ch.getHeight() <= 0) continue;
+            if (!(ch.getParent() instanceof ViewGroup)) continue;
+            ViewGroup host = (ViewGroup) ch.getParent();
+            boolean exists = false;
+            for (int i = 0; i < host.getChildCount(); i++) {
+                if (host.getChildAt(i).getTag() == ch) { exists = true; break; }
+            }
+            if (exists) continue;
+            View lp = com.wechatglass.liquid.LiquidPanelFactory.create(
+                    activity, (ViewGroup) bgParent, density, night);
+            if (lp == null) continue;
+            lp.setTag(ch);
+            int ph = Math.max(1, ch.getHeight() - 3);
+            FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(
+                    ch.getWidth(), ph);
+            flp.leftMargin = ch.getLeft();
+            flp.topMargin = ch.getTop() + 3;
+            host.addView(lp, Math.max(0, host.indexOfChild(ch)), flp);
+            android.util.Log.i("WeChatGlass", "CB liquid pill " + ch.getWidth() + "x" + ch.getHeight());
+        }
     }
 
     private void ensureFooterGlass() {
@@ -1014,15 +1096,6 @@ final class ChatGlassHook {
             pv = pv.getParent() instanceof View ? (View) pv.getParent() : null;
         }
         android.util.Log.i("WeChatGlass", diag.toString());
-        footerBar = bar;
-        clearFooterBackgrounds(); // restore transparent footer chain
-        Ui.transparent(bar);
-        if (footerBottom != null) { Ui.transparent(footerBottom); }
-        bar.setBackground(null);
-        attachBlurBehind(bar);
-        if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
-            attachBlurBehind(footerPanel);
-        }
         bar.setBackground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
         android.util.Log.i("WeChatGlass", "CL footer apply on " + bar.getClass().getSimpleName()
                 + " h=" + bar.getHeight());
@@ -1180,12 +1253,6 @@ final class ChatGlassHook {
      * ticker as heights settle and from global layout.
      */
     private void applyEdgeLayout() {
-        // chat top blur chips
-        if (renderer != null) {
-            attachBlurBehind(backChip);
-            attachBlurBehind(titleChip);
-            attachBlurBehind(menuChip);
-        }
         // tick: re-apply top offset (WeChat resets translation on its layout)
         if (actionBar != null) {
             actionBar.setTranslationY(Ui.statusBarHeight(decor));

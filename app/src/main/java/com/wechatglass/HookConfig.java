@@ -36,7 +36,7 @@ final class HookConfig {
                             && !ACTION.equals(intent.getAction())) {
                         return;
                     }
-                    boolean glass = intent.getBooleanExtra(KEY_GLASS, false);
+                    boolean glass = intent.getBooleanExtra(KEY_GLASS, true);
                     ctx.getSharedPreferences(PREFS, 0).edit()
                             .putBoolean(KEY_GLASS, glass).apply();
                     android.util.Log.i("WeChatGlass", "config broadcast glass=" + glass);
@@ -59,7 +59,7 @@ final class HookConfig {
             return false;
         }
         boolean enabled = context.getSharedPreferences(PREFS, 0)
-                .getBoolean(KEY_GLASS, false);
+                .getBoolean(KEY_GLASS, true);
         android.util.Log.i("WeChatGlass", "config glass=" + enabled);
         return enabled;
     }

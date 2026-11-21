@@ -18,7 +18,6 @@ final class GlassFooterDrawable extends Drawable {
     private final ViewGroup backdrop;
     private RenderNode node;
     private RenderEffect effect;
-    private boolean panelOpen;
     private final Path shape = new Path();
     private final android.graphics.Paint tintPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
@@ -65,12 +64,9 @@ final class GlassFooterDrawable extends Drawable {
         }
         node.setRenderEffect(effect);
         float radius = height / 2f;
-        float[] radii = panelOpen
-                ? new float[]{radius, radius, radius, radius, 0f, 0f, 0f, 0f}
-                : new float[]{radius, radius, radius, radius, radius, radius, radius, radius};
         shape.reset();
         rect.set(0, 0, width, height);
-        shape.addRoundRect(rect, radii, Path.Direction.CW);
+        shape.addRoundRect(rect, radius, radius, Path.Direction.CW);
         android.graphics.Rect cb = new android.graphics.Rect();
         canvas.getClipBounds(cb);
         android.util.Log.i("WeChatGlass", "draw diag anchor=" + anchor.getClass().getSimpleName()
@@ -92,8 +88,6 @@ final class GlassFooterDrawable extends Drawable {
         tintPaint.setStyle(android.graphics.Paint.Style.FILL);
         canvas.restoreToCount(save);
     }
-
-    void setPanelOpen(boolean open) { panelOpen = open; invalidateSelf(); }
 
     @Override public void setAlpha(int alpha) { }
     @Override public void setColorFilter(android.graphics.ColorFilter filter) { }
