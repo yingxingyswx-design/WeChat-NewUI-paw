@@ -171,9 +171,10 @@ final class GlassRenderer {
                     + " " + backdrop.getWidth() + "x" + backdrop.getHeight());
         }
 
-        // Tinted base under the glass; alpha low enough that the blur reads.
+        // Very light wash: the blur itself carries the surface, the base only
+        // keeps transparent backdrop areas from showing the sharp page.
         fillPaint.setColor(Ui.isNight(source.getContext())
-                ? 0x4D000000 : 0x59FFFFFF);
+                ? 0x1F000000 : 0x1AFFFFFF);
         canvas.drawPath(shape, fillPaint);
 
         int save = canvas.save();
