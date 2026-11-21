@@ -472,8 +472,7 @@ final class ChatGlassHook {
             renderer.setLayerMode(true);
             GlassLayerView layer = new GlassLayerView(activity);
             group.addView(layer, 0, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT));
+                    ViewGroup.LayoutParams.MATCH_PARENT, chipHeight));
             layer.setBackdrop((ViewGroup) scrollLayout);
             layer.setClickable(false);
             group.bringChildToFront(backChip);
