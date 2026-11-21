@@ -36,6 +36,7 @@ final class GlassRenderer {
     private RenderNode node;
     private RenderEffect effect;
     private boolean loggedGpu;
+    private int draws;
 
     GlassRenderer(View source) {
         this.source = source;
@@ -99,6 +100,17 @@ final class GlassRenderer {
                         bottomRadius, bottomRadius, bottomRadius, bottomRadius},
                 Path.Direction.CW);
 
+        if (draws < 24) {
+            draws++;
+            Log.i("WeChatGlass", "draw " + target.getClass().getSimpleName()
+                    + " glass=" + glass
+                    + " backdrop=" + (backdrop == null ? "null"
+                    : backdrop.getClass().getSimpleName()
+                    + "@" + backdrop.getWidth() + "x" + backdrop.getHeight())
+                    + " bounds=" + (int) left + "," + (int) top + ","
+                    + (int) right + "," + (int) bottom);
+        }
+
         if (glass && backdrop != null && Build.VERSION.SDK_INT >= 31) {
             try {
                 drawGpu(canvas, target, left, top, right, bottom, tintColor);
@@ -128,6 +140,9 @@ final class GlassRenderer {
         int pad = (int) dp(10f);
         int width = Math.max(1, (int) Math.ceil(right - left) + pad * 2);
         int height = Math.max(1, (int) Math.ceil(bottom - top) + pad * 2);
+        Log.i("WeChatGlass", "gpu draw target=" + target.getClass().getSimpleName()
+                + " bounds=" + left + "," + top + "," + right + "," + bottom
+                + " node=" + width + "x" + height);
 
         if (node == null) {
             node = new RenderNode("wxGlassBar");
@@ -144,9 +159,10 @@ final class GlassRenderer {
 
         if (effect == null) {
             effect = RenderEffect.createBlurEffect(
-                    dp(10f), dp(10f), Shader.TileMode.CLAMP);
+                    dp(16f), dp(16f), Shader.TileMode.CLAMP);
         }
         node.setRenderEffect(effect);
+        node.setAlpha(0.92f);
 
         if (!loggedGpu) {
             loggedGpu = true;
@@ -154,6 +170,11 @@ final class GlassRenderer {
                     + " backdrop=" + backdrop.getClass().getName()
                     + " " + backdrop.getWidth() + "x" + backdrop.getHeight());
         }
+
+        // Tinted base under the glass; alpha low enough that the blur reads.
+        fillPaint.setColor(Ui.isNight(source.getContext())
+                ? 0x4D000000 : 0x59FFFFFF);
+        canvas.drawPath(shape, fillPaint);
 
         int save = canvas.save();
         canvas.clipPath(shape);
@@ -163,7 +184,7 @@ final class GlassRenderer {
 
         // Frost wash + border on top of the blur.
         fillPaint.setColor(Ui.isNight(source.getContext())
-                ? 0x33000000 : 0x40FFFFFF);
+                ? 0x26000000 : 0x33FFFFFF);
         canvas.drawPath(shape, fillPaint);
     }
 

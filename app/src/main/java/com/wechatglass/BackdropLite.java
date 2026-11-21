@@ -28,8 +28,8 @@ final class BackdropLite {
         int save = canvas.save();
         try {
             canvas.translate(loc[0] - left, loc[1] - top);
-            canvas.clipRect(left - loc[0], top - loc[1],
-                    left - loc[0] + width, top - loc[1] + height);
+            // After the translate the capture rect starts at (0,0).
+            canvas.clipRect(0, 0, width, height);
             Method drawChild = drawChild();
             long time = root.getDrawingTime();
             for (int i = 0; i < root.getChildCount(); i++) {

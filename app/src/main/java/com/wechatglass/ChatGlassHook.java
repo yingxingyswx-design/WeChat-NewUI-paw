@@ -285,8 +285,12 @@ final class ChatGlassHook {
         renderer = new GlassRenderer(decor);
         renderer.setHiddenViews(actionBar, footer);
         renderer.setGlassEnabled(HookConfig.glassEnabled(activity));
-        if (scrollLayout instanceof ViewGroup) {
-            renderer.setBackdrop((ViewGroup) scrollLayout);
+        // The footer lives inside ChattingScrollLayout, so using that as the
+        // backdrop would record the footer's own glass and recurse. Use the
+        // content list instead, which never contains our surfaces.
+        View chatContent = Ui.findByClassContains(scrollLayout, "ChattingContent");
+        if (chatContent instanceof ViewGroup) {
+            renderer.setBackdrop((ViewGroup) chatContent);
         }
         renderer.addClient(footer);
 
