@@ -313,7 +313,8 @@ final class ChatGlassHook {
                 }
             }
             if (page != null) {
-                footer.setBackground(new GlassFooterDrawable(footer, page));
+                View bar = Ui.findByClassContains(footer, "ChatFooterBottom");
+                footer.setBackground(new GlassFooterDrawable(bar != null ? bar : footer, page));
             }
         }
         setupList();
@@ -483,6 +484,25 @@ final class ChatGlassHook {
         addChip(group, backChip, chipHeight);
         addChip(group, titleChip, chipHeight);
         addChip(group, menuChip, chipHeight);
+        if (scrollLayout instanceof ViewGroup && HookConfig.glassEnabled(activity)) {
+            ViewGroup tp = null;
+            ViewGroup sl = (ViewGroup) scrollLayout;
+            for (int i = 0; i < sl.getChildCount(); i++) {
+                View ch = sl.getChildAt(i);
+                if (ch.getClass().getName().contains("ChattingContent") && ch instanceof ViewGroup) {
+                    int[] l = new int[2];
+                    ch.getLocationOnScreen(l);
+                    if (Math.abs(l[0]) < 10) { tp = (ViewGroup) ch; break; }
+                }
+            }
+            if (tp != null) {
+                renderer.setLayerMode(true);
+                GlassLayerView layer = new GlassLayerView(activity, group);
+                group.addView(layer, 0, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, chipHeight));
+                layer.setBackdrop(tp);
+            }
+        }
 
         View.OnLayoutChangeListener listener = new View.OnLayoutChangeListener() {
             @Override
