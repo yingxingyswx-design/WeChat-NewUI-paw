@@ -109,7 +109,8 @@ final class GlassLayerView extends View {
         boolean night = Ui.isNight(getContext());
         for (int i = 0; i < host.getChildCount(); i++) {
             View child = host.getChildAt(i);
-            if (child == this || child.getVisibility() != View.VISIBLE
+            if (child == this || !(child instanceof GlassChipView)
+                    || child.getVisibility() != View.VISIBLE
                     || child.getWidth() <= 0 || child.getHeight() <= 0) {
                 continue;
             }
@@ -121,6 +122,8 @@ final class GlassLayerView extends View {
             int save = canvas.save();
             canvas.clipPath(shape);
             canvas.drawRenderNode(node);
+            tintPaint.setColor(0x40FF0000); // diag red top
+            canvas.drawPath(shape, tintPaint);
             tintPaint.setColor(night ? 0x14000000 : 0x0FFFFFFF);
             canvas.drawPath(shape, tintPaint);
             borderPaint.setStyle(Paint.Style.STROKE);

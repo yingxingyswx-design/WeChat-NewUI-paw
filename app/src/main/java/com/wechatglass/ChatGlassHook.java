@@ -475,6 +475,24 @@ final class ChatGlassHook {
         renderer.addSkipTarget(backChip);
         renderer.addSkipTarget(titleChip);
         renderer.addSkipTarget(menuChip);
+        android.util.Log.i("WeChatGlass", "topbar chipTop=" + titleChip.getTop()
+                + " chipH=" + titleChip.getHeight()
+                + " barH=" + actionBar.getHeight()
+                + " transY=" + actionBar.getTranslationY()
+                + " status=" + Ui.statusBarHeight(decor));
+        if (actionBar.getParent() instanceof ViewGroup) {
+            ((ViewGroup) actionBar.getParent()).setClipChildren(false);
+        }
+        actionBar.post(new Runnable() {
+            @Override public void run() {
+                android.util.Log.i("WeChatGlass", "topbar post top=" + titleChip.getTop()
+                        + " h=" + titleChip.getHeight()
+                        + " barH=" + actionBar.getHeight()
+                        + " transY=" + actionBar.getTranslationY()
+                        + " parentClip=" + (actionBar.getParent() instanceof ViewGroup
+                        && ((ViewGroup) actionBar.getParent()).getClipChildren()));
+            }
+        });
         if (scrollLayout instanceof ViewGroup && HookConfig.glassEnabled(activity)) {
             ViewGroup tp = null;
             ViewGroup sl = (ViewGroup) scrollLayout;
@@ -765,8 +783,20 @@ final class ChatGlassHook {
         }
         android.util.Log.i("WeChatGlass", diag.toString());
         bar.setBackground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
+        makeTranslucent(bar, 204);
         footerGlassSet = true;
         android.util.Log.i("WeChatGlass", "footer glass set on " + bar.getClass().getSimpleName());
+    }
+
+    private static void makeTranslucent(View view, int alpha) {
+        android.graphics.drawable.Drawable d = view.getBackground();
+        if (d != null) { d.setAlpha(alpha); }
+        if (view instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) view;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                makeTranslucent(g.getChildAt(i), alpha);
+            }
+        }
     }
 
     private void setupFooter() {
@@ -919,7 +949,7 @@ final class ChatGlassHook {
         // bar and read as a duplicate top bar in screenshots.
         // ensureStatusScrim();
         if (actionBar != null) {
-            actionBar.setTranslationY(Ui.statusBarHeight(decor));
+            actionBar.setTranslationY(Ui.statusBarHeight(decor) - 3f);
         }
         // WeChat's own bottom inset shrinks the chat container by the status
         // bar height (107px on this device); stretch it back to full height.

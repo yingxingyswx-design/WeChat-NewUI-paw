@@ -69,6 +69,8 @@ final class GlassFooterDrawable extends Drawable {
         canvas.translate(al[0] - fl[0], al[1] - fl[1]);
         canvas.clipPath(shape);
         canvas.drawRenderNode(node);
+        tintPaint.setColor(0x40FF0000); // diag red foot
+        canvas.drawPath(shape, tintPaint);
         tintPaint.setColor(0x40FF0000); // diag red
         canvas.drawPath(shape, tintPaint);
         tintPaint.setColor(Ui.isNight(footer.getContext()) ? 0x14000000 : 0x10FFFFFF);
