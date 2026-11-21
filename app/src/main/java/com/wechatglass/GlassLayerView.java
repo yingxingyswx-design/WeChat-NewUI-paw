@@ -80,13 +80,27 @@ final class GlassLayerView extends View {
             effect = RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP);
         }
         node.setRenderEffect(effect);
-        // Redraw with the freshly recorded node; without this the layer's first
-        // (empty) draw is never followed by one that has content.
+        android.util.Log.i("WeChatGlass", "layer capture size=" + width + "x" + height
+                + " loc=" + loc[0] + "," + loc[1]
+                + " backdrop=" + backdrop.getClass().getSimpleName()
+                + " bd=" + bdLoc(backdrop)
+                + " hasList=" + node.hasDisplayList()
+                + " shown=" + isShown());
         invalidate();
+    }
+
+    private static String bdLoc(View view) {
+        int[] loc = new int[2];
+        view.getLocationOnScreen(loc);
+        return loc[0] + "," + loc[1] + " " + view.getWidth() + "x" + view.getHeight();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
+        android.util.Log.i("WeChatGlass", "layer onDraw node=" + (node != null)
+                + " hasList=" + (node != null && node.hasDisplayList())
+                + " size=" + getWidth() + "x" + getHeight()
+                + " shown=" + isShown() + " alpha=" + getAlpha());
         if (node == null || !node.hasDisplayList()) {
             return;
         }

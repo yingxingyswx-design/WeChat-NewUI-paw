@@ -286,6 +286,19 @@ final class HomeGlassHook {
         if (list != null && list.getParent() instanceof ViewGroup) {
             renderer.setBackdrop((ViewGroup) list.getParent());
         }
+        if (list instanceof ViewGroup && overlay != null
+                && HookConfig.glassEnabled(activity)) {
+            renderer.setLayerMode(true);
+            GlassLayerView layer = new GlassLayerView(activity);
+            overlay.addView(layer, 0, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight));
+            layer.setBackdrop(findVisibleList(decor));
+            StringBuilder order = new StringBuilder("overlay order:");
+            for (int i = 0; i < overlay.getChildCount(); i++) {
+                order.append(' ').append(overlay.getChildAt(i).getClass().getSimpleName());
+            }
+            android.util.Log.i("WeChatGlass", order.toString());
+        }
 
         decor.getViewTreeObserver().addOnGlobalLayoutListener(
                 new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -887,6 +900,42 @@ final class HomeGlassHook {
             bar = actionBarHeight;
         }
         return status + bar;
+    }
+
+    private static ViewGroup findVisibleList(View root) {
+        java.util.ArrayList<View> found = new java.util.ArrayList<>();
+        collectLists(root, found);
+        ViewGroup best = null;
+        int bestX = Integer.MAX_VALUE;
+        int[] loc = new int[2];
+        for (int i = 0; i < found.size(); i++) {
+            View view = found.get(i);
+            if (!(view instanceof ViewGroup) || !view.isShown()) {
+                continue;
+            }
+            view.getLocationOnScreen(loc);
+            if (Math.abs(loc[0]) < bestX) {
+                bestX = Math.abs(loc[0]);
+                best = (ViewGroup) view;
+            }
+        }
+        return best;
+    }
+
+    private static void collectLists(View view, java.util.List<View> out) {
+        if (view == null) {
+            return;
+        }
+        String name = view.getClass().getName();
+        if (name.contains("ConversationListView") || name.contains("WxRecyclerView")) {
+            out.add(view);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectLists(group.getChildAt(i), out);
+            }
+        }
     }
 
     private void setupList() {
