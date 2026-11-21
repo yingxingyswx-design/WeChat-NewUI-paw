@@ -938,7 +938,15 @@ final class ChatGlassHook {
         attachBlurBehind(titleChip);
         attachBlurBehind(menuChip);
         enableFrosted();
-        if (footerBar != null) { logChatGeometry(); attachBlurBehind(footerBar); }
+        if (footerBar != null) {
+            logChatGeometry();
+            if (footerBar.getBackground() instanceof GlassFooterDrawable) {
+                boolean open = footerPanel != null && footerPanel.isShown()
+                        && footerPanel.getHeight() > 0;
+                ((GlassFooterDrawable) footerBar.getBackground()).setPanelOpen(open);
+            }
+            attachBlurBehind(footerBar);
+        }
         if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
             attachBlurBehind(footerPanel);
         } else if (footerPanel != null && decor instanceof ViewGroup) {
@@ -1015,7 +1023,7 @@ final class ChatGlassHook {
         if (footerPanel != null && footerPanel.isShown() && footerPanel.getHeight() > 0) {
             attachBlurBehind(footerPanel);
         }
-        // bar background now provided by WeChatBlurBar (BlurView); GlassFooterDrawable disabled
+        bar.setBackground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
         android.util.Log.i("WeChatGlass", "CL footer apply on " + bar.getClass().getSimpleName()
                 + " h=" + bar.getHeight());
         makeTranslucent(bar, 204);
