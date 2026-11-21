@@ -37,6 +37,7 @@ final class GlassRenderer {
     private RenderEffect effect;
     private boolean loggedGpu;
     private int draws;
+    private boolean layerMode;
 
     GlassRenderer(View source) {
         this.source = source;
@@ -50,10 +51,12 @@ final class GlassRenderer {
                 : view.getClass().getName() + " " + view.getWidth() + "x" + view.getHeight()));
     }
 
+    void setLayerMode(boolean enabled) {
+        layerMode = enabled;
+    }
+
     void setGlassEnabled(boolean enabled) {
-        // GPU path is disabled until the dedicated glass layer lands; it caused
-        // native crashes when capturing the window from inside a chip's draw.
-        glass = false;
+        glass = enabled && Build.VERSION.SDK_INT >= 31;
         Log.i("WeChatGlass", "renderer glass requested=" + enabled
                 + " sdk=" + Build.VERSION.SDK_INT + " -> glass=" + glass);
     }
@@ -93,6 +96,9 @@ final class GlassRenderer {
     void drawGlass(Canvas canvas, View target, float left, float top, float right, float bottom,
                    float topRadius, float bottomRadius, int tintColor, int borderColor) {
         if (canvas == null || target == null || right <= left || bottom <= top) {
+            return;
+        }
+        if (layerMode) {
             return;
         }
         shape.reset();

@@ -284,7 +284,7 @@ final class HomeGlassHook {
         forceContentBehindTop();
         setupList();
         if (list != null && list.getParent() instanceof ViewGroup) {
-            renderer.setBackdrop((ViewGroup) list.getParent());
+            renderer.setBackdrop((ViewGroup) list);
         }
 
         decor.getViewTreeObserver().addOnGlobalLayoutListener(
@@ -1056,7 +1056,10 @@ final class HomeGlassHook {
                 op.height = overlayHeight;
                 overlay.setLayoutParams(op);
             }
-            overlay.setTranslationY(actionBar.getY());
+            // Float the bar down over the list so there is real content behind
+            // the glass instead of the empty window background.
+            overlay.setTranslationY(actionBar.getY()
+                    + Math.max(0, actionBarHeight - Ui.statusBarHeight(decor)));
             // HomeUI can add its FrostedContentView after our overlay, which
             // would cover the chips. Keep the overlay as the topmost decor
             // child.
