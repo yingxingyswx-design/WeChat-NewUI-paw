@@ -302,34 +302,6 @@ final class ChatGlassHook {
             renderer.addClient(menuChip);
         }
         setupFooter();
-        if (footer != null && HookConfig.glassEnabled(activity)) {
-            View rv = Ui.findByClassContains(scrollLayout, "RecyclerView");
-            if (rv instanceof ViewGroup) {
-                View bar = Ui.findByClassContains(footer, "ChatFooterBottom");
-                if (bar == null) { bar = footer; }
-                bar.setForeground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
-                android.util.Log.i("WeChatGlass", "footer bg set on " + bar.getClass().getSimpleName());
-            }
-        }
-        if (footer != null && scrollLayout != null
-                && HookConfig.glassEnabled(activity)) {
-            ViewGroup page = null;
-            for (int i = 0; i < ((ViewGroup) scrollLayout).getChildCount(); i++) {
-                View ch = ((ViewGroup) scrollLayout).getChildAt(i);
-                if (ch.getClass().getName().contains("ChattingContent") && ch instanceof ViewGroup) {
-                    int[] l = new int[2];
-                    ch.getLocationOnScreen(l);
-                    if (Math.abs(l[0]) < 10) { page = (ViewGroup) ch; break; }
-                }
-            }
-            if (page != null) {
-                View mr = Ui.findByClassContains(page, "RecyclerView");
-                if (mr instanceof ViewGroup) { page = (ViewGroup) mr; }
-                View bar = Ui.findByClassContains(footer, "ChatFooterBottom");
-                if (bar == null) { bar = footer; }
-                bar.setBackground(new GlassFooterDrawable(bar, bar, page));
-            }
-        }
         setupList();
         applyEdgeLayout();
 
@@ -760,7 +732,7 @@ final class ChatGlassHook {
             android.util.Log.i("WeChatGlass", "footer glass skip rv=null");
             return;
         }
-        View edit = Ui.findByClassContains(footer, "EditText");
+        View edit = Ui.findByClassContains(decor, "EditText");
         View bar = null;
         View cur = edit;
         while (cur != null) {
@@ -768,8 +740,7 @@ final class ChatGlassHook {
             if (hh >= 90 && hh <= 200 && cur.getWidth() > 600) { bar = cur; break; }
             cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
         }
-        if (bar == null) { bar = Ui.findByClassContains(footer, "ChatFooterBottom"); }
-        if (bar == null) { bar = footer; }
+        if (bar == null) { android.util.Log.i("WeChatGlass", "footer glass skip: no input row"); return; }
         bar.setForeground(new GlassFooterDrawable(bar, bar, (ViewGroup) rv));
         footerGlassSet = true;
         android.util.Log.i("WeChatGlass", "footer glass set on " + bar.getClass().getSimpleName());
@@ -825,7 +796,7 @@ final class ChatGlassHook {
                 Ui.transparent(group.getChildAt(0));
             }
         }
-        View edit = Ui.findByClassContains(footer, "EditText");
+        View edit = Ui.findByClassContains(decor, "EditText");
         View current = edit;
         while (current != null && current != footer) {
             if (current instanceof ViewGroup) {
