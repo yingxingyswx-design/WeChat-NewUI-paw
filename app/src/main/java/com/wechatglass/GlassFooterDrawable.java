@@ -19,6 +19,7 @@ final class GlassFooterDrawable extends Drawable {
     private RenderNode node;
     private RenderEffect effect;
     private final Path shape = new Path();
+    private final android.graphics.Paint tintPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
 
     GlassFooterDrawable(View footer, View anchor, ViewGroup backdrop) {

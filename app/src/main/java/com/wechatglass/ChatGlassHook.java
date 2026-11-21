@@ -761,9 +761,12 @@ final class ChatGlassHook {
             return;
         }
         View edit = Ui.findByClassContains(footer, "EditText");
-        View bar = edit;
-        while (bar != null && bar.getHeight() < 100 && bar.getParent() instanceof View) {
-            bar = (View) bar.getParent();
+        View bar = null;
+        View cur = edit;
+        while (cur != null) {
+            int hh = cur.getHeight();
+            if (hh >= 90 && hh <= 200 && cur.getWidth() > 600) { bar = cur; break; }
+            cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
         }
         if (bar == null) { bar = Ui.findByClassContains(footer, "ChatFooterBottom"); }
         if (bar == null) { bar = footer; }
