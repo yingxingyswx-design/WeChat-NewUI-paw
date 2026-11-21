@@ -250,6 +250,10 @@ final class HomeGlassHook {
         FrameLayout.LayoutParams overlayParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight);
         overlayParams.gravity = Gravity.TOP;
+        // Real layout offset (not a render translation): place the bar over the
+        // list so the glass has content behind it.
+        overlayParams.topMargin = Math.max(0,
+                actionBarHeight - Ui.statusBarHeight(decor));
         ((ViewGroup) decor).addView(overlay, overlayParams);
 
         leftChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
@@ -1056,10 +1060,7 @@ final class HomeGlassHook {
                 op.height = overlayHeight;
                 overlay.setLayoutParams(op);
             }
-            // Float the bar down over the list so there is real content behind
-            // the glass instead of the empty window background.
-            overlay.setTranslationY(actionBar.getY()
-                    + Math.max(0, actionBarHeight - Ui.statusBarHeight(decor)));
+            overlay.setTranslationY(actionBar.getY());
             // HomeUI can add its FrostedContentView after our overlay, which
             // would cover the chips. Keep the overlay as the topmost decor
             // child.
