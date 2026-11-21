@@ -468,6 +468,14 @@ final class ChatGlassHook {
         addChip(group, backChip, chipHeight);
         addChip(group, titleChip, chipHeight);
         addChip(group, menuChip, chipHeight);
+        if (scrollLayout instanceof ViewGroup && HookConfig.glassEnabled(activity)) {
+            renderer.setLayerMode(true);
+            GlassLayerView layer = new GlassLayerView(activity);
+            group.addView(layer, 0, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+            layer.setBackdrop((ViewGroup) scrollLayout);
+        }
 
         View.OnLayoutChangeListener listener = new View.OnLayoutChangeListener() {
             @Override
