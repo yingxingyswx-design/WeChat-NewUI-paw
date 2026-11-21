@@ -150,7 +150,8 @@ final class GlassRenderer {
         }
         node.setPosition(0, 0, bandWidth, height);
         RecordingCanvas rc = node.beginRecording(bandWidth, height);
-        rc.drawColor(Ui.isNight(source.getContext()) ? 0xFF191919 : 0xFFFFFFFF);
+        // Transparent base: the white band came from this fill, not the page.
+        rc.drawColor(0x00000000);
         BackdropLite.draw(rc, backdrop, bandLeft, bandTop, bandWidth, height);
         node.endRecording();
 
@@ -169,12 +170,9 @@ final class GlassRenderer {
         }
 
         int save = canvas.save();
+        canvas.clipPath(shape);
         canvas.translate(bandLeft - loc[0], bandTop - loc[1]);
         canvas.drawRenderNode(node);
-        // 1% wash, just to keep empty areas from looking transparent.
-        fillPaint.setColor(Ui.isNight(source.getContext())
-                ? 0x03000000 : 0x03FFFFFF);
-        canvas.drawRect(0, 0, bandWidth, height, fillPaint);
         canvas.restoreToCount(save);
     }
 
