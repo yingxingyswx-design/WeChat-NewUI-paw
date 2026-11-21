@@ -70,6 +70,7 @@ final class ChatGlassHook {
 
     private View chatRoot;
     private View navFiller;
+    private View statusScrim;
     private int normalPanelBaseHeight = -1;
     private int normalPanelParentBaseHeight = -1;
     private boolean normalPanelShrunk;
@@ -280,12 +281,20 @@ final class ChatGlassHook {
             toolbar = ab;
         }
 
+        HookConfig.installReceiver(activity);
         renderer = new GlassRenderer(decor);
         renderer.setHiddenViews(actionBar, footer);
+        renderer.setGlassEnabled(HookConfig.glassEnabled(activity));
+        if (scrollLayout instanceof ViewGroup) {
+            renderer.setBackdrop((ViewGroup) scrollLayout);
+        }
         renderer.addClient(footer);
 
         if (actionBar != null) {
             setupTopBar();
+            renderer.addClient(backChip);
+            renderer.addClient(titleChip);
+            renderer.addClient(menuChip);
         }
         setupFooter();
         setupList();
@@ -306,6 +315,9 @@ final class ChatGlassHook {
         scrollListener = new ViewTreeObserver.OnScrollChangedListener() {
             @Override
             public void onScrollChanged() {
+                if (renderer != null) {
+                    renderer.requestUpdate();
+                }
             }
         };
         scrollLayout.getViewTreeObserver().addOnScrollChangedListener(scrollListener);
@@ -814,6 +826,7 @@ final class ChatGlassHook {
         applyStatusBar();
         extendChatToBottom();
         reparentActionBar();
+        ensureStatusScrim();
         if (actionBar != null) {
             actionBar.setTranslationY(Ui.statusBarHeight(decor));
         }
@@ -1194,6 +1207,51 @@ final class ChatGlassHook {
         chip.setGlass(radius, chipTint, chipBorder);
     }
 
+    /**
+     * Solid-to-transparent status-bar gradient (white in light mode, black in
+     * dark). Inserted before the floating top bar so chips stay on top.
+     */
+    private void ensureStatusScrim() {
+        if (statusScrim != null || decor == null) {
+            return;
+        }
+        boolean night = Ui.isNight(activity);
+        int height = Ui.statusBarHeight(decor) + Ui.dp(activity, 8f);
+        View scrim = new View(activity);
+        scrim.setClickable(false);
+        scrim.setFocusable(false);
+        scrim.setBackground(new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                night
+                        ? new int[]{0xFF000000, 0xD9000000, 0x00000000}
+                        : new int[]{0xFFFFFFFF, 0xD9FFFFFF, 0x00FFFFFF}));
+        int status = Ui.statusBarHeight(decor);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                status * 2 + Ui.dp(activity, 8f), Gravity.TOP);
+        // Draw inside the floating top bar, shifted up to cover the status bar,
+        // so it stays above chat content and below the chips.
+        lp.topMargin = -status;
+        ViewGroup parent = null;
+        if (actionBar instanceof ViewGroup) {
+            parent = (ViewGroup) actionBar;
+            parent.setClipChildren(false);
+            if (parent.getParent() instanceof ViewGroup) {
+                ((ViewGroup) parent.getParent()).setClipChildren(false);
+            }
+        }
+        if (parent != null) {
+            parent.addView(scrim, 0, lp);
+        } else if (contentFrame != null) {
+            contentFrame.addView(scrim, lp);
+        } else if (decor instanceof ViewGroup) {
+            ((ViewGroup) decor).addView(scrim, lp);
+        } else {
+            return;
+        }
+        statusScrim = scrim;
+    }
+
     private void destroy() {
         attached = false;
         handler.removeCallbacksAndMessages(null);
@@ -1205,6 +1263,10 @@ final class ChatGlassHook {
             scrollLayout.getViewTreeObserver().removeOnScrollChangedListener(scrollListener);
             scrollListener = null;
         }
+        if (statusScrim != null && statusScrim.getParent() instanceof ViewGroup) {
+            ((ViewGroup) statusScrim.getParent()).removeView(statusScrim);
+        }
+        statusScrim = null;
         if (list != null && listBaseSaved) {
             list.setPadding(listBaseLeft, listBaseTop, listBaseRight, listBaseBottom);
         }

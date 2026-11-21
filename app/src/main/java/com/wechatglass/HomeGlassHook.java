@@ -33,6 +33,11 @@ final class HomeGlassHook {
     private static final String TAG = "WeChatGlassHome";
     private static final boolean DEBUG_HIDE_OVERLAY = false;
     private static final Map<Activity, HomeGlassHook> INSTANCES = new WeakHashMap<>();
+    private static volatile boolean nativeBarAllowed;
+
+    static boolean isNativeBarAllowed() {
+        return nativeBarAllowed;
+    }
 
     private final Activity activity;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -222,7 +227,9 @@ final class HomeGlassHook {
         Log.i("WeChatGlassFrost", "find frost=" + (frostedContent == null ? "null"
                 : frostedContent.getClass().getName()));
 
+        HookConfig.installReceiver(activity);
         renderer = new GlassRenderer(decor);
+        renderer.setGlassEnabled(HookConfig.glassEnabled(activity));
 
         actionBarHeight = actionBar.getHeight() > 0 ? actionBar.getHeight()
                 : Ui.dp(activity, 56f) + Ui.statusBarHeight(decor);
@@ -261,6 +268,9 @@ final class HomeGlassHook {
         addChip(overlay, titleChip, chipHeight);
         addChip(overlay, searchChip, chipHeight);
         addChip(overlay, plusChip, chipHeight);
+        renderer.addClient(titleChip);
+        renderer.addClient(searchChip);
+        renderer.addClient(plusChip);
 
         actionBar.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
             @Override
@@ -273,6 +283,9 @@ final class HomeGlassHook {
         enableOverlay();
         forceContentBehindTop();
         setupList();
+        if (list != null && list.getParent() instanceof ViewGroup) {
+            renderer.setBackdrop((ViewGroup) list.getParent());
+        }
 
         decor.getViewTreeObserver().addOnGlobalLayoutListener(
                 new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -918,6 +931,82 @@ final class HomeGlassHook {
         return false;
     }
 
+    /**
+     * Only 首页 / 通讯录 / 发现 keep our floating bar. Anything else (服务号,
+     * 朋友圈, WebView, sub-activities sharing LauncherUI) stays native.
+     */
+    private boolean isSupportedPage(String text) {
+        if (text == null) {
+            return false;
+        }
+        String t = text.trim();
+        if (t.isEmpty()) {
+            return false;
+        }
+        return "Weixin".equalsIgnoreCase(t)
+                || "WeChat".equalsIgnoreCase(t)
+                || "微信".equals(t)
+                || t.contains("通讯录") || t.contains("通訊錄") || t.contains("連絡先")
+                || "Contacts".equalsIgnoreCase(t)
+                || t.contains("发现") || t.contains("發現") || t.contains("発見")
+                || "Discover".equalsIgnoreCase(t);
+    }
+
+    private void switchToNativePage() {
+        nativeBarAllowed = true;
+        if (overlay != null && overlay.getVisibility() != View.GONE) {
+            overlay.setVisibility(View.GONE);
+        }
+        if (actionBar != null) {
+            if (actionBar.getAlpha() != 1f) {
+                actionBar.setAlpha(1f);
+            }
+            if (actionBar.getVisibility() != View.VISIBLE) {
+                actionBar.setVisibility(View.VISIBLE);
+            }
+        }
+        if (toolbar != null) {
+            if (toolbar.getAlpha() != 1f) {
+                toolbar.setAlpha(1f);
+            }
+            if (toolbar.getVisibility() != View.VISIBLE) {
+                toolbar.setVisibility(View.VISIBLE);
+            }
+        }
+    }
+
+    private static final String[] EXCLUDED_SURFACES = {
+            "brandservice", "serviceaccount", "sns", "webview", "appbrand"
+    };
+
+    /**
+     * Second-level pages (服务号 / 朋友圈 / 小程序 / WebView) are detected
+     * structurally: if any visible view carries one of these class names, the
+     * floating bar must not run.
+     */
+    private boolean hasVisibleExcludedSurface(View root) {
+        if (root == null) {
+            return false;
+        }
+        if (root.isShown() && root.getWidth() > 0) {
+            String name = root.getClass().getName().toLowerCase(java.util.Locale.ROOT);
+            for (String part : EXCLUDED_SURFACES) {
+                if (name.contains(part)) {
+                    return true;
+                }
+            }
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (hasVisibleExcludedSurface(group.getChildAt(i))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private void updateGeometry() {
         if (!installed && renderer == null) {
             return;
@@ -926,15 +1015,15 @@ final class HomeGlassHook {
         View contentRoot = decor.findViewById(android.R.id.content);
         clearTopPaddings(contentRoot);
         clearAncestorPaddingForLists(contentRoot);
+        View freshTitle = findTitleView();
+        if (freshTitle != null) {
+            titleView = freshTitle;
+        }
         applyListTopInset(contentRoot);
         hideLegacyBars(decor);
         removeTaskBarLine();
         removeTaskBarHeader();
         forceWrapperEtE();
-        View freshTitle = findTitleView();
-        if (freshTitle != null) {
-            titleView = freshTitle;
-        }
         updateTabState();
         if (tabMode == 2 || actionBar == null) {
             return;
