@@ -58,7 +58,7 @@ final class GlassRenderer {
     }
 
     void setGlassEnabled(boolean enabled) {
-        glass = enabled && Build.VERSION.SDK_INT >= 31;
+        glass = false;
         Log.i("WeChatGlass", "renderer glass requested=" + enabled
                 + " sdk=" + Build.VERSION.SDK_INT + " -> glass=" + glass);
     }
