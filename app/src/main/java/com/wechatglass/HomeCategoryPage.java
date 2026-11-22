@@ -54,8 +54,20 @@ final class HomeCategoryPage extends FrameLayout {
         list.setDivider(null);
         list.setDividerHeight(0);
         list.setCacheColorHint(0);
-        list.setPadding(0, topInset, 0, bottomInset);
-        list.setClipToPadding(true);
+        // A real blank area at the top. ListView resets its own padding while
+        // installing an adapter, so the space is a header item instead.
+        View topSpace = new View(context);
+        topSpace.setBackgroundColor(night ? 0xFF111111 : 0xFFEDEDED);
+        topSpace.setLayoutParams(new android.widget.AbsListView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, topInset));
+        list.addHeaderView(topSpace, null, false);
+        if (bottomInset > 0) {
+            View bottomSpace = new View(context);
+            bottomSpace.setBackgroundColor(night ? 0xFF111111 : 0xFFEDEDED);
+            bottomSpace.setLayoutParams(new android.widget.AbsListView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, bottomInset));
+            list.addFooterView(bottomSpace, null, false);
+        }
         list.setAdapter(adapter);
         list.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
             @Override
@@ -226,6 +238,7 @@ final class HomeCategoryPage extends FrameLayout {
             View first = list.getChildAt(0);
             android.util.Log.i("WeChatGlass", "HL page geom top=" + location[1]
                     + " listTop=" + list.getTop()
+                    + " padTop=" + list.getPaddingTop()
                     + " childTop=" + (first == null ? -1 : first.getTop())
                     + " h=" + getHeight());
         }
