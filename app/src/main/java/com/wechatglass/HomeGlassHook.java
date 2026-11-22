@@ -378,7 +378,7 @@ final class HomeGlassHook {
             ov.post(new Runnable() {
                 @Override public void run() {
                     View[] chips = {titleChip, searchChip, plusChip};
-                    View bg = findVisibleList(decor);
+                    View bg = categoryPage != null ? categoryPage : findVisibleList(decor);
                     for (View ch : chips) {
                         if (ch == null || ch.getWidth() <= 0 || ch.getHeight() <= 0) continue;
                         try {
@@ -408,8 +408,8 @@ final class HomeGlassHook {
         }
         forceContentBehindTop();
         setupList();
-        installCategoryBar();
         installCategoryPage();
+        installCategoryBar();
         // The storage objects only work after MMApplication's kernel is up, so
         // the read-only category index is built a moment after the page shows.
         final ClassLoader indexLoader = activity.getClassLoader();
@@ -921,6 +921,13 @@ final class HomeGlassHook {
         if (!nativeList && categoryPage == null) {
             installCategoryPage();
         }
+        // The glass backdrop differs between native and custom list, so the
+        // switch is rebuilt to sample whichever list is on screen.
+        if (categoryBar != null && overlay != null) {
+            overlay.removeView(categoryBar);
+            categoryBar = null;
+        }
+        installCategoryBar();
         if (categoryPage != null && ConversationIndex.loaded()) {
             categoryPage.show(HomeConversationFilter.mode());
         }
@@ -1196,16 +1203,22 @@ final class HomeGlassHook {
         if (overlay == null || activity == null) {
             return;
         }
-        ViewGroup backdrop = findVisibleList(decor);
-        if (backdrop == null && list instanceof ViewGroup) {
-            backdrop = (ViewGroup) list;
-        }
-        if (backdrop == null && decor instanceof ViewGroup) {
-            backdrop = (ViewGroup) decor;
-        }
-        if (backdrop instanceof android.widget.ListView) {
-            homeListView = (android.widget.ListView) backdrop;
+        // The native list is hidden behind our page, so sampling it yields a
+        // blank surface. When the custom page exists, the glass must sample it.
+        View nativeList = findVisibleList(decor);
+        if (nativeList instanceof android.widget.ListView) {
+            homeListView = (android.widget.ListView) nativeList;
             HomeConversationFilter.attach(homeListView);
+        }
+        boolean nativeMode = HookConfig.nativeList(activity);
+        ViewGroup backdrop;
+        if (nativeMode) {
+            backdrop = nativeList instanceof ViewGroup
+                    ? (ViewGroup) nativeList : (ViewGroup) decor;
+        } else {
+            backdrop = categoryPage != null ? categoryPage
+                    : nativeList instanceof ViewGroup ? (ViewGroup) nativeList
+                    : (ViewGroup) decor;
         }
         categoryBar = new HomeCategoryBar(activity, backdrop, Ui.isNight(activity),
                 categoryLabels(), HomeConversationFilter.mode());
@@ -1239,7 +1252,10 @@ final class HomeGlassHook {
         ViewGroup parent = (ViewGroup) homeListView.getParent();
         int index = parent.indexOfChild(homeListView);
         int status = Math.max(Ui.statusBarHeight(decor), Ui.statusBarHeight(activity));
-        int top = status + Ui.dp(activity, 52f);
+        // Only the status bar is reserved: conversations start right below it
+        // and scroll under the floating islands, which is what gives the glass
+        // something to sample.
+        int top = status;
         int bottom = Ui.dp(activity, 92f);
         categoryPage = new HomeCategoryPage(activity, Ui.isNight(activity), top, bottom,
                 new HomeCategoryPage.OpenChat() {

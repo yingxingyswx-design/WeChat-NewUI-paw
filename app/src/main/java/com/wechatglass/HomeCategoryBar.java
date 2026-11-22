@@ -30,7 +30,7 @@ final class HomeCategoryBar extends FrameLayout {
     /** WeChat green, the same accent the bottom tab bar uses. */
     private static final int WECHAT_GREEN = 0xFF07C160;
     private static final long PRESS_DELAY_MS = 360L;
-    private static final float PRESSED_SCALE = 1.10f;
+    private static final float PRESSED_SCALE = 1.14f;
 
     interface OnSelect {
         void onSelect(int mode);
@@ -43,13 +43,15 @@ final class HomeCategoryBar extends FrameLayout {
     private int mode;
     private boolean night;
     private boolean longPressed;
+    private boolean dragging;
+    private float downRawX;
     private Runnable pressUp;
 
     /** Position in tab units (0..2); the reference bar's value spring. */
-    private final Spring posSpring = new Spring(1f, 1000f, 0.001f, 0f);
-    private final Spring pressSpring = new Spring(1f, 1000f, 0.001f, 0f);
-    private final Spring scaleXSpring = new Spring(0.6f, 250f, 0.001f, 1f);
-    private final Spring scaleYSpring = new Spring(0.7f, 250f, 0.001f, 1f);
+    private final Spring posSpring = new Spring(0.9f, 2600f, 0.004f, 0f);
+    private final Spring pressSpring = new Spring(1f, 2600f, 0.004f, 0f);
+    private final Spring scaleXSpring = new Spring(0.8f, 900f, 0.004f, 1f);
+    private final Spring scaleYSpring = new Spring(0.8f, 900f, 0.004f, 1f);
     private boolean frameScheduled;
     private long lastFrameNanos;
 
@@ -236,25 +238,68 @@ final class HomeCategoryBar extends FrameLayout {
         invalidate();
     }
 
-    /** Press feedback: a short hold grows the capsule, release settles it. */
+    /**
+     * LiquidGlass-style interaction: hold to lift the capsule, then drag the
+     * pill across the tabs; release snaps to the nearest tab. Plain taps are
+     * left to the TextViews' own click listeners.
+     */
     private void installPressFeedback(View target) {
         target.setOnTouchListener(new OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
+                        downRawX = event.getRawX();
                         schedulePress();
-                        break;
+                        return false;
+                    case MotionEvent.ACTION_MOVE:
+                        if (!dragging) {
+                            return false;
+                        }
+                        float value = valueForX(event.getRawX());
+                        posSpring.snapTo(clamp(value, 0f, tabs.length - 1f));
+                        ensureFrame();
+                        return true;
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
-                        cancelPress();
-                        break;
+                        cancelPressTimer();
+                        if (dragging) {
+                            finishDrag();
+                            return true;
+                        }
+                        return false;
                     default:
-                        break;
+                        return false;
                 }
-                return false;
             }
         });
+    }
+
+    private float valueForX(float rawX) {
+        int count = tabs.length;
+        float[] centers = new float[count];
+        int[] location = new int[2];
+        for (int i = 0; i < count; i++) {
+            tabs[i].getLocationOnScreen(location);
+            centers[i] = location[0] + tabs[i].getWidth() / 2f;
+        }
+        if (rawX <= centers[0]) {
+            return 0f;
+        }
+        if (rawX >= centers[count - 1]) {
+            return count - 1f;
+        }
+        for (int i = 0; i < count - 1; i++) {
+            if (rawX <= centers[i + 1]) {
+                float span = centers[i + 1] - centers[i];
+                return span <= 0f ? i : i + (rawX - centers[i]) / span;
+            }
+        }
+        return count - 1f;
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(value, max));
     }
 
     private void schedulePress() {
@@ -268,27 +313,42 @@ final class HomeCategoryBar extends FrameLayout {
                     return;
                 }
                 longPressed = true;
+                dragging = true;
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                pressSpring.animateTo(1.2f);
+                pressSpring.animateTo(1f);
                 scaleXSpring.animateTo(PRESSED_SCALE);
                 scaleYSpring.animateTo(PRESSED_SCALE);
                 ensureFrame();
+                android.util.Log.i("WeChatGlass", "HL bar drag begin");
             }
         };
         postDelayed(pressUp, PRESS_DELAY_MS);
     }
 
-    private void cancelPress() {
+    private void finishDrag() {
+        int index = Math.round(posSpring.value());
+        index = Math.max(0, Math.min(index, tabs.length - 1));
+        android.util.Log.i("WeChatGlass", "HL bar drag end -> " + index);
+        if (index != mode) {
+            mode = index;
+            applyStyle();
+            if (onSelect != null) {
+                onSelect.onSelect(index);
+            }
+        }
+        posSpring.animateTo(index);
+        pressSpring.animateTo(0f);
+        scaleXSpring.animateTo(1f);
+        scaleYSpring.animateTo(1f);
+        dragging = false;
+        longPressed = false;
+        ensureFrame();
+    }
+
+    private void cancelPressTimer() {
         if (pressUp != null) {
             removeCallbacks(pressUp);
             pressUp = null;
-        }
-        if (longPressed) {
-            longPressed = false;
-            pressSpring.animateTo(0f);
-            scaleXSpring.animateTo(1f);
-            scaleYSpring.animateTo(1f);
-            ensureFrame();
         }
     }
 }
