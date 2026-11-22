@@ -5,14 +5,14 @@ package com.wechatglass.liquid;
  * {@code spring(dampingRatio, stiffness, visibilityThreshold)}.
  *
  * <p>KernelSU's bar is animated entirely by springs rather than duration-based
- * interpolators — five of them, each with its own damping and stiffness — so
+ * interpolators 鈥?five of them, each with its own damping and stiffness 鈥?so
  * reproducing the feel means reproducing the physics, not approximating it with
  * an {@code OvershootInterpolator}.
  *
  * <p>Integrated semi-implicitly, which stays stable at the stiffnesses used here
  * (up to 1000) as long as steps are clamped to a sane frame time.
  */
-final class Spring {
+public final class Spring {
 
     private final float mStiffness;
     private final float mDampingRatio;
@@ -23,7 +23,7 @@ final class Spring {
     private float mTarget;
     private boolean mRunning;
 
-    Spring(float dampingRatio, float stiffness, float threshold, float initial) {
+    public Spring(float dampingRatio, float stiffness, float threshold, float initial) {
         mDampingRatio = dampingRatio;
         mStiffness = stiffness;
         mThreshold = threshold;
@@ -31,30 +31,30 @@ final class Spring {
         mTarget = initial;
     }
 
-    float value() {
+    public float value() {
         return mValue;
     }
 
-    float target() {
+    public float target() {
         return mTarget;
     }
 
-    float velocity() {
+    public float velocity() {
         return mVelocity;
     }
 
-    boolean isRunning() {
+    public boolean isRunning() {
         return mRunning;
     }
 
-    void animateTo(float target) {
+    public void animateTo(float target) {
         if (mTarget != target) {
             mTarget = target;
             mRunning = true;
         }
     }
 
-    void snapTo(float value) {
+    public void snapTo(float value) {
         mValue = value;
         mTarget = value;
         mVelocity = 0f;
@@ -62,7 +62,7 @@ final class Spring {
     }
 
     /** Advances by {@code dt} seconds; returns true while still in motion. */
-    boolean update(float dt) {
+    public boolean update(float dt) {
         if (!mRunning) {
             return false;
         }
@@ -85,3 +85,4 @@ final class Spring {
         return mRunning;
     }
 }
+

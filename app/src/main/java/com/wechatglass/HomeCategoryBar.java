@@ -1,27 +1,28 @@
 package com.wechatglass;
 
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
+import android.view.Choreographer;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.wechatglass.liquid.Spring;
+
 /**
- * The home category switch: 好友 / 群聊 / 微信 as one liquid-glass capsule,
- * placed at the left end of the home top bar.
+ * The home category switch: 好友 / 群聊 / 微信 as one liquid-glass capsule.
  *
- * <p>The selected segment is carried by a WeChat-green pill that slides between
- * tabs (spring-ish overshoot), and the whole capsule grows while the user
- * presses on it — the same press feedback the reference LiquidGlass module uses
- * for its floating bar.
+ * <p>Animation follows the reference LiquidGlass module: springs integrated per
+ * frame by a {@link Choreographer} callback instead of duration interpolators.
+ * A position spring (tab units) carries the green pill, a press spring grows the
+ * capsule while held, and two scale springs give it the same soft overshoot the
+ * reference bar has.
  */
 final class HomeCategoryBar extends FrameLayout {
 
@@ -29,6 +30,7 @@ final class HomeCategoryBar extends FrameLayout {
     /** WeChat green, the same accent the bottom tab bar uses. */
     private static final int WECHAT_GREEN = 0xFF07C160;
     private static final long PRESS_DELAY_MS = 360L;
+    private static final float PRESSED_SCALE = 1.10f;
 
     interface OnSelect {
         void onSelect(int mode);
@@ -40,9 +42,16 @@ final class HomeCategoryBar extends FrameLayout {
     private OnSelect onSelect;
     private int mode;
     private boolean night;
-    private boolean pressed;
-    private ValueAnimator slide;
+    private boolean longPressed;
     private Runnable pressUp;
+
+    /** Position in tab units (0..2); the reference bar's value spring. */
+    private final Spring posSpring = new Spring(1f, 1000f, 0.001f, 0f);
+    private final Spring pressSpring = new Spring(1f, 1000f, 0.001f, 0f);
+    private final Spring scaleXSpring = new Spring(0.6f, 250f, 0.001f, 1f);
+    private final Spring scaleYSpring = new Spring(0.7f, 250f, 0.001f, 1f);
+    private boolean frameScheduled;
+    private long lastFrameNanos;
 
     HomeCategoryBar(Context context, ViewGroup backdrop, boolean night,
                     String[] labels, int mode) {
@@ -68,7 +77,6 @@ final class HomeCategoryBar extends FrameLayout {
             setBackground(fallback);
         }
 
-        // The green pill lives behind the labels and slides between them.
         indicator = new View(context);
         GradientDrawable pill = new GradientDrawable();
         pill.setColor(WECHAT_GREEN);
@@ -107,6 +115,7 @@ final class HomeCategoryBar extends FrameLayout {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         installPressFeedback(this);
+        posSpring.snapTo(mode);
         applyStyle();
     }
 
@@ -124,13 +133,14 @@ final class HomeCategoryBar extends FrameLayout {
         }
         night = isNight;
         applyStyle();
-        positionIndicator(false);
     }
 
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
-        positionIndicator(false);
+        if (!frameScheduled) {
+            apply();
+        }
     }
 
     private void applyMode(int index) {
@@ -139,7 +149,13 @@ final class HomeCategoryBar extends FrameLayout {
         }
         mode = index;
         applyStyle();
-        positionIndicator(true);
+        // The reference bar presses first, then lets the position spring carry
+        // the pill across; the press is released once the spring settles.
+        pressSpring.animateTo(1f);
+        scaleXSpring.animateTo(PRESSED_SCALE);
+        scaleYSpring.animateTo(PRESSED_SCALE);
+        posSpring.animateTo(index);
+        ensureFrame();
         if (onSelect != null) {
             onSelect.onSelect(index);
         }
@@ -157,64 +173,70 @@ final class HomeCategoryBar extends FrameLayout {
         }
     }
 
-    private void positionIndicator(boolean animate) {
-        int index = Math.max(0, Math.min(mode, tabs.length - 1));
-        TextView tab = tabs[index];
-        if (tab == null || tab.getWidth() <= 0 || row.getWidth() <= 0) {
-            return;
-        }
-        int targetLeft = row.getLeft() + tab.getLeft();
-        int targetTop = row.getTop() + tab.getTop();
-        int targetWidth = tab.getWidth();
-        int targetHeight = tab.getHeight();
-
-        if (slide != null) {
-            slide.cancel();
-            slide = null;
-        }
-        if (!animate) {
-            applyIndicator(targetLeft, targetTop, targetWidth, targetHeight);
-            return;
-        }
-        final int startLeft = indicator.getLeft();
-        final int startWidth = indicator.getWidth();
-        if (startWidth <= 0) {
-            applyIndicator(targetLeft, targetTop, targetWidth, targetHeight);
-            return;
-        }
-        final int endLeft = targetLeft;
-        final int endWidth = targetWidth;
-        final int top = targetTop;
-        final int height = targetHeight;
-        ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
-        animator.setDuration(260L);
-        animator.setInterpolator(new OvershootInterpolator(1.15f));
-        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                float f = (Float) animation.getAnimatedValue();
-                int left = Math.round(startLeft + (endLeft - startLeft) * f);
-                int width = Math.round(startWidth + (endWidth - startWidth) * f);
-                applyIndicator(left, top, width, height);
+    private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            float dt = lastFrameNanos == 0L
+                    ? 0.016f : (frameTimeNanos - lastFrameNanos) / 1_000_000_000f;
+            lastFrameNanos = frameTimeNanos;
+            boolean running = false;
+            running |= posSpring.update(dt);
+            running |= pressSpring.update(dt);
+            running |= scaleXSpring.update(dt);
+            running |= scaleYSpring.update(dt);
+            apply();
+            if (!posSpring.isRunning() && pressSpring.target() > 0.5f
+                    && !longPressed) {
+                pressSpring.animateTo(0f);
+                scaleXSpring.animateTo(1f);
+                scaleYSpring.animateTo(1f);
+                running = true;
             }
-        });
-        slide = animator;
-        animator.start();
+            if (running) {
+                Choreographer.getInstance().postFrameCallback(this);
+            } else {
+                frameScheduled = false;
+                lastFrameNanos = 0L;
+            }
+        }
+    };
+
+    private void ensureFrame() {
+        if (frameScheduled) {
+            return;
+        }
+        frameScheduled = true;
+        lastFrameNanos = 0L;
+        Choreographer.getInstance().postFrameCallback(frameCallback);
     }
 
-    /**
-     * Moves the pill by laying it out directly. Going through
-     * {@code setLayoutParams} here would call {@code requestLayout()} from
-     * inside the bar's own layout pass, which produced an endless
-     * "second layout pass" loop and the visible flicker.
-     */
-    private void applyIndicator(int left, int top, int width, int height) {
-        indicator.layout(left, top, left + Math.max(1, width), top + Math.max(1, height));
+    private void apply() {
+        int count = tabs.length;
+        if (count == 0 || row.getWidth() <= 0) {
+            return;
+        }
+        float position = Math.max(0f, Math.min(posSpring.value(), count - 1f));
+        int first = Math.min((int) Math.floor(position), count - 1);
+        int second = Math.min(first + 1, count - 1);
+        float fraction = Math.max(0f, Math.min(position - first, 1f));
+        TextView a = tabs[first];
+        TextView b = tabs[second];
+        int left = Math.round(a.getLeft() + (b.getLeft() - a.getLeft()) * fraction)
+                + row.getLeft();
+        int width = Math.round(a.getWidth() + (b.getWidth() - a.getWidth()) * fraction);
+        int top = row.getTop() + a.getTop();
+        int height = a.getHeight();
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        indicator.layout(left, top, left + width, top + height);
         indicator.invalidate();
+        setScaleX(scaleXSpring.value());
+        setScaleY(scaleYSpring.value());
         invalidate();
     }
 
-    /** Press feedback: after a short hold the capsule grows, and it settles back on release. */
+    /** Press feedback: a short hold grows the capsule, release settles it. */
     private void installPressFeedback(View target) {
         target.setOnTouchListener(new OnTouchListener() {
             @Override
@@ -242,15 +264,15 @@ final class HomeCategoryBar extends FrameLayout {
         pressUp = new Runnable() {
             @Override
             public void run() {
-                if (pressed) {
+                if (longPressed) {
                     return;
                 }
-                pressed = true;
+                longPressed = true;
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                animate().scaleX(1.08f).scaleY(1.08f)
-                        .setDuration(180L)
-                        .setInterpolator(new OvershootInterpolator(2.2f))
-                        .start();
+                pressSpring.animateTo(1.2f);
+                scaleXSpring.animateTo(PRESSED_SCALE);
+                scaleYSpring.animateTo(PRESSED_SCALE);
+                ensureFrame();
             }
         };
         postDelayed(pressUp, PRESS_DELAY_MS);
@@ -261,12 +283,12 @@ final class HomeCategoryBar extends FrameLayout {
             removeCallbacks(pressUp);
             pressUp = null;
         }
-        if (pressed) {
-            pressed = false;
-            animate().scaleX(1f).scaleY(1f)
-                    .setDuration(160L)
-                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                    .start();
+        if (longPressed) {
+            longPressed = false;
+            pressSpring.animateTo(0f);
+            scaleXSpring.animateTo(1f);
+            scaleYSpring.animateTo(1f);
+            ensureFrame();
         }
     }
 }
