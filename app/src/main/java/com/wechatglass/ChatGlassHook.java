@@ -782,8 +782,46 @@ final class ChatGlassHook {
         return null;
     }
 
+    /**
+     * Reads the wallpaper through the module's exported provider: the picker
+     * URI grant belongs to the module app, not to WeChat's process.
+     */
+    private android.graphics.Bitmap wallpaperFromProvider() {
+        try {
+            android.database.Cursor cursor = activity.getContentResolver().query(
+                    android.net.Uri.parse(
+                            "content://io.github.yingxingyswx_design.wechatglass.config/wallpaper"),
+                    null, null, null, null);
+            if (cursor == null) {
+                return null;
+            }
+            try {
+                if (!cursor.moveToFirst()) {
+                    return null;
+                }
+                byte[] data = cursor.getBlob(0);
+                if (data == null || data.length == 0) {
+                    return null;
+                }
+                return android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length);
+            } finally {
+                cursor.close();
+            }
+        } catch (Throwable throwable) {
+            android.util.Log.w("WeChatGlass", "CB wallpaper provider fail", throwable);
+            return null;
+        }
+    }
+
     private void loadWallpaper() {
         try {
+            android.graphics.Bitmap viaProvider = wallpaperFromProvider();
+            if (viaProvider != null) {
+                com.wechatglass.liquid.LiquidPanelFactory.setWallpaper(viaProvider);
+                android.util.Log.i("WeChatGlass", "CB wallpaper provider "
+                        + viaProvider.getWidth() + "x" + viaProvider.getHeight());
+                return;
+            }
             String cfg = readConfig("wallpaper_uri");
             if (cfg != null && !cfg.isEmpty()) {
                 java.io.InputStream cin = activity.getContentResolver()
