@@ -86,7 +86,7 @@ New-Item -ItemType Directory -Force -Path $snapDir | Out-Null
 
 # --- 3. 源码 zip ---------------------------------------------------------
 $zipPath = Join-Path $snapDir "$snapName-source.zip"
-$items = @('app', 'docs', 'gradle', 'build.ps1', 'BACKUP.md', 'README.md', 'HANDOFF.md', '.gitignore', 'debug.keystore', 'publish.ps1', 'build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', 'gradlew', 'gradlew.bat') |
+$items = @('app', 'docs', 'gradle', 'build.ps1', 'BACKUP.md', 'README.md', 'HANDOFF.md', 'THIRD_PARTY_NOTICES.md', '.gitignore', 'debug.keystore', 'publish.ps1', 'build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', 'gradlew', 'gradlew.bat') |
     ForEach-Object { Join-Path $repo $_ } |
     Where-Object { Test-Path $_ }
 Compress-Archive -Path $items -DestinationPath $zipPath -CompressionLevel Optimal -Force

@@ -37,6 +37,9 @@ public class HookEntry implements IXposedHookLoadPackage {
             hookResume(LAUNCHER_UI, lpparam, false);
             hookHomeAdapterSetter(lpparam.classLoader);
             hookHomeBottomTab(lpparam.classLoader);
+            if (WECHAT.equals(lpparam.processName)) {
+                com.wechatglass.liquidtab.LiquidTabHook.install(lpparam.classLoader);
+            }
             XposedBridge.log(TAG + " hooks installed for " + WECHAT);
         } catch (Throwable throwable) {
             XposedBridge.log(TAG + " hook install failed: " + throwable);
@@ -151,6 +154,8 @@ public class HookEntry implements IXposedHookLoadPackage {
                                     ChatGlassHook.reapplyStatusBar(activity);
                                 } else {
                                     HomeGlassHook.reapplyStatusBar(activity);
+                                    com.wechatglass.liquidtab.LiquidGlassInstaller
+                                            .scheduleInstall(activity);
                                 }
                             } catch (Throwable throwable) {
                                 XposedBridge.log(TAG + " resume failed: " + throwable);

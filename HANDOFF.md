@@ -143,10 +143,25 @@ adb shell am start --user 0 -n com.tencent.mm/.ui.LauncherUI
 `M3Motion` / `M3Shape` / `M3Drawable`），下一步按 R2–R6 分轮替换页面：
 微信页 → 通讯录 → 发现 → 我 → 聊天悬浮层/底部导航。
 
-边界：聊天消息列表/气泡仍由微信原生渲染，模块只改悬浮顶栏、输入栏、面板；每轮 Gradle
-构建、真机验证、`publish.ps1` 提交。
+边界：聊天消息列表/气泡仍由微信原生 RecyclerView/item 渲染，模块只重绘 item 的
+背景/圆角/字体/间距，不替换消息引擎和点击逻辑；每轮 Gradle 构建、真机验证、
+`publish.ps1` 提交。
 
-## 13. 近期关键提交
+## 13. 2026-11-23：LiquidGlass 底栏移植
+
+`com.wechatglass.liquidtab` 已从 [WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)
+（MIT）移植底栏：`LiquidGlassInstaller` / `TabBarBridge` / `LiquidGlassHostLayout` /
+`DropletPanel` / `DropletDragController` 等。libxposed API 102 的 hook 桥已换成我们的
+legacy Xposed API 82（`LiquidGlassModule` shim），作用域只传 `HostApp.WECHAT`。
+
+踩坑：微信自己的 `BlurView` 会把 DecorView 画进软件 Canvas，`LiquidGlassPanel` 的
+AGSL 高光会抛 `Software rendering doesn't support RuntimeShader`；已在
+`drawInteractiveHighlight` 加 `canvas.isHardwareAccelerated()` 判断，软件路径跳过高光。
+
+冲突检测只移除原模块的 `com.tencent.mm` scope，保留 QQ。App 顶部运行状态显示
+Root / LSPosed 注入 / 原模块冲突。
+
+## 14. 近期关键提交
 
 - `7544fbc` important: 新 App 图标（自适应 + 传统）
 - `ffe200b` fix: 切换器玻璃恢复（先解析 home 列表再装页面）

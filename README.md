@@ -11,6 +11,7 @@
 - **会话列表**：可选 Material Design 风格的自建列表，含「置顶 / 未置顶」分组、头像、时间排序与消息类型预览（贴纸 / 图片 / 语音 / App 标题）。
 - **聊天页**：顶部栏换成悬浮玻璃，表情面板与「+」面板同样玻璃化。
 - **聊天背景**：液态玻璃会采样一张壁纸并做模糊，得到真正的“壁纸透过玻璃”的效果。
+- **底部导航**：整合 [WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)（MIT）的悬浮液态玻璃底栏、水滴选中态与拖拽/弹簧动效；只作用于微信，QQ 不受影响。
 
 ## ⚠️ 重要：聊天页的壁纸模糊需要先指定壁纸
 
@@ -73,10 +74,14 @@
 ## 特别鸣谢
 
 - [liuran001/WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)（MIT）：
-  底部导航栏液态玻璃、水滴拖拽与弹簧动效的参考实现。本模块将在底部导航整合中复用其思路与部分代码，
-  并按 MIT 许可保留版权与许可声明。
+  底部导航栏液态玻璃、水滴拖拽与弹簧动效。本模块的 `liquidtab` 包由该项目移植/改编，
+  并按 MIT 许可保留版权与许可声明，完整许可见
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 已知问题
 
 - 自建列表（实验）在部分机型上与微信 ViewPager 的页面回收有冲突，可能出现切 tab 抖动/重影；默认的原生列表不受影响。
+- 底栏的 AGSL 高光在微信 `BlurView` 的软件采样路径下会自动跳过（否则 `RuntimeShader` 会抛
+  `Software rendering doesn't support RuntimeShader`），因此部分截图里材质会偏平；这是有意的安全降级。
+- 消息列表/气泡的 M3E 重绘仍在后续轮次，当前版本只整合了底栏。
 - 模块按微信 8.0.79 的类名适配，微信升级后可能失效。
