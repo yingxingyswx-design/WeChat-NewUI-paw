@@ -861,6 +861,19 @@ final class ChatGlassHook {
         }
     }
 
+    /** Footer row detection in dp / screen-relative units, not raw pixels. */
+    private static boolean looksLikeInputRow(View view) {
+        if (view == null) {
+            return false;
+        }
+        int width = view.getWidth();
+        int height = view.getHeight();
+        int screenWidth = view.getResources().getDisplayMetrics().widthPixels;
+        return width > screenWidth * 0.5f
+                && height >= Ui.dp(view.getContext(), 32f)
+                && height <= Ui.dp(view.getContext(), 80f);
+    }
+
     private View findInputRow() {
         if (footer == null) return null;
         View best = null;
@@ -869,7 +882,7 @@ final class ChatGlassHook {
         while (!q.isEmpty()) {
             View v = q.poll();
             boolean edit = v.getClass().getSimpleName().contains("EditText");
-            if (!edit && v.getWidth() > 600 && v.getHeight() >= 90 && v.getHeight() <= 200
+            if (!edit && looksLikeInputRow(v)
                     && (best == null || v.getWidth() > best.getWidth())) {
                 best = v;
             }
@@ -1018,8 +1031,7 @@ final class ChatGlassHook {
         while (!q.isEmpty()) {
             View v = q.poll();
             String cn = v.getClass().getSimpleName();
-            if (!cn.contains("EditText") && v.getWidth() > 600
-                    && v.getHeight() >= 90 && v.getHeight() <= 200
+            if (!cn.contains("EditText") && looksLikeInputRow(v)
                     && (best == null || v.getWidth() > best.getWidth())) {
                 best = v;
             }
@@ -1106,11 +1118,10 @@ final class ChatGlassHook {
         View bar = null;
         View cur = edit;
         while (cur != null) {
-            int hh = cur.getHeight();
-            if (hh >= 90 && hh <= 200 && cur.getWidth() > 600) { bar = cur; break; }
+            if (looksLikeInputRow(cur)) { bar = cur; break; }
             cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
         }
-        if (bar == null || bar.getHeight() > 220) { android.util.Log.i("WeChatGlass", "footer glass skip bad h=" + (bar == null ? -1 : bar.getHeight())); decor.postDelayed(new Runnable() { @Override public void run() { ensureFooterGlass(); } }, 800L); return; }
+        if (bar == null || bar.getHeight() > Ui.dp(activity, 80f)) { android.util.Log.i("WeChatGlass", "footer glass skip bad h=" + (bar == null ? -1 : bar.getHeight())); decor.postDelayed(new Runnable() { @Override public void run() { ensureFooterGlass(); } }, 800L); return; }
         renderer.addSkipTarget(bar);
         renderer.addSkipTarget(footer);
         StringBuilder diag = new StringBuilder("anchor diag");
