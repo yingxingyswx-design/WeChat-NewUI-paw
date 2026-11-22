@@ -73,7 +73,10 @@ final class HomeCategoryPage extends FrameLayout {
             @Override
             public void onItemClick(android.widget.AdapterView<?> parent, View view,
                                     int position, long id) {
-                Row row = adapter.rowAt(position);
+                // ListView counts the blank header (and the footer) in
+                // position; the adapter only knows its own rows.
+                int adapterPosition = position - list.getHeaderViewsCount();
+                Row row = adapter.rowAt(adapterPosition);
                 if (row != null && row.entry != null && openChat != null) {
                     openChat.open(row.entry.username);
                 }

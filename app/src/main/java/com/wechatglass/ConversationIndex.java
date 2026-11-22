@@ -140,6 +140,16 @@ final class ConversationIndex {
                     + " (with conv=" + countWithConversation(GROUPS) + ")"
                     + " system=" + SYSTEM.size()
                     + " conversations=" + conversations.size());
+            android.util.Log.i("WeChatGlass", "HL pinned friends=" + countPinned(FRIENDS)
+                    + " groups=" + countPinned(GROUPS)
+                    + " system=" + countPinned(SYSTEM));
+            int pinnedLogged = 0;
+            for (Entry e : FRIENDS) {
+                if (e.pinned && pinnedLogged++ < 8) {
+                    android.util.Log.i("WeChatGlass", "HL pinnedFriend " + e.username
+                            + " name=" + e.display + " t=" + e.time);
+                }
+            }
             logCount(contactDb, "rcontact @chatroom",
                     "select count(*) from rcontact where username like '%@chatroom'");
             logCount(contactDb, "rcontact @im.chatroom",
@@ -160,6 +170,16 @@ final class ConversationIndex {
         } catch (Throwable throwable) {
             android.util.Log.e("WeChatGlass", "HL index failed", throwable);
         }
+    }
+
+    private static int countPinned(List<Entry> list) {
+        int n = 0;
+        for (Entry e : list) {
+            if (e.pinned) {
+                n++;
+            }
+        }
+        return n;
     }
 
     private static int countWithConversation(List<Entry> list) {
@@ -258,7 +278,7 @@ final class ConversationIndex {
                     e.unread = unreadCol >= 0 ? cursor.getInt(unreadCol) : 0;
                     if (flagCol >= 0) {
                         long flag = cursor.getLong(flagCol);
-                        e.pinned = (flag & 0x40000000000000L) != 0L;
+                        e.pinned = (flag & 0x4000000000000000L) != 0L;
                     }
                     out.put(username, e);
                     if (flagCol >= 0 && logged++ < 15) {
