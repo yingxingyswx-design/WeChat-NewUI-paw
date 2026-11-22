@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.wechatglass"
+    package="io.github.yingxingyswx_design.wechatglass"
     android:versionCode="1"
     android:versionName="1.0">
 
@@ -17,7 +17,7 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
-            android:name=".SettingsActivity"
+            android:name="com.wechatglass.SettingsActivity"
             android:exported="true"
             android:label="WeChat NewUI">
             <intent-filter>
@@ -39,9 +39,9 @@
             android:name="xposedscope"
             android:resource="@array/xposedscope" />
 
-            <provider
-            android:name=".ConfigProvider"
-            android:authorities="com.wechatglass.config"
+        <provider
+            android:name="com.wechatglass.ConfigProvider"
+            android:authorities="io.github.yingxingyswx_design.wechatglass.config"
             android:exported="true" />
     </application>
 </manifest>

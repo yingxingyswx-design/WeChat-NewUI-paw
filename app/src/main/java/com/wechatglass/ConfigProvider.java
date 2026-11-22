@@ -8,7 +8,8 @@ import android.net.Uri;
 
 public class ConfigProvider extends ContentProvider {
 
-    private static final String AUTHORITY = "com.wechatglass.config";
+    private static final String AUTHORITY =
+            "io.github.yingxingyswx_design.wechatglass.config";
 
     @Override public boolean onCreate() { return true; }
 
