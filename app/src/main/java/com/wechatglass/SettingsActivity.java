@@ -24,6 +24,7 @@ public class SettingsActivity extends Activity {
     private static final String KEY_GLASS = "glass_enabled";
     private static final String KEY_WALLPAPER = "wallpaper_uri";
     private static final String KEY_NATIVE = "native_list";
+    private static final String KEY_AUTO_CONFLICT = "auto_disable_original";
     private static final String ACTION = "com.wechatglass.CONFIG";
     private static final String ACTION_QUERY = "com.wechatglass.QUERY";
     private static final String ACTION_STATE = "com.wechatglass.STATE";
@@ -31,6 +32,9 @@ public class SettingsActivity extends Activity {
     private TextView wallpaperHint;
     private M3Switch glassSwitch;
     private M3Switch nativeSwitchField;
+    private TextView conflictStatus;
+    private M3Switch autoConflictSwitch;
+    private volatile boolean conflictCheckRunning;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -128,6 +132,44 @@ public class SettingsActivity extends Activity {
         nativeHint.setTextColor(onVar);
         root.addView(nativeHint, lp(-1, -2, 0, dp(16)));
 
+        root.addView(section("冲突检测", card, onBg, onVar));
+
+        conflictStatus = new TextView(this);
+        conflictStatus.setText("正在检测 WeChat-LiquidGlass…");
+        conflictStatus.setTextSize(14f);
+        conflictStatus.setTextColor(onVar);
+        root.addView(conflictStatus, lp(-1, -2, 0, dp(8)));
+
+        LinearLayout autoConflictRow = new LinearLayout(this);
+        autoConflictRow.setOrientation(LinearLayout.HORIZONTAL);
+        autoConflictRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView autoConflictLabel = new TextView(this);
+        autoConflictLabel.setText("检测到原版模块时自动停用");
+        autoConflictLabel.setTextSize(16f);
+        autoConflictLabel.setTextColor(onBg);
+        autoConflictRow.addView(autoConflictLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        autoConflictSwitch = new M3Switch(this);
+        autoConflictSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_AUTO_CONFLICT, true));
+        autoConflictSwitch.setOnClickListener(v -> {
+            boolean on = !autoConflictSwitch.isChecked();
+            autoConflictSwitch.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_AUTO_CONFLICT, on).apply();
+            if (on) {
+                checkConflictAsync(false);
+            }
+        });
+        autoConflictRow.addView(autoConflictSwitch);
+        root.addView(autoConflictRow, lp(-1, -2, 0, dp(8)));
+
+        Button conflictButton = new Button(this);
+        conflictButton.setText("检测并停用原版模块");
+        conflictButton.setAllCaps(false);
+        conflictButton.setTextSize(15f);
+        conflictButton.setOnClickListener(v -> checkConflictAsync(true));
+        root.addView(conflictButton, lp(-1, dp(52), 0, dp(8)));
+
         root.addView(section("操作", card, onBg, onVar));
 
         LinearLayout actions = new LinearLayout(this);
@@ -170,6 +212,7 @@ public class SettingsActivity extends Activity {
 
         registerStateReceiver();
         sendQuery();
+        checkConflictAsync(false);
     }
 
     private boolean userToggled;
@@ -234,6 +277,77 @@ public class SettingsActivity extends Activity {
             sendBroadcast(intent);
         } catch (Throwable ignored) {
         }
+    }
+
+    private void checkConflictAsync(boolean manual) {
+        if (conflictCheckRunning) {
+            return;
+        }
+        conflictCheckRunning = true;
+        if (conflictStatus != null) {
+            conflictStatus.setText(manual ? "正在检测并停用…" : "正在检测 WeChat-LiquidGlass…");
+        }
+        final boolean allowAuto = autoConflictSwitch == null || autoConflictSwitch.isChecked();
+        final android.content.Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                ConflictGuard.Status status = ConflictGuard.detect(app);
+                boolean disabled = false;
+                if (status.installed && status.conflict() && (manual || allowAuto)) {
+                    disabled = ConflictGuard.disableWeChatScope(app);
+                    if (disabled) {
+                        status = ConflictGuard.detect(app);
+                    }
+                }
+                final ConflictGuard.Status result = status;
+                final boolean didDisable = disabled;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        conflictCheckRunning = false;
+                        showConflictStatus(result, didDisable);
+                    }
+                });
+            }
+        }, "wxglass-conflict").start();
+    }
+
+    private void showConflictStatus(ConflictGuard.Status status, boolean disabled) {
+        if (conflictStatus == null) {
+            return;
+        }
+        if (!status.installed) {
+            conflictStatus.setText("未检测到 WeChat-LiquidGlass，无冲突。");
+            return;
+        }
+        if (disabled && !status.conflict()) {
+            conflictStatus.setText("已移除原版模块的微信作用域；QQ 作用域保留。\n"
+                    + "请点下方「强制停止微信」再重新打开，整合后的底栏才会接管。");
+            return;
+        }
+        if (!status.root) {
+            conflictStatus.setText("已安装原版模块；模块 App 没有 root 权限，无法自动检查。\n"
+                    + "请在 LSPosed 里确认 " + ConflictGuard.ORIGINAL
+                    + " 只勾选 QQ、不勾选微信。");
+            return;
+        }
+        if (status.lspctl == null) {
+            conflictStatus.setText("已安装原版模块，但有 root 也没找到 LSPosed 的 lspctl。\n"
+                    + "请在 LSPosed 里只取消 " + ConflictGuard.ORIGINAL
+                    + " 的微信作用域，保留 QQ。");
+            return;
+        }
+        if (status.conflict()) {
+            conflictStatus.setText("检测到原版模块勾选了微信。\n"
+                    + "自动移除微信作用域失败（root 未授权？），请在 LSPosed 里只取消微信，保留 QQ。");
+            return;
+        }
+        if (!status.wechatScope()) {
+            conflictStatus.setText("原版模块没有勾选微信，不冲突；QQ 作用域保留。");
+            return;
+        }
+        conflictStatus.setText("原版模块的微信作用域已移除，当前不会冲突。");
     }
 
     private void forceStopWeChat() {
