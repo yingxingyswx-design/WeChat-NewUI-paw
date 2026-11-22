@@ -86,6 +86,9 @@ final class Backdrop {
                             new android.graphics.Rect(0, 0, width, height), wp);
                 }
             }
+            // Wallpaper mode is the whole backdrop: do not draw the live
+            // pager pages on top, or the chat glass captures the home page.
+            return;
         }
         Method drawChild = drawChild();
         boolean recorded = false;
