@@ -1,5 +1,9 @@
 analysis/
 build/
+.gradle/
+.gradle-build/
+local.properties
+*.iml
 debug/
 out/
 release/

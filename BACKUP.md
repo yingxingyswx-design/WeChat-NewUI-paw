@@ -70,9 +70,17 @@ cd C:\codes\模块\wechat_chat_ui
 
 ## 构建验证
 
+推荐 Gradle：
+
 ```powershell
 cd C:\codes\模块\wechat_chat_ui
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -DebugSigning
+.\gradlew.bat :app:assembleRelease
 ```
 
-依赖 Android SDK 36 与 JDK 17；产物在 `out\wechat-glass-1.0.apk`。
+依赖 Android SDK 36、JDK 17、AGP 9.4.1 / Gradle 9.8.2；`local.properties` 指向本机 SDK；产物在 `out\wechat-glass-1.0.apk`。
+
+旧的 `build.ps1` 仍可用作离线回退：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -DebugSigning
+```

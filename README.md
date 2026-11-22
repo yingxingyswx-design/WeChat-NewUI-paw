@@ -45,13 +45,22 @@
 
 ## 构建
 
-仓库不带 Gradle，使用 `build.ps1`（aapt2 + javac + d8 + zipalign + apksigner）：
+推荐使用 Gradle（Android Studio 可直接打开本工程）：
+
+```powershell
+.\gradlew.bat :app:assembleRelease
+```
+
+- AGP 9.4.1 / Gradle 9.8.2，JDK 17，compileSdk 36 / minSdk 24 / targetSdk 34；
+- `local.properties` 指向本机 Android SDK（已在 `.gitignore` 中）；
+- release 构建使用仓库里的 `debug.keystore`，签名与历史安装包一致；
+- 产物：`out/wechat-glass-1.0.apk`。
+
+旧的 `build.ps1`（aapt2 + javac + d8 + zipalign + apksigner）保留作离线回退：
 
 ```powershell
 .\build.ps1 -DebugSigning
 ```
-
-产物：`out/wechat-glass-1.0.apk`。
 
 ## 已知问题
 

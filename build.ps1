@@ -22,6 +22,17 @@ New-Item -ItemType Directory -Force -Path $build, "$build\classes", "$build\dex"
 $xposedApi = Join-Path $stage 'app\libs\api-82.jar'
 if (!(Test-Path $xposedApi)) { throw "xposed api not found: $xposedApi" }
 
+# The manifest is shared with the Gradle build, which takes the package name
+# from `namespace` and therefore has no package="" attribute. aapt2 link still
+# requires one, so add it to the staged copy only.
+$manifestPath = Join-Path $app 'AndroidManifest.xml'
+$manifestText = [System.IO.File]::ReadAllText($manifestPath)
+if ($manifestText -notmatch '\spackage\s*=') {
+    $manifestText = $manifestText -replace '<manifest\s', '<manifest package="io.github.yingxingyswx_design.wechatglass" '
+    [System.IO.File]::WriteAllText($manifestPath, $manifestText,
+        (New-Object System.Text.UTF8Encoding($false)))
+}
+
 Write-Host '=== aapt2 compile ==='
 & "$bt\aapt2.exe" compile --dir "$app\res" -o "$build\res.zip"
 if ($LASTEXITCODE -ne 0) { throw 'aapt2 compile failed' }

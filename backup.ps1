@@ -86,7 +86,7 @@ New-Item -ItemType Directory -Force -Path $snapDir | Out-Null
 
 # --- 3. 源码 zip ---------------------------------------------------------
 $zipPath = Join-Path $snapDir "$snapName-source.zip"
-$items = @('app', 'docs', 'build.ps1', 'BACKUP.md', 'README.md', '.gitignore', 'debug.keystore', 'publish.ps1') |
+$items = @('app', 'docs', 'gradle', 'build.ps1', 'BACKUP.md', 'README.md', '.gitignore', 'debug.keystore', 'publish.ps1', 'build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', 'gradlew', 'gradlew.bat') |
     ForEach-Object { Join-Path $repo $_ } |
     Where-Object { Test-Path $_ }
 Compress-Archive -Path $items -DestinationPath $zipPath -CompressionLevel Optimal -Force
@@ -124,7 +124,7 @@ ${stat}
 
 ## 源码包内容
 
-``app/``、``docs/``、``build.ps1``、``BACKUP.md``、``README.md``、``.gitignore``、``debug.keystore``。
+``app/``、``docs/``、``gradle/``、``build.gradle.kts``、``settings.gradle.kts``、``gradle.properties``、``gradlew``、``gradlew.bat``、``build.ps1``、``BACKUP.md``、``README.md``、``.gitignore``、``debug.keystore``。
 不包含 ``.git``、``tools/apktool.jar``、``out``、``build``、``.idea``、``backups``。
 
 ## 还原
