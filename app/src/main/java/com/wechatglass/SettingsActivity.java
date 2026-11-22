@@ -7,6 +7,8 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.View;
@@ -35,6 +37,12 @@ public class SettingsActivity extends Activity {
     private TextView conflictStatus;
     private M3Switch autoConflictSwitch;
     private volatile boolean conflictCheckRunning;
+    private TextView statusRootValue;
+    private TextView statusInjectValue;
+    private TextView statusConflictValue;
+    private volatile boolean stateReceived;
+    private int statusGeneration;
+    private boolean hasResumed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,6 +80,8 @@ public class SettingsActivity extends Activity {
         sub.setTextSize(14f);
         sub.setTextColor(onVar);
         root.addView(sub, lp(-1, -2, 0, dp(24)));
+
+        buildStatusCard(root, card, onBg, onVar);
 
         root.addView(section("液态玻璃", card, onBg, onVar));
 
@@ -211,7 +221,7 @@ public class SettingsActivity extends Activity {
         root.addView(pick, lp(-1, dp(56), 0, dp(8)));
 
         registerStateReceiver();
-        sendQuery();
+        refreshStatus();
         checkConflictAsync(false);
     }
 
@@ -232,7 +242,14 @@ public class SettingsActivity extends Activity {
         stateReceiver = new android.content.BroadcastReceiver() {
             @Override
             public void onReceive(android.content.Context context, Intent intent) {
-                if (intent == null || userToggled) {
+                if (intent == null) {
+                    return;
+                }
+                stateReceived = true;
+                if (statusInjectValue != null) {
+                    setStatusValue(statusInjectValue, "已注入微信", true);
+                }
+                if (userToggled) {
                     return;
                 }
                 boolean glass = intent.getBooleanExtra("glass", true);
@@ -251,6 +268,16 @@ public class SettingsActivity extends Activity {
                     android.content.Context.RECEIVER_EXPORTED);
         } else {
             registerReceiver(stateReceiver, filter);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (hasResumed) {
+            refreshStatus();
+        } else {
+            hasResumed = true;
         }
     }
 
@@ -277,6 +304,124 @@ public class SettingsActivity extends Activity {
             sendBroadcast(intent);
         } catch (Throwable ignored) {
         }
+    }
+
+    private void buildStatusCard(LinearLayout root, int card, int onBg, int onVar) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(card);
+        bg.setCornerRadius(dp(28));
+        box.setBackground(bg);
+        box.setPadding(dp(20), dp(16), dp(20), dp(10));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("运行状态");
+        title.setTextSize(16f);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setTextColor(onBg);
+        header.addView(title, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView refresh = new TextView(this);
+        refresh.setText("刷新");
+        refresh.setTextSize(13f);
+        refresh.setTextColor(onVar);
+        refresh.setPadding(dp(12), dp(6), dp(4), dp(6));
+        refresh.setOnClickListener(v -> refreshStatus());
+        header.addView(refresh);
+        box.addView(header);
+
+        statusRootValue = statusValueView(onBg);
+        statusInjectValue = statusValueView(onBg);
+        statusConflictValue = statusValueView(onBg);
+        box.addView(statusRow("Root", statusRootValue, onVar));
+        box.addView(statusRow("LSPosed 注入", statusInjectValue, onVar));
+        box.addView(statusRow("原模块冲突", statusConflictValue, onVar));
+
+        root.addView(box, lp(-1, -2, 0, dp(16)));
+    }
+
+    private TextView statusValueView(int onBg) {
+        TextView value = new TextView(this);
+        value.setTextSize(13f);
+        value.setTextColor(onBg);
+        value.setGravity(Gravity.END);
+        value.setMaxLines(2);
+        return value;
+    }
+
+    private LinearLayout statusRow(String label, TextView value, int onVar) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(6), 0, dp(6));
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextSize(14f);
+        name.setTextColor(onVar);
+        row.addView(name, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(value);
+        return row;
+    }
+
+    private void refreshStatus() {
+        if (statusRootValue == null) {
+            return;
+        }
+        final int generation = ++statusGeneration;
+        statusRootValue.setText("检测中…");
+        statusInjectValue.setText("等待微信回应…");
+        statusConflictValue.setText("检测中…");
+        stateReceived = false;
+        sendQuery();
+        final android.content.Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final ConflictGuard.Status status = ConflictGuard.detect(app);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (generation != statusGeneration) {
+                            return;
+                        }
+                        setStatusValue(statusRootValue,
+                                status.root ? "已授权" : "未授权", status.root);
+                        if (!status.installed) {
+                            setStatusValue(statusConflictValue, "未安装原模块", true);
+                        } else if (status.conflict()) {
+                            setStatusValue(statusConflictValue, "原模块仍勾选微信", false);
+                        } else {
+                            setStatusValue(statusConflictValue, "无冲突（未勾选微信）", true);
+                        }
+                    }
+                });
+            }
+        }, "wxglass-status").start();
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (generation != statusGeneration) {
+                    return;
+                }
+                if (!stateReceived) {
+                    setStatusValue(statusInjectValue, "未注入 / 微信未运行", false);
+                }
+            }
+        }, 1800);
+    }
+
+    private void setStatusValue(TextView value, String text, boolean ok) {
+        if (value == null) {
+            return;
+        }
+        value.setText("● " + text);
+        value.setTextColor(ok ? com.wechatglass.m3.M3Theme.colors(this).primary
+                : com.wechatglass.m3.M3Theme.colors(this).error);
     }
 
     private void checkConflictAsync(boolean manual) {

@@ -63,14 +63,18 @@ final class ConflictGuard {
         }
     }
 
+    static boolean hasRoot() {
+        String id = su("id");
+        return id != null && id.contains("uid=0");
+    }
+
     static Status detect(Context context) {
         Status s = new Status();
+        s.root = hasRoot();
         s.installed = installed(context);
         if (!s.installed) {
             return s;
         }
-        String id = su("id");
-        s.root = id != null && id.contains("uid=0");
         if (!s.root) {
             android.util.Log.i("WeChatGlass", "conflict detect: no root from module app");
             return s;

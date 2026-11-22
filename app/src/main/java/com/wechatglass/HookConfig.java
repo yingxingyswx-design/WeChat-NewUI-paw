@@ -45,7 +45,7 @@ final class HookConfig {
                     }
                     if (ACTION_QUERY.equals(intent.getAction())) {
                         Intent reply = new Intent(ACTION_STATE);
-                        reply.setPackage("com.wechatglass");
+                        reply.setPackage("io.github.yingxingyswx_design.wechatglass");
                         reply.putExtra(KEY_GLASS, ctx.getSharedPreferences(PREFS, 0)
                                 .getBoolean(KEY_GLASS, true));
                         reply.putExtra(KEY_NATIVE_LIST, ctx.getSharedPreferences(PREFS, 0)
