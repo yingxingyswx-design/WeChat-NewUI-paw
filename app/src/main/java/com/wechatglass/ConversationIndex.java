@@ -256,11 +256,14 @@ final class ConversationIndex {
         Cursor cursor = null;
         try {
             cursor = (Cursor) de.robv.android.xposed.XposedHelpers.callMethod(db, "A",
-                    "select username, content, conversationTime, unReadCount, flag"
-                            + " from rconversation order by flag desc, conversationTime desc", null);
+                    "select username, digest, content, msgType, conversationTime,"
+                            + " unReadCount, flag from rconversation"
+                            + " order by flag desc, conversationTime desc", null);
             if (cursor != null) {
                 int userCol = cursor.getColumnIndex("username");
+                int digestCol = cursor.getColumnIndex("digest");
                 int contentCol = cursor.getColumnIndex("content");
+                int typeCol = cursor.getColumnIndex("msgType");
                 int timeCol = cursor.getColumnIndex("conversationTime");
                 int unreadCol = cursor.getColumnIndex("unReadCount");
                 int flagCol = cursor.getColumnIndex("flag");
@@ -273,7 +276,10 @@ final class ConversationIndex {
                     Entry e = new Entry();
                     e.username = username;
                     e.hasConversation = true;
-                    e.preview = contentCol >= 0 ? cursor.getString(contentCol) : "";
+                    String digest = digestCol >= 0 ? cursor.getString(digestCol) : "";
+                    String content = contentCol >= 0 ? cursor.getString(contentCol) : "";
+                    int msgType = typeCol >= 0 ? cursor.getInt(typeCol) : 0;
+                    e.preview = formatPreview(digest, content, msgType);
                     e.time = timeCol >= 0 ? cursor.getLong(timeCol) : 0L;
                     e.unread = unreadCol >= 0 ? cursor.getInt(unreadCol) : 0;
                     if (flagCol >= 0) {
@@ -334,6 +340,78 @@ final class ConversationIndex {
             }
         }
         return out;
+    }
+
+    /** Same idea as WeChat's own row: format the preview by message type. */
+    private static String formatPreview(String digest, String content, int msgType) {
+        String language = java.util.Locale.getDefault().getLanguage();
+        boolean ja = "ja".equals(language);
+        boolean zh = "zh".equals(language);
+        switch (msgType) {
+            case 3:
+                return ja ? "[写真]" : zh ? "[图片]" : "[Photo]";
+            case 34:
+                return ja ? "[音声]" : zh ? "[语音]" : "[Voice]";
+            case 43:
+                return ja ? "[動画]" : zh ? "[视频]" : "[Video]";
+            case 47:
+                return ja ? "[ステッカー]" : zh ? "[表情]" : "[Sticker]";
+            case 48:
+                return ja ? "[位置情報]" : zh ? "[位置]" : "[Location]";
+            case 42:
+                return ja ? "[連絡先]" : zh ? "[名片]" : "[Contact]";
+            case 49: {
+                String title = xmlTitle(content);
+                if (title != null && !title.isEmpty()) {
+                    return title;
+                }
+                String digestTitle = xmlTitle(digest);
+                if (digestTitle != null && !digestTitle.isEmpty()) {
+                    return digestTitle;
+                }
+                return ja ? "[リンク]" : zh ? "[链接]" : "[Link]";
+            }
+            case 10000: {
+                String text = plain(digest);
+                if (text == null || text.isEmpty()) {
+                    text = plain(content);
+                }
+                return text == null ? "" : text;
+            }
+            default: {
+                String text = plain(digest);
+                if (text == null || text.isEmpty()) {
+                    text = plain(content);
+                }
+                return text == null ? "" : text;
+            }
+        }
+    }
+
+    private static String xmlTitle(String xml) {
+        if (xml == null) {
+            return null;
+        }
+        int start = xml.indexOf("<title>");
+        int end = xml.indexOf("</title>");
+        if (start >= 0 && end > start) {
+            return xml.substring(start + 7, end);
+        }
+        return null;
+    }
+
+    private static String plain(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.startsWith("<")) {
+            return xmlTitle(trimmed);
+        }
+        if (trimmed.matches("[0-9a-fA-F]{24,}")) {
+            return null; // media/msg hash, not human-readable text
+        }
+        return trimmed;
     }
 
     private static String systemName(String username) {

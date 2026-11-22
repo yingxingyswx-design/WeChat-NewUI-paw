@@ -118,6 +118,7 @@ final class HomeGlassHook {
                 categoryPageFilled = true;
                 categoryPage.show(HomeConversationFilter.mode());
             }
+            refreshHeaderTexts();
             long now = android.os.SystemClock.uptimeMillis();
             long sinceAttach = now - attachedAt;
             if (isMiniProgramSurface()) {
@@ -1252,6 +1253,12 @@ final class HomeGlassHook {
                     public void run() {
                         triggerNativePullDown();
                     }
+                },
+                new HomeCategoryPage.OpenAction() {
+                    @Override
+                    public void open(String action) {
+                        openEntry(action);
+                    }
                 });
         parent.addView(categoryPage, index + 1,
                 new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1261,8 +1268,26 @@ final class HomeGlassHook {
                 + " status=" + status + " bottom=" + bottom);
     }
 
-    private void openChat(String username) {
+    /** Opens the WeChat page behind one of the top entry rows. */
+    private void openEntry(String action) {
+        String className;
+        if ("weapp".equals(action)) {
+            className = "com.tencent.mm.plugin.appbrand.ui.AppBrandLauncherUI";
+        } else if ("device".equals(action)) {
+            className = "com.tencent.mm.plugin.webwx.ui.LoginDeviceListUI";
+        } else {
+            className = "com.tencent.mm.plugin.wenote.ui.nativenote.NoteEditorUI";
+        }
         try {
+            android.content.Intent intent = new android.content.Intent();
+            intent.setClassName(activity, className);
+            activity.startActivity(intent);
+        } catch (Throwable throwable) {
+            Log.e(TAG, "open entry failed: " + action, throwable);
+        }
+    }
+
+    private void openChat(String username) {        try {
             android.content.Intent intent = new android.content.Intent();
             intent.setClassName(activity, "com.tencent.mm.ui.chatting.ChattingUI");
             intent.putExtra("Chat_User", username);
@@ -1320,6 +1345,74 @@ final class HomeGlassHook {
                 }
             }
         });
+    }
+
+    private int headerTextTries;
+
+    /**
+     * Reads the live rows of WeChat's own TaskBar header: the device-login
+     * status line and the pinned-note line, so our page can show their real
+     * text instead of a static label.
+     */
+    private void refreshHeaderTexts() {
+        if (categoryPage == null || homeListView == null || headerTextTries > 8) {
+            return;
+        }
+        headerTextTries++;
+        try {
+            Object adapter = homeListView.getAdapter();
+            if (!(adapter instanceof android.widget.HeaderViewListAdapter)) {
+                return;
+            }
+            View header = ((android.widget.HeaderViewListAdapter) adapter)
+                    .getView(0, null, homeListView);
+            if (header == null) {
+                return;
+            }
+            java.util.List<String> texts = new java.util.ArrayList<>();
+            collectTexts(header, texts, 0);
+            if (texts.isEmpty()) {
+                return;
+            }
+            String device = null;
+            for (String text : texts) {
+                if (text.contains("ログイン") || text.contains("登录") || text.contains("iPad")
+                        || text.contains("Web")) {
+                    device = text;
+                    break;
+                }
+            }
+            String note = null;
+            if (device != null) {
+                int index = texts.indexOf(device);
+                if (index >= 0 && index + 1 < texts.size()) {
+                    note = texts.get(index + 1);
+                }
+            }
+            android.util.Log.i("WeChatGlass", "HL header device=" + device
+                    + " note=" + note + " texts=" + texts);
+            categoryPage.setHeaderTexts(device, note);
+        } catch (Throwable throwable) {
+            Log.w(TAG, "header texts failed", throwable);
+        }
+    }
+
+    private void collectTexts(View view, java.util.List<String> out, int depth) {
+        if (view == null || depth > 12) {
+            return;
+        }
+        if (view instanceof android.widget.TextView) {
+            CharSequence text = ((android.widget.TextView) view).getText();
+            if (text != null && text.length() > 0) {
+                out.add(text.toString());
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectTexts(group.getChildAt(i), out, depth + 1);
+            }
+        }
     }
 
     private String[] categoryLabels() {

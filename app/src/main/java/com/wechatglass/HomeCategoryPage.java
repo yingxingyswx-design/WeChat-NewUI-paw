@@ -33,20 +33,26 @@ final class HomeCategoryPage extends FrameLayout {
         void open(String username);
     }
 
+    interface OpenAction {
+        void open(String action);
+    }
+
     private final ListView list;
     private final EntryAdapter adapter = new EntryAdapter();
     private final int topInset;
     private final int bottomInset;
     private final boolean night;
     private final OpenChat openChat;
+    private final OpenAction openAction;
 
     HomeCategoryPage(Context context, boolean night, int topInset, int bottomInset,
-                     OpenChat openChat, final Runnable onPullDown) {
+                     OpenChat openChat, final Runnable onPullDown, OpenAction openAction) {
         super(context);
         this.night = night;
         this.topInset = topInset;
         this.bottomInset = bottomInset;
         this.openChat = openChat;
+        this.openAction = openAction;
         setBackgroundColor(night ? 0xFF111111 : 0xFFEDEDED);
 
         list = new ListView(context);
@@ -106,7 +112,14 @@ final class HomeCategoryPage extends FrameLayout {
                 // position; the adapter only knows its own rows.
                 int adapterPosition = position - list.getHeaderViewsCount();
                 Row row = adapter.rowAt(adapterPosition);
-                if (row != null && row.entry != null && openChat != null) {
+                if (row == null) {
+                    return;
+                }
+                if (row.action != null && openAction != null) {
+                    openAction.open(row.action);
+                    return;
+                }
+                if (row.entry != null && openChat != null) {
                     openChat.open(row.entry.username);
                 }
             }
@@ -128,19 +141,39 @@ final class HomeCategoryPage extends FrameLayout {
     private static final class Row {
         final ConversationIndex.Entry entry;
         final String label;
+        final String action;
 
         Row(ConversationIndex.Entry entry) {
             this.entry = entry;
             this.label = null;
+            this.action = null;
         }
 
         Row(String label) {
             this.entry = null;
             this.label = label;
+            this.action = null;
+        }
+
+        Row(String label, String action) {
+            this.entry = null;
+            this.label = label;
+            this.action = action;
         }
     }
 
+    private String deviceText;
+    private String noteText;
+    private int currentMode = HomeConversationFilter.FRIEND;
+
+    void setHeaderTexts(String device, String note) {
+        deviceText = device;
+        noteText = note;
+        show(currentMode);
+    }
+
     void show(int mode) {
+        currentMode = mode;
         List<ConversationIndex.Entry> data;
         switch (mode) {
             case HomeConversationFilter.GROUP:
@@ -230,11 +263,15 @@ final class HomeCategoryPage extends FrameLayout {
             if (row == null) {
                 return new View(getContext());
             }
+            if (row.action != null) {
+                return buildActionRow(row.label, row.action);
+            }
             if (row.entry == null) {
                 return buildHeader(convertView, row.label);
             }
             LinearLayout view;
-            if (convertView instanceof LinearLayout) {
+            if (convertView instanceof LinearLayout
+                    && convertView.getTag() instanceof Holder) {
                 view = (LinearLayout) convertView;
             } else {
                 view = buildRow();
@@ -244,8 +281,34 @@ final class HomeCategoryPage extends FrameLayout {
         }
     }
 
-    private View buildHeader(View convertView, String label) {
-        TextView header;
+    /** Entry row (小程序 / 已登入设备 / 置顶笔记); the label is one line, ellipsized. */
+    private View buildActionRow(String label, String action) {
+        Context context = getContext();
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Ui.dp(context, 14f);
+        row.setPadding(pad, Ui.dp(context, 10f), pad, Ui.dp(context, 10f));
+        row.setBackgroundColor(night ? 0xFF191919 : 0xFFFFFFFF);
+
+        TextView text = new TextView(context);
+        text.setText(label);
+        text.setTextSize(16f);
+        text.setSingleLine(true);
+        text.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        text.setTextColor(night ? 0xFFF2F2F2 : 0xFF1A1A1A);
+        row.addView(text, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView chevron = new TextView(context);
+        chevron.setText("›");
+        chevron.setTextSize(18f);
+        chevron.setTextColor(night ? 0xFF8A8A8A : 0xFF9A9A9A);
+        row.addView(chevron);
+        return row;
+    }
+
+    private View buildHeader(View convertView, String label) {        TextView header;
         if (convertView instanceof TextView) {
             header = (TextView) convertView;
         } else {
