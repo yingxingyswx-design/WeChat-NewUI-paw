@@ -22,8 +22,12 @@ public class SettingsActivity extends Activity {
     private static final String PREFS = "settings";
     private static final String KEY_GLASS = "glass_enabled";
     private static final String KEY_WALLPAPER = "wallpaper_uri";
+    private static final String KEY_NATIVE = "native_list";
+    private static final String ACTION = "com.wechatglass.CONFIG";
 
     private TextView wallpaperHint;
+    private M3Switch glassSwitch;
+    private M3Switch nativeSwitchField;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,14 +79,46 @@ public class SettingsActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         row.addView(label, labelLp);
         M3Switch glass = new M3Switch(this);
+        glassSwitch = glass;
         glass.setCheckedNoAnim(getSharedPreferences(PREFS, 0).getBoolean(KEY_GLASS, true));
         glass.setOnClickListener(v -> {
             boolean on = !glass.isChecked();
             glass.setChecked(on);
             getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_GLASS, on).apply();
+            pushConfig();
         });
         row.addView(glass);
         root.addView(row, lp(-1, -2, 0, dp(8)));
+
+        root.addView(section("界面", card, onBg, onVar));
+
+        LinearLayout nativeRow = new LinearLayout(this);
+        nativeRow.setOrientation(LinearLayout.HORIZONTAL);
+        nativeRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView nativeLabel = new TextView(this);
+        nativeLabel.setText("恢复微信原生UI");
+        nativeLabel.setTextSize(16f);
+        nativeLabel.setTextColor(onBg);
+        nativeRow.addView(nativeLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        M3Switch nativeSwitch = new M3Switch(this);
+        nativeSwitchField = nativeSwitch;
+        nativeSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_NATIVE, false));
+        nativeSwitch.setOnClickListener(v -> {
+            boolean on = !nativeSwitch.isChecked();
+            nativeSwitch.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_NATIVE, on).apply();
+            pushConfig();
+        });
+        nativeRow.addView(nativeSwitch);
+        root.addView(nativeRow, lp(-1, -2, 0, dp(8)));
+
+        TextView nativeHint = new TextView(this);
+        nativeHint.setText("开启后只去掉自定义会话列表，液态玻璃顶栏和分类切换保留。");
+        nativeHint.setTextSize(13f);
+        nativeHint.setTextColor(onVar);
+        root.addView(nativeHint, lp(-1, -2, 0, dp(16)));
 
         TextView wallTitle = new TextView(this);
         wallTitle.setText("背景壁纸");
@@ -103,6 +139,21 @@ public class SettingsActivity extends Activity {
         pick.setTextSize(16f);
         pick.setOnClickListener(v -> pickWallpaper());
         root.addView(pick, lp(-1, dp(56), 0, dp(8)));
+
+        pushConfig();
+    }
+
+    /** Sends both switches to WeChat's process. */
+    private void pushConfig() {
+        try {
+            Intent intent = new Intent(ACTION);
+            intent.setPackage("com.tencent.mm");
+            intent.putExtra("glass", glassSwitch == null || glassSwitch.isChecked());
+            intent.putExtra("native_list",
+                    nativeSwitchField != null && nativeSwitchField.isChecked());
+            sendBroadcast(intent);
+        } catch (Throwable ignored) {
+        }
     }
 
     private void pickWallpaper() {

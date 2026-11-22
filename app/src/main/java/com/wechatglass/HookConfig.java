@@ -18,10 +18,16 @@ final class HookConfig {
     static final String ACTION = "com.wechatglass.CONFIG";
     static final String PREFS = "wechatglass";
     static final String KEY_GLASS = "glass";
+    static final String KEY_NATIVE_LIST = "native_list";
 
     private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
+    private static volatile Runnable onChange;
 
     private HookConfig() {
+    }
+
+    static void setOnChange(Runnable listener) {
+        onChange = listener;
     }
 
     static void installReceiver(Context context) {
@@ -32,14 +38,21 @@ final class HookConfig {
             BroadcastReceiver receiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context ctx, Intent intent) {
-                    if (intent == null || !KEY_GLASS.equals(intent.getAction())
-                            && !ACTION.equals(intent.getAction())) {
+                    if (intent == null || !ACTION.equals(intent.getAction())) {
                         return;
                     }
                     boolean glass = intent.getBooleanExtra(KEY_GLASS, true);
+                    boolean nativeList = intent.getBooleanExtra(KEY_NATIVE_LIST, false);
                     ctx.getSharedPreferences(PREFS, 0).edit()
-                            .putBoolean(KEY_GLASS, glass).apply();
-                    android.util.Log.i("WeChatGlass", "config broadcast glass=" + glass);
+                            .putBoolean(KEY_GLASS, glass)
+                            .putBoolean(KEY_NATIVE_LIST, nativeList)
+                            .apply();
+                    android.util.Log.i("WeChatGlass", "config broadcast glass=" + glass
+                            + " nativeList=" + nativeList);
+                    Runnable listener = onChange;
+                    if (listener != null) {
+                        listener.run();
+                    }
                 }
             };
             IntentFilter filter = new IntentFilter(ACTION);
@@ -62,5 +75,10 @@ final class HookConfig {
                 .getBoolean(KEY_GLASS, true);
         android.util.Log.i("WeChatGlass", "config glass=" + enabled);
         return enabled;
+    }
+
+    static boolean nativeList(Context context) {
+        return context != null && context.getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_NATIVE_LIST, false);
     }
 }

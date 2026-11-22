@@ -285,6 +285,17 @@ final class HomeGlassHook {
                 : frostedContent.getClass().getName()));
 
         HookConfig.installReceiver(activity);
+        HookConfig.setOnChange(new Runnable() {
+            @Override
+            public void run() {
+                for (HomeGlassHook hook : INSTANCES.values()) {
+                    try {
+                        hook.applyConfig();
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        });
         renderer = new GlassRenderer(decor);
         renderer.setGlassEnabled(HookConfig.glassEnabled(activity));
 
@@ -903,6 +914,21 @@ final class HomeGlassHook {
         });
     }
 
+    /** Applies a live GUI change (native list / glass / wallpaper). */
+    private void applyConfig() {
+        boolean nativeList = HookConfig.nativeList(activity);
+        if (!nativeList && categoryPage == null) {
+            installCategoryPage();
+        }
+        if (categoryPage != null && ConversationIndex.loaded()) {
+            categoryPage.show(HomeConversationFilter.mode());
+        }
+        updateTabState();
+        if (renderer != null) {
+            renderer.requestUpdate();
+        }
+    }
+
     private void updateTabState() {
         int mode;
         if (bottomTab >= 0) {
@@ -941,11 +967,12 @@ final class HomeGlassHook {
             categoryBar.setVisibility(
                     full && HomeConversationFilter.active() ? View.VISIBLE : View.GONE);
         }
+        boolean nativeList = HookConfig.nativeList(activity);
         if (categoryPage != null) {
-            categoryPage.setVisibility(full ? View.VISIBLE : View.GONE);
+            categoryPage.setVisibility(full && !nativeList ? View.VISIBLE : View.GONE);
         }
         if (homeListView != null) {
-            homeListView.setVisibility(full ? View.INVISIBLE : View.VISIBLE);
+            homeListView.setVisibility(full && !nativeList ? View.INVISIBLE : View.VISIBLE);
         }
         setChipVisible(leftChip, false);
         setChipVisible(searchChip, full);

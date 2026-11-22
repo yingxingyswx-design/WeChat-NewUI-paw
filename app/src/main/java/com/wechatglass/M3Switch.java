@@ -56,7 +56,6 @@ public class M3Switch extends View {
             invalidate();
         });
         anim.start();
-        performClick();
     }
 
     @Override public boolean performClick() { super.performClick(); return true; }
