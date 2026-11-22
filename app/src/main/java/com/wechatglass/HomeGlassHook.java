@@ -34,6 +34,21 @@ final class HomeGlassHook {
     private static final boolean DEBUG_HIDE_OVERLAY = false;
     private static final Map<Activity, HomeGlassHook> INSTANCES = new WeakHashMap<>();
     private static volatile boolean nativeBarAllowed;
+    /** setTo(): 0 = Weixin, 1 = Discover, 2 = Contacts, 3 = Me; -1 until known. */
+    private static volatile int bottomTab = -1;
+
+    static void onBottomTab(int tab) {
+        if (bottomTab == tab) {
+            return;
+        }
+        bottomTab = tab;
+        for (HomeGlassHook hook : INSTANCES.values()) {
+            try {
+                hook.updateTabState();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
 
     static boolean isNativeBarAllowed() {
         return nativeBarAllowed;
@@ -62,6 +77,13 @@ final class HomeGlassHook {
     private GlassChipView titleChip;
     private GlassChipView searchChip;
     private GlassChipView plusChip;
+    private HomeCategoryBar categoryBar;
+    private HomeCategoryPage categoryPage;
+    private android.widget.ListView homeListView;
+    private View taskBarContainer;
+    private boolean miniProgramShown;
+    private int miniHits;
+    private long attachedAt;
     private View topMask;
     private int tabMode; // 0 = full, 1 = title only, 2 = no bar
     private int actionBarHeight;
@@ -87,6 +109,33 @@ final class HomeGlassHook {
             // WeChat re-shows its ActionBar on tab switches; keep ours on top
             // and the native one hidden without running the full geometry pass.
             keepNativeBarHidden();
+            if (homeListView != null) {
+                // WeChat can replace the adapter again on resume; this is a
+                // cheap identity check, not a re-wrap.
+                HomeConversationFilter.attach(homeListView);
+            }
+            long now = android.os.SystemClock.uptimeMillis();
+            long sinceAttach = now - attachedAt;
+            if (isMiniProgramSurface()) {
+                miniHits++;
+            } else {
+                miniHits = 0;
+            }
+            // Two consecutive hits (~1.2s) and never during the launch
+            // transition, where the TaskBar container is briefly at the top.
+            boolean miniStable = sinceAttach > 2500L && miniHits >= 2;
+            if (miniStable != miniProgramShown) {
+                miniProgramShown = miniStable;
+                android.util.Log.i("WeChatGlass", "HL mini=" + miniStable
+                        + " hits=" + miniHits
+                        + " taskTop=" + taskBarTop()
+                        + " first=" + (homeListView == null ? -1
+                        : homeListView.getFirstVisiblePosition()));
+                updateTabState();
+            }
+            // The TaskBar header is the list's first row. The adapter swap
+            // pins the list to the first conversation synchronously, so no
+            // periodic correction is needed here.
             maybeUpdateGeometry();
             handler.postDelayed(this, 600L);
         }
@@ -172,7 +221,7 @@ final class HomeGlassHook {
     static void reapplyStatusBar(Activity activity) {
         HomeGlassHook hook = INSTANCES.get(activity);
         if (hook != null) {
-            hook.applyStatusBar();
+            hook.applyStatusBar(false);
         }
     }
 
@@ -257,7 +306,6 @@ final class HomeGlassHook {
         ((ViewGroup) decor).addView(overlay, overlayParams);
 
         leftChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
-        titleChip = new GlassChipView(activity, renderer, Ui.dp(activity, 20f), tint, border);
         searchChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
         plusChip = new GlassChipView(activity, renderer, chipHeight / 2f, tint, border);
 
@@ -269,13 +317,10 @@ final class HomeGlassHook {
         clickThrough(plusChip, plusView);
         renderer.setHiddenViews(overlay);
 
-        addChip(overlay, titleChip, chipHeight);
         addChip(overlay, searchChip, chipHeight);
         addChip(overlay, plusChip, chipHeight);
-        renderer.addSkipTarget(titleChip);
         renderer.addSkipTarget(searchChip);
         renderer.addSkipTarget(plusChip);
-        renderer.addClient(titleChip);
         renderer.addClient(searchChip);
         renderer.addClient(plusChip);
 
@@ -347,6 +392,21 @@ final class HomeGlassHook {
         }
         forceContentBehindTop();
         setupList();
+        installCategoryBar();
+        // The storage objects only work after MMApplication's kernel is up, so
+        // the read-only category index is built a moment after the page shows.
+        final ClassLoader indexLoader = activity.getClassLoader();
+        decor.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        ConversationIndex.load(indexLoader);
+                    }
+                }, "wxglass-index").start();
+            }
+        }, 2500L);
         if (list != null && list.getParent() instanceof ViewGroup) {
             renderer.setBackdrop((ViewGroup) list.getParent());
         }
@@ -399,6 +459,7 @@ final class HomeGlassHook {
                 });
 
         installed = true;
+        attachedAt = android.os.SystemClock.uptimeMillis();
         updateGeometry();
         lastGeometrySignature = geometrySignature();
         handler.postDelayed(tick, 600L);
@@ -539,25 +600,40 @@ final class HomeGlassHook {
     }
 
     private void applyStatusBar() {
+        applyStatusBar(true);
+    }
+
+    /**
+     * @param resetBackgrounds true on install, where the page has to become
+     *     full-bleed. On a later onResume this must stay false: WeChat repaints
+     *     its own page background when the app comes back, and clearing it
+     *     again exposes the window's dark background — which reads as the
+     *     contacts page "switching to dark mode".
+     */
+    private void applyStatusBar(boolean resetBackgrounds) {
         try {
             Window window = activity.getWindow();
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             window.setStatusBarColor(Color.TRANSPARENT);
-            decor.setBackgroundColor(Color.TRANSPARENT);
+            if (resetBackgrounds) {
+                decor.setBackgroundColor(Color.TRANSPARENT);
+            }
             View overlayLayout = Ui.findByClass(decor,
                     "androidx.appcompat.widget.ActionBarOverlayLayout");
             if (overlayLayout != null) {
                 overlayLayout.setBackground(null);
             }
-            View content = decor.findViewById(android.R.id.content);
-            if (content != null) {
-                content.setBackgroundColor(Color.TRANSPARENT);
-            }
-            if (frostedContent != null) {
-                frostedContent.setBackgroundColor(Color.TRANSPARENT);
-            }
-            if (list != null) {
-                list.setBackgroundColor(Color.TRANSPARENT);
+            if (resetBackgrounds) {
+                View content = decor.findViewById(android.R.id.content);
+                if (content != null) {
+                    content.setBackgroundColor(Color.TRANSPARENT);
+                }
+                if (frostedContent != null) {
+                    frostedContent.setBackgroundColor(Color.TRANSPARENT);
+                }
+                if (list != null) {
+                    list.setBackgroundColor(Color.TRANSPARENT);
+                }
             }
             if (Build.VERSION.SDK_INT >= 30) {
                 window.setDecorFitsSystemWindows(false);
@@ -823,27 +899,31 @@ final class HomeGlassHook {
     }
 
     private void updateTabState() {
-        String text = titleView instanceof TextView
-                ? String.valueOf(((TextView) titleView).getText()) : "";
-        int mode = 0;
-        if (text.contains("我")) {
-            mode = 2;
-        } else if (text.contains("通讯录") || text.contains("发现")) {
-            mode = 1;
+        int mode;
+        if (bottomTab >= 0) {
+            // LauncherUIBottomTabView.setTo(): 0 = Weixin, 1 = Discover,
+            // 2 = Contacts, 3 = Me. Only the Weixin page keeps a floating bar;
+            // the title capsule is gone everywhere, so the other pages have no
+            // overlay at all.
+            mode = bottomTab == 0 ? 0 : 1;
+        } else {
+            String text = titleView instanceof TextView
+                    ? String.valueOf(((TextView) titleView).getText()) : "";
+            String t = text.trim();
+            if (t.equals("我") || t.equals("自分")
+                    || t.equalsIgnoreCase("Me") || t.equalsIgnoreCase("Mine")) {
+                mode = 1;
+            } else if (t.contains("通讯录") || t.contains("通訊錄") || t.contains("連絡先")
+                    || t.equalsIgnoreCase("Contacts")
+                    || t.contains("发现") || t.contains("發現") || t.contains("発見")
+                    || t.equalsIgnoreCase("Discover")) {
+                mode = 1;
+            } else {
+                mode = 0;
+            }
         }
 
-        if (mode == 2) {
-            if (overlay != null) {
-                overlay.setVisibility(View.GONE);
-            }
-            if (actionBar != null) {
-                actionBar.setVisibility(View.GONE);
-            }
-            setFrostEnabled(false, 0);
-            tabMode = mode;
-            return;
-        }
-
+        tabMode = mode;
         if (actionBar != null) {
             actionBar.setVisibility(View.GONE);
             actionBar.setAlpha(0f);
@@ -851,20 +931,20 @@ final class HomeGlassHook {
         if (toolbar != null) {
             toolbar.setVisibility(View.GONE);
         }
-        if (overlay != null) {
-            overlay.setVisibility(View.VISIBLE);
-        }
-        tabMode = mode;
         boolean full = mode == 0;
+        if (categoryBar != null) {
+            categoryBar.setVisibility(
+                    full && HomeConversationFilter.active() ? View.VISIBLE : View.GONE);
+        }
         setChipVisible(leftChip, false);
         setChipVisible(searchChip, full);
         setChipVisible(plusChip, full);
-        setChipVisible(titleChip, true);
-
-        if (titleChip != null && !text.isEmpty()) {
-            titleChip.setLabel(localizeTitle(text),
-                    Ui.isNight(activity) ? 0xFFFFFFFF : 0xFF1A1A1A,
-                    18f * activity.getResources().getDisplayMetrics().scaledDensity);
+        setChipVisible(titleChip, false);
+        if (overlay != null) {
+            overlay.setVisibility(full && !miniProgramShown ? View.VISIBLE : View.GONE);
+        }
+        if (!full) {
+            setFrostEnabled(false, 0);
         }
         if (list != null) {
             list.setPadding(list.getPaddingLeft(), listTopInset(),
@@ -1068,6 +1148,100 @@ final class HomeGlassHook {
         });
     }
 
+    /**
+     * Adds the 好友 / 群聊 / 微信 switch at the left end of the top bar. It is
+     * created after setupList() so the liquid-glass capsule can sample the
+     * conversation list that actually sits behind it.
+     */
+    private void installCategoryBar() {
+        if (overlay == null || activity == null) {
+            return;
+        }
+        ViewGroup backdrop = findVisibleList(decor);
+        if (backdrop == null && list instanceof ViewGroup) {
+            backdrop = (ViewGroup) list;
+        }
+        if (backdrop == null && decor instanceof ViewGroup) {
+            backdrop = (ViewGroup) decor;
+        }
+        if (backdrop instanceof android.widget.ListView) {
+            homeListView = (android.widget.ListView) backdrop;
+            HomeConversationFilter.attach(homeListView);
+        }
+        categoryBar = new HomeCategoryBar(activity, backdrop, Ui.isNight(activity),
+                categoryLabels(), HomeConversationFilter.mode());
+        categoryBar.setOnSelect(new HomeCategoryBar.OnSelect() {
+            @Override
+            public void onSelect(int mode) {
+                HomeConversationFilter.setMode(mode);
+            }
+        });
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Ui.dp(activity, HomeCategoryBar.HEIGHT_DP));
+        params.gravity = Gravity.TOP | Gravity.LEFT;
+        params.leftMargin = Ui.dp(activity, 8f);
+        overlay.addView(categoryBar, params);
+        android.util.Log.i("WeChatGlass", "HL category bar installed");
+        HomeConversationFilter.refresh();
+    }
+
+    private boolean categoryPageFilled;
+
+    /**
+     * Places our own conversation list on top of WeChat's list, at the same
+     * bounds. WeChat's list is only made invisible, never detached, so its
+     * adapter, scroll state and pull-down panel stay intact.
+     */
+    private void installCategoryPage() {
+        if (homeListView == null || !(homeListView.getParent() instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup parent = (ViewGroup) homeListView.getParent();
+        int index = parent.indexOfChild(homeListView);
+        int top = Ui.statusBarHeight(decor) + Ui.dp(activity, 52f);
+        int bottom = Ui.dp(activity, 92f);
+        categoryPage = new HomeCategoryPage(activity, Ui.isNight(activity), top, bottom,
+                new HomeCategoryPage.OpenChat() {
+                    @Override
+                    public void open(String username) {
+                        openChat(username);
+                    }
+                });
+        parent.addView(categoryPage, index + 1,
+                new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+        homeListView.setVisibility(View.INVISIBLE);
+        android.util.Log.i("WeChatGlass", "HL category page installed");
+    }
+
+    private void openChat(String username) {
+        try {
+            android.content.Intent intent = new android.content.Intent();
+            intent.setClassName(activity, "com.tencent.mm.ui.chatting.ChattingUI");
+            intent.putExtra("Chat_User", username);
+            activity.startActivity(intent);
+        } catch (Throwable throwable) {
+            Log.e(TAG, "open chat failed: " + username, throwable);
+        }
+    }
+
+    private String[] categoryLabels() {
+        String language = "en";
+        try {
+            language = activity.getResources().getConfiguration().getLocales().get(0)
+                    .getLanguage();
+        } catch (Throwable ignored) {
+        }
+        if ("ja".equals(language)) {
+            return new String[]{"友だち", "グループ", "ウィーシン"};
+        }
+        if ("zh".equals(language)) {
+            return new String[]{"好友", "群聊", "微信"};
+        }
+        return new String[]{"Friends", "Groups", "Weixin"};
+    }
+
     private boolean isNonHomeSurface() {
         if (decor == null) {
             return true;
@@ -1081,6 +1255,45 @@ final class HomeGlassHook {
             }
         }
         return false;
+    }
+
+    /**
+     * WeChat's home list can be pulled down into the mini-program / TaskBar
+     * panel; that panel is the list's first header. While it is on screen the
+     * floating top bar must stay out of the way, otherwise it draws over the
+     * panel and the two fight over the same rows.
+     */
+    private boolean isMiniProgramSurface() {
+        if (decor == null) {
+            return false;
+        }
+        if (taskBarContainer == null || !taskBarContainer.isAttachedToWindow()) {
+            taskBarContainer = Ui.findByClassContains(decor, "TaskBarContainer");
+        }
+        if (taskBarContainer != null && taskBarContainer.isShown()) {
+            int[] loc = new int[2];
+            taskBarContainer.getLocationOnScreen(loc);
+            int screenHeight = decor.getHeight();
+            // While the conversation list is showing, WeChat parks this whole
+            // panel above the window (measured top ≈ -2141 on a 2400px screen);
+            // it slides to exactly 0 when the mini-program page is fully open.
+            // Require a full-height, fully-entered panel; a partially pulled
+            // header (or merely scrolling to the top of the chat list) must not
+            // hide the bar.
+            return screenHeight > 0
+                    && loc[1] >= -2
+                    && taskBarContainer.getHeight() > screenHeight * 0.9f;
+        }
+        return false;
+    }
+
+    private int taskBarTop() {
+        if (taskBarContainer == null || !taskBarContainer.isShown()) {
+            return Integer.MIN_VALUE;
+        }
+        int[] loc = new int[2];
+        taskBarContainer.getLocationOnScreen(loc);
+        return loc[1];
     }
 
     /**
@@ -1198,7 +1411,11 @@ final class HomeGlassHook {
         // Status insets are intentionally consumed globally, so query the
         // physical status bar height and keep the islands below it.
         int status = Math.max(Ui.statusBarHeight(decor), Ui.dp(activity, 24f));
-        int top = Math.max(Ui.dp(activity, 4f), status + Ui.dp(activity, 4f) - abLoc[1]);
+        // The overlay now lives at the decor top (translation 0), so the
+        // islands only have to clear the status bar. The old formula subtracted
+        // the ActionBar's screen y — that view is GONE and WeChat can lay it
+        // out at the bottom, which dragged the whole bar off-screen.
+        int top = Math.max(Ui.dp(activity, 4f), status + Ui.dp(activity, 4f));
         top = Math.min(top, Math.max(0, height - chipHeight - Ui.dp(activity, 2f)));
 
         if (overlay != null) {
@@ -1208,11 +1425,20 @@ final class HomeGlassHook {
                 op.height = overlayHeight;
                 overlay.setLayoutParams(op);
             }
-            overlay.setTranslationY(actionBar.getY());
+            if (overlay.getTranslationY() != 0f) {
+                overlay.setTranslationY(0f);
+            }
             // HomeUI can add its FrostedContentView after our overlay, which
             // would cover the chips. Keep the overlay as the topmost decor
-            // child.
-            overlay.bringToFront();
+            // child — but only reorder when it actually is not on top, so a
+            // geometry pass does not force a re-layout every time.
+            ViewParent parent = overlay.getParent();
+            if (parent instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) parent;
+                if (group.getChildAt(group.getChildCount() - 1) != overlay) {
+                    overlay.bringToFront();
+                }
+            }
         }
 
         if (actionBar != null) {
@@ -1225,30 +1451,64 @@ final class HomeGlassHook {
             toolbar.setVisibility(View.GONE);
         }
 
-        int titleW;
-        int titleX;
-        if (titleView != null && titleView.getWidth() > 0) {
-            titleView.getLocationOnScreen(childLoc);
-            int rawX = childLoc[0] - abLoc[0];
-            int rawW = titleView.getWidth();
-            titleW = Math.max(Ui.dp(activity, 110f), rawW + Ui.dp(activity, 30f));
-            titleX = rawX + rawW / 2 - titleW / 2;
-        } else {
-            titleW = Ui.dp(activity, 150f);
-            titleX = (width - titleW) / 2;
-        }
-        titleX = clamp(titleX, Ui.dp(activity, 8f),
-                width - titleW - Ui.dp(activity, 4f));
-
-        // Fixed right-hand positions. Using the old toolbar child bounds made
-        // the icons sit at the edge of the glass circles after the old bar was
-        // hidden.
+        // Right-hand side: plus, search, then the title. With the category
+        // switch on the left, the title gets whatever room is left.
         int plusX = width - chipHeight - Ui.dp(activity, 8f);
         int searchX = plusX - chipHeight - Ui.dp(activity, 8f);
 
-        int maxTitle = searchX - Ui.dp(activity, 4f) - titleX;
-        if (titleW > maxTitle) {
-            titleW = Math.max(Ui.dp(activity, 80f), maxTitle);
+        boolean withSwitch = categoryBar != null && tabMode == 0
+                && categoryBar.getVisibility() == View.VISIBLE;
+        int titleX;
+        int titleW;
+        if (withSwitch) {
+            categoryBar.setNight(Ui.isNight(activity));
+            categoryBar.measure(
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                    View.MeasureSpec.makeMeasureSpec(chipHeight, View.MeasureSpec.EXACTLY));
+            int switchW = categoryBar.getMeasuredWidth();
+            if (switchW <= 0) {
+                switchW = Ui.dp(activity, 160f);
+            }
+            switchW = Math.min(switchW, width / 2);
+            int switchX = Ui.dp(activity, 8f);
+            FrameLayout.LayoutParams cp =
+                    (FrameLayout.LayoutParams) categoryBar.getLayoutParams();
+            if (cp == null) {
+                cp = new FrameLayout.LayoutParams(switchW, chipHeight);
+                cp.gravity = Gravity.TOP | Gravity.LEFT;
+            }
+            boolean changed = cp.width != switchW || cp.height != chipHeight
+                    || cp.leftMargin != switchX || cp.topMargin != top;
+            cp.width = switchW;
+            cp.height = chipHeight;
+            cp.leftMargin = switchX;
+            cp.topMargin = top;
+            if (changed) {
+                categoryBar.setLayoutParams(cp);
+            }
+            titleX = switchX + switchW + Ui.dp(activity, 8f);
+            titleW = Math.min(searchX - Ui.dp(activity, 6f) - titleX,
+                    Ui.dp(activity, 140f));
+            if (titleW < Ui.dp(activity, 52f)) {
+                titleW = Ui.dp(activity, 52f);
+            }
+        } else {
+            if (titleView != null && titleView.getWidth() > 0) {
+                titleView.getLocationOnScreen(childLoc);
+                int rawX = childLoc[0] - abLoc[0];
+                int rawW = titleView.getWidth();
+                titleW = Math.max(Ui.dp(activity, 110f), rawW + Ui.dp(activity, 30f));
+                titleX = rawX + rawW / 2 - titleW / 2;
+            } else {
+                titleW = Ui.dp(activity, 150f);
+                titleX = (width - titleW) / 2;
+            }
+            titleX = clamp(titleX, Ui.dp(activity, 8f),
+                    width - titleW - Ui.dp(activity, 4f));
+            int maxTitle = searchX - Ui.dp(activity, 4f) - titleX;
+            if (titleW > maxTitle) {
+                titleW = Math.max(Ui.dp(activity, 80f), maxTitle);
+            }
         }
 
         applyChip(titleChip, titleX, top, titleW, chipHeight, Ui.dp(activity, 20f));
@@ -1291,6 +1551,9 @@ final class HomeGlassHook {
             ((ViewGroup) overlay.getParent()).removeView(overlay);
         }
         overlay = null;
+        categoryBar = null;
+        homeListView = null;
+        HomeConversationFilter.detach();
         if (actionBar != null) {
             actionBar.setVisibility(View.VISIBLE);
             actionBar.setAlpha(1f);

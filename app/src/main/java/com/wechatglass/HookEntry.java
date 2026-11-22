@@ -35,6 +35,8 @@ public class HookEntry implements IXposedHookLoadPackage {
             hookHomeLifecycle(lpparam);
             hookResume(CHATTING_UI, lpparam, true);
             hookResume(LAUNCHER_UI, lpparam, false);
+            hookHomeAdapterSetter(lpparam.classLoader);
+            hookHomeBottomTab(lpparam.classLoader);
             XposedBridge.log(TAG + " hooks installed for " + WECHAT);
         } catch (Throwable throwable) {
             XposedBridge.log(TAG + " hook install failed: " + throwable);
@@ -164,6 +166,60 @@ public class HookEntry implements IXposedHookLoadPackage {
      * WeChat's target-35 fix pushes the ActionBar container down by the status
      * bar height; cancel the margin right after WeChat sets it.
      */
+    /**
+     * WeChat sets the home conversation adapter from MainUI and can do it again
+     * on resume, which would silently drop our filtered wrapper. Re-wrap right
+     * after it hands the adapter to the ListView.
+     */
+    private static void hookHomeAdapterSetter(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod("iq5.a1", cl, "Z",
+                    android.widget.ListView.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                Object target = param.args[0];
+                                if (target instanceof android.widget.ListView) {
+                                    HomeConversationFilter.attach(
+                                            (android.widget.ListView) target);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+            XposedBridge.log(TAG + " home filter hooked: iq5.a1.Z");
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " home filter Z skipped: " + throwable);
+        }
+    }
+
+    /**
+     * Tracks the bottom tab through LauncherUIBottomTabView.setTo(int) so the
+     * floating home bar follows the actual page instead of guessing from the
+     * title text (the "Me" page has no title at all).
+     */
+    private static void hookHomeBottomTab(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.ui.LauncherUIBottomTabView", cl, "setTo",
+                    int.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                Object tab = param.args[0];
+                                if (tab instanceof Integer) {
+                                    HomeGlassHook.onBottomTab((Integer) tab);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+            XposedBridge.log(TAG + " bottom tab hooked");
+        } catch (Throwable throwable) {
+            XposedBridge.log(TAG + " bottom tab hook skipped: " + throwable);
+        }
+    }
+
     private static void hookHomeUiTopMargin(final XC_LoadPackage.LoadPackageParam lpparam) {
         try {
             XposedHelpers.findAndHookMethod("com.tencent.mm.ui.HomeUI",
