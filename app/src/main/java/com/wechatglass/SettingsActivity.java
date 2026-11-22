@@ -2,6 +2,7 @@ package com.wechatglass;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -24,6 +25,8 @@ public class SettingsActivity extends Activity {
     private static final String KEY_WALLPAPER = "wallpaper_uri";
     private static final String KEY_NATIVE = "native_list";
     private static final String ACTION = "com.wechatglass.CONFIG";
+    private static final String ACTION_QUERY = "com.wechatglass.QUERY";
+    private static final String ACTION_STATE = "com.wechatglass.STATE";
 
     private TextView wallpaperHint;
     private M3Switch glassSwitch;
@@ -82,6 +85,7 @@ public class SettingsActivity extends Activity {
         glassSwitch = glass;
         glass.setCheckedNoAnim(getSharedPreferences(PREFS, 0).getBoolean(KEY_GLASS, true));
         glass.setOnClickListener(v -> {
+            userToggled = true;
             boolean on = !glass.isChecked();
             glass.setChecked(on);
             getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_GLASS, on).apply();
@@ -96,30 +100,53 @@ public class SettingsActivity extends Activity {
         nativeRow.setOrientation(LinearLayout.HORIZONTAL);
         nativeRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView nativeLabel = new TextView(this);
-        nativeLabel.setText("恢复微信原生UI");
+        nativeLabel.setText("启用 Material Design 设计风格（实验）");
         nativeLabel.setTextSize(16f);
         nativeLabel.setTextColor(onBg);
         nativeRow.addView(nativeLabel, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         M3Switch nativeSwitch = new M3Switch(this);
         nativeSwitchField = nativeSwitch;
-        nativeSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
+        // Checked = Material Design (custom list); unchecked = WeChat native.
+        nativeSwitch.setCheckedNoAnim(!getSharedPreferences(PREFS, 0)
                 .getBoolean(KEY_NATIVE, true));
         nativeSwitch.setOnClickListener(v -> {
+            userToggled = true;
             boolean on = !nativeSwitch.isChecked();
             nativeSwitch.setChecked(on);
-            getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_NATIVE, on).apply();
+            getSharedPreferences(PREFS, 0).edit()
+                    .putBoolean(KEY_NATIVE, !on).apply();
             pushConfig();
         });
         nativeRow.addView(nativeSwitch);
         root.addView(nativeRow, lp(-1, -2, 0, dp(8)));
 
         TextView nativeHint = new TextView(this);
-        nativeHint.setText("默认使用微信原生会话列表（含小程序、已登入设备、置顶笔记）；"
-                + "关闭后改用自定义列表（实验）。");
+        nativeHint.setText("开启后使用自建会话列表（实验，可能不稳定）；"
+                + "关闭时使用微信原生列表（含小程序、已登入设备、置顶笔记）。");
         nativeHint.setTextSize(13f);
         nativeHint.setTextColor(onVar);
         root.addView(nativeHint, lp(-1, -2, 0, dp(16)));
+
+        root.addView(section("操作", card, onBg, onVar));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        Button stopButton = new Button(this);
+        stopButton.setText("强制停止微信");
+        stopButton.setAllCaps(false);
+        stopButton.setTextSize(15f);
+        stopButton.setOnClickListener(v -> forceStopWeChat());
+        Button openButton = new Button(this);
+        openButton.setText("打开微信");
+        openButton.setAllCaps(false);
+        openButton.setTextSize(15f);
+        openButton.setOnClickListener(v -> openWeChat());
+        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        stopLp.rightMargin = dp(8);
+        actions.addView(stopButton, stopLp);
+        actions.addView(openButton, new LinearLayout.LayoutParams(0, dp(52), 1f));
+        root.addView(actions, lp(-1, -2, 0, dp(8)));
 
         TextView wallTitle = new TextView(this);
         wallTitle.setText("背景壁纸");
@@ -141,7 +168,59 @@ public class SettingsActivity extends Activity {
         pick.setOnClickListener(v -> pickWallpaper());
         root.addView(pick, lp(-1, dp(56), 0, dp(8)));
 
-        pushConfig();
+        registerStateReceiver();
+        sendQuery();
+    }
+
+    private boolean userToggled;
+    private android.content.BroadcastReceiver stateReceiver;
+
+    private void sendQuery() {
+        try {
+            Intent intent = new Intent(ACTION_QUERY);
+            intent.setPackage("com.tencent.mm");
+            sendBroadcast(intent);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** WeChat replies with its real state, so the switches never lie. */
+    private void registerStateReceiver() {
+        stateReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context context, Intent intent) {
+                if (intent == null || userToggled) {
+                    return;
+                }
+                boolean glass = intent.getBooleanExtra("glass", true);
+                boolean nativeList = intent.getBooleanExtra("native_list", true);
+                if (glassSwitch != null) {
+                    glassSwitch.setCheckedNoAnim(glass);
+                }
+                if (nativeSwitchField != null) {
+                    nativeSwitchField.setCheckedNoAnim(!nativeList);
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(ACTION_STATE);
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(stateReceiver, filter,
+                    android.content.Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(stateReceiver, filter);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (stateReceiver != null) {
+            try {
+                unregisterReceiver(stateReceiver);
+            } catch (Throwable ignored) {
+            }
+            stateReceiver = null;
+        }
+        super.onDestroy();
     }
 
     /** Sends both switches to WeChat's process. */
@@ -151,8 +230,35 @@ public class SettingsActivity extends Activity {
             intent.setPackage("com.tencent.mm");
             intent.putExtra("glass", glassSwitch == null || glassSwitch.isChecked());
             intent.putExtra("native_list",
-                    nativeSwitchField != null && nativeSwitchField.isChecked());
+                    !(nativeSwitchField != null && nativeSwitchField.isChecked()));
             sendBroadcast(intent);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void forceStopWeChat() {
+        try {
+            Process process = Runtime.getRuntime().exec(
+                    new String[]{"su", "-c", "am force-stop com.tencent.mm"});
+            process.waitFor();
+        } catch (Throwable throwable) {
+            try {
+                android.app.ActivityManager manager = (android.app.ActivityManager)
+                        getSystemService(ACTIVITY_SERVICE);
+                if (manager != null) {
+                    manager.killBackgroundProcesses("com.tencent.mm");
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private void openWeChat() {
+        try {
+            Intent intent = new Intent();
+            intent.setClassName("com.tencent.mm", "com.tencent.mm.ui.LauncherUI");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
         } catch (Throwable ignored) {
         }
     }

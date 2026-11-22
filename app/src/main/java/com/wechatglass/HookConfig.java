@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class HookConfig {
 
     static final String ACTION = "com.wechatglass.CONFIG";
+    static final String ACTION_QUERY = "com.wechatglass.QUERY";
+    static final String ACTION_STATE = "com.wechatglass.STATE";
     static final String PREFS = "wechatglass";
     static final String KEY_GLASS = "glass";
     static final String KEY_NATIVE_LIST = "native_list";
@@ -38,7 +40,20 @@ final class HookConfig {
             BroadcastReceiver receiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context ctx, Intent intent) {
-                    if (intent == null || !ACTION.equals(intent.getAction())) {
+                    if (intent == null) {
+                        return;
+                    }
+                    if (ACTION_QUERY.equals(intent.getAction())) {
+                        Intent reply = new Intent(ACTION_STATE);
+                        reply.setPackage("com.wechatglass");
+                        reply.putExtra(KEY_GLASS, ctx.getSharedPreferences(PREFS, 0)
+                                .getBoolean(KEY_GLASS, true));
+                        reply.putExtra(KEY_NATIVE_LIST, ctx.getSharedPreferences(PREFS, 0)
+                                .getBoolean(KEY_NATIVE_LIST, true));
+                        ctx.sendBroadcast(reply);
+                        return;
+                    }
+                    if (!ACTION.equals(intent.getAction())) {
                         return;
                     }
                     boolean glass = intent.getBooleanExtra(KEY_GLASS, true);
@@ -56,6 +71,7 @@ final class HookConfig {
                 }
             };
             IntentFilter filter = new IntentFilter(ACTION);
+            filter.addAction(ACTION_QUERY);
             if (Build.VERSION.SDK_INT >= 33) {
                 context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
             } else {

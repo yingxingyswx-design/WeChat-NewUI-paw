@@ -240,7 +240,8 @@ final class LiquidGlassPanel extends View {
         // iosIndicatorSpecular: BloomStroke(white @ 0.12), width 1.dp, alpha 0.75.
         mHighlightPaint.setStyle(Paint.Style.STROKE);
         mHighlightPaint.setStrokeWidth(mDensity);
-        mHighlightPaint.setColor(night ? 0x1FFFFFFF : 0x2EFFFFFF);
+        // Thin WeChat-gray rim instead of the white specular stroke.
+        mHighlightPaint.setColor(night ? 0x993C3C3C : 0x99D6D6D6);
         invalidate();
     }
 

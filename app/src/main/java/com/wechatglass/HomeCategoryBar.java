@@ -76,7 +76,7 @@ final class HomeCategoryBar extends FrameLayout {
             GradientDrawable fallback = new GradientDrawable();
             fallback.setColor(night ? 0xCC2C2C2C : 0xCCFFFFFF);
             fallback.setCornerRadius(Ui.dp(context, HEIGHT_DP / 2f));
-            fallback.setStroke(Ui.dp(context, 1f), night ? 0x33FFFFFF : 0x22000000);
+            fallback.setStroke(Ui.dp(context, 1f), night ? 0x993C3C3C : 0x99D6D6D6);
             setBackground(fallback);
         }
 
