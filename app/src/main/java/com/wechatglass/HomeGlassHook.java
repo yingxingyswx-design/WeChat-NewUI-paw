@@ -110,7 +110,6 @@ final class HomeGlassHook {
             // WeChat re-shows its ActionBar on tab switches; keep ours on top
             // and the native one hidden without running the full geometry pass.
             keepNativeBarHidden();
-            updateTabState();
             if (homeListView != null) {
                 // WeChat can replace the adapter again on resume; this is a
                 // cheap identity check, not a re-wrap.
@@ -421,9 +420,9 @@ final class HomeGlassHook {
         }
         forceContentBehindTop();
         setupList();
-        // The custom page fights WeChat's ViewPager page recycling, so it is
-        // opt-in only; native list is the default mainline.
-        if (!HookConfig.nativeList(activity)) {
+        // Custom list is parked: mounting a page inside WeChat's ViewPager
+        // caused page recycling glitches. Native list is the mainline.
+        if (false && !HookConfig.nativeList(activity)) {
             installCategoryPage();
         }
         installCategoryBar();
@@ -934,20 +933,12 @@ final class HomeGlassHook {
 
     /** Applies a live GUI change (native list / glass / wallpaper). */
     private void applyConfig() {
-        boolean nativeList = HookConfig.nativeList(activity);
-        if (!nativeList && categoryPage == null) {
-            installCategoryPage();
-        }
-        // The glass backdrop differs between native and custom list, so the
-        // switch is rebuilt to sample whichever list is on screen.
+        // Custom page stays parked; only rebuild the switch for its backdrop.
         if (categoryBar != null && overlay != null) {
             overlay.removeView(categoryBar);
             categoryBar = null;
         }
         installCategoryBar();
-        if (categoryPage != null && ConversationIndex.loaded()) {
-            categoryPage.show(HomeConversationFilter.mode());
-        }
         updateTabState();
         if (renderer != null) {
             renderer.requestUpdate();
@@ -998,12 +989,12 @@ final class HomeGlassHook {
             categoryBar.setVisibility(
                     full && HomeConversationFilter.active() ? View.VISIBLE : View.GONE);
         }
-        boolean nativeList = HookConfig.nativeList(activity);
+        // Custom page is parked; the native list is always the one on screen.
         if (categoryPage != null) {
-            categoryPage.setVisibility(full && !nativeList ? View.VISIBLE : View.GONE);
+            categoryPage.setVisibility(View.GONE);
         }
         if (homeListView != null) {
-            homeListView.setVisibility(full && !nativeList ? View.INVISIBLE : View.VISIBLE);
+            homeListView.setVisibility(View.VISIBLE);
         }
         setChipVisible(leftChip, false);
         setChipVisible(searchChip, full);
@@ -1237,12 +1228,10 @@ final class HomeGlassHook {
             HomeConversationFilter.attach(homeListView);
         }
         boolean nativeMode = HookConfig.nativeList(activity);
-        ViewGroup backdrop;
-        if (nativeMode) {
-            backdrop = nativeList instanceof ViewGroup ? (ViewGroup) nativeList : null;
-        } else {
-            backdrop = categoryPage;
-        }
+        // The custom page is parked, so the visible list is always WeChat's
+        // own list; sampling it keeps the glass correct.
+        ViewGroup backdrop = nativeList instanceof ViewGroup
+                ? (ViewGroup) nativeList : null;
         // Never fall back to decor: the glass lives inside decor, so sampling it
         // would draw the bar into itself and tile the screen.
         categoryBar = new HomeCategoryBar(activity, backdrop, Ui.isNight(activity),
