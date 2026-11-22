@@ -999,10 +999,17 @@ final class HomeGlassHook {
         }
         boolean nativeList = HookConfig.nativeList(activity);
         if (categoryPage != null) {
-            categoryPage.setVisibility(full && !nativeList ? View.VISIBLE : View.GONE);
+            boolean showPage = full && !nativeList;
+            categoryPage.setVisibility(showPage ? View.VISIBLE : View.GONE);
+            if (showPage) {
+                categoryPage.bringToFront();
+            }
         }
         if (homeListView != null) {
-            homeListView.setVisibility(full && !nativeList ? View.INVISIBLE : View.VISIBLE);
+            // Keep WeChat's list laid out and visible: hiding it made the
+            // ViewPager recycle pages and glitch. The custom page is opaque and
+            // sits on top, so the user still sees our list.
+            homeListView.setVisibility(View.VISIBLE);
         }
         setChipVisible(leftChip, false);
         setChipVisible(searchChip, full);
@@ -1277,10 +1284,9 @@ final class HomeGlassHook {
         ViewGroup parent = (ViewGroup) homeListView.getParent();
         int index = parent.indexOfChild(homeListView);
         int status = Math.max(Ui.statusBarHeight(decor), Ui.statusBarHeight(activity));
-        // Only the status bar is reserved: conversations start right below it
-        // and scroll under the floating islands, which is what gives the glass
-        // something to sample.
-        int top = status;
+        // Blank strip at the top of the custom list, sized for the floating
+        // top bar (status bar + 40dp bar + 8dp breathing room).
+        int top = status + Ui.dp(activity, 52f);
         int bottom = Ui.dp(activity, 92f);
         categoryPage = new HomeCategoryPage(activity, Ui.isNight(activity), top, bottom,
                 new HomeCategoryPage.OpenChat() {
