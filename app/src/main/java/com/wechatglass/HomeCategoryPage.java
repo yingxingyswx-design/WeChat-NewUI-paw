@@ -41,7 +41,7 @@ final class HomeCategoryPage extends FrameLayout {
     private final OpenChat openChat;
 
     HomeCategoryPage(Context context, boolean night, int topInset, int bottomInset,
-                     OpenChat openChat) {
+                     OpenChat openChat, final Runnable onPullDown) {
         super(context);
         this.night = night;
         this.topInset = topInset;
@@ -69,6 +69,35 @@ final class HomeCategoryPage extends FrameLayout {
             list.addFooterView(bottomSpace, null, false);
         }
         list.setAdapter(adapter);
+        final float[] pullStart = new float[1];
+        final boolean[] pullArmed = new boolean[1];
+        list.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, android.view.MotionEvent event) {
+                switch (event.getActionMasked()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        pullStart[0] = event.getRawY();
+                        pullArmed[0] = list.getFirstVisiblePosition() == 0;
+                        break;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        if (pullArmed[0] && event.getRawY() - pullStart[0]
+                                > Ui.dp(getContext(), 90f)) {
+                            pullArmed[0] = false;
+                            if (onPullDown != null) {
+                                onPullDown.run();
+                            }
+                        }
+                        break;
+                    case android.view.MotionEvent.ACTION_UP:
+                    case android.view.MotionEvent.ACTION_CANCEL:
+                        pullArmed[0] = false;
+                        break;
+                    default:
+                        break;
+                }
+                return false;
+            }
+        });
         list.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(android.widget.AdapterView<?> parent, View view,

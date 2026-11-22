@@ -1246,6 +1246,12 @@ final class HomeGlassHook {
                     public void open(String username) {
                         openChat(username);
                     }
+                },
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        triggerNativePullDown();
+                    }
                 });
         parent.addView(categoryPage, index + 1,
                 new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1264,6 +1270,56 @@ final class HomeGlassHook {
         } catch (Throwable throwable) {
             Log.e(TAG, "open chat failed: " + username, throwable);
         }
+    }
+
+    /**
+     * Feeds a synthetic pull-down to WeChat's own conversation list so its
+     * TaskBar (mini-program panel with the logged-in-device and pinned-note
+     * rows) slides in by itself. The native list is invisible behind our page
+     * but its touch pipeline still runs.
+     */
+    private long lastPullDownAt;
+
+    private void triggerNativePullDown() {
+        if (homeListView == null || decor == null) {
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastPullDownAt < 1200L) {
+            return;
+        }
+        lastPullDownAt = now;
+        final View target = homeListView.getParent() instanceof View
+                ? (View) homeListView.getParent() : homeListView;
+        // Post instead of dispatching inside our own touch callback: WeChat's
+        // pull-down runs a layout/animation pass, and doing that re-entrantly
+        // froze the UI for a moment.
+        decor.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    float x = target.getWidth() / 2f;
+                    float y0 = Ui.dp(activity, 90f);
+                    float y1 = y0 + Ui.dp(activity, 460f);
+                    long start = android.os.SystemClock.uptimeMillis();
+                    android.view.MotionEvent down = android.view.MotionEvent.obtain(
+                            start, start, android.view.MotionEvent.ACTION_DOWN, x, y0, 0);
+                    android.view.MotionEvent move = android.view.MotionEvent.obtain(
+                            start, start + 80, android.view.MotionEvent.ACTION_MOVE, x, y1, 0);
+                    android.view.MotionEvent up = android.view.MotionEvent.obtain(
+                            start, start + 160, android.view.MotionEvent.ACTION_UP, x, y1, 0);
+                    target.dispatchTouchEvent(down);
+                    target.dispatchTouchEvent(move);
+                    target.dispatchTouchEvent(up);
+                    down.recycle();
+                    move.recycle();
+                    up.recycle();
+                    android.util.Log.i("WeChatGlass", "HL pull-down injected");
+                } catch (Throwable throwable) {
+                    Log.e(TAG, "pull-down injection failed", throwable);
+                }
+            }
+        });
     }
 
     private String[] categoryLabels() {
