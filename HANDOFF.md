@@ -14,15 +14,15 @@
   - 另有一份自建镜像：`https://github.com/yingxingyswx-design/io.github.yingxingyswx_design.wechatglass`
 - 包名：`io.github.yingxingyswx_design.wechatglass`（versionCode 1 / versionName 1.0）
   - 旧包 `com.wechatglass` 已废弃并卸载（Store 拒过：com.* 域名式包名无 TXT 验证）。
-- 产物：`out/wechat-glass-1.0.apk`（约 1.05 MB）
+- 产物：`out/wechat-glass-1.1.apk`（v1.1，约 1.10 MB）
 
 ## 2. 构建 / 安装 / 测试
 
 ```powershell
 cd C:\codes\模块\wechat_chat_ui
 .\gradlew.bat :app:assembleRelease
-# 构建成功且 out\wechat-glass-1.0.apk 时间戳更新后再安装
-adb push out\wechat-glass-1.0.apk /data/local/tmp/wg.apk
+# 构建成功且 out\wechat-glass-1.1.apk 时间戳更新后再安装
+adb push out\wechat-glass-1.1.apk /data/local/tmp/wg.apk
 adb shell pm install -r --user 0 /data/local/tmp/wg.apk
 adb shell pm install -r --user 10 /data/local/tmp/wg.apk
 adb shell am force-stop --user 0 com.tencent.mm

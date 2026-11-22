@@ -23,7 +23,7 @@ foreach ($dir in 'app', 'docs', 'gradle') {
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed: $dir ($LASTEXITCODE)" }
 }
 $rootFiles = @(
-    'build.ps1', 'README.md', 'BACKUP.md', 'HANDOFF.md',
+    'build.ps1', 'README.md', 'BACKUP.md', 'HANDOFF.md', 'VERSION.md',
     'THIRD_PARTY_NOTICES.md', '.gitignore', 'debug.keystore',
     'build.gradle.kts', 'settings.gradle.kts', 'gradle.properties',
     'gradlew', 'gradlew.bat'

@@ -1,70 +1,39 @@
-# WeChat-NewUI v0.3.322（Pre-release）
+# WeChat-NewUI v1.1
 
-- 发布：2026-11-22
-- 基线提交：`cb2002f`（important: 表情/加号面板液态玻璃）
-- 签名：debug（`-DebugSigning`，SHA-1 `52:18:07:E2:46:84:9E:C2:38:82:47:64:EE:DD:DB:6E:5B:5E:89:5B`）
-- APK：`wechat-glass-1.0.apk`
-- 源码包：`WeChat-NewUI-v0.3.322-source.zip`
+- versionCode：`2`
+- versionName：`1.1`
+- Release tag：`2-1.1`（LSPosed Store 要求 `VersionCode-VersionName`）
+- APK：`wechat-glass-1.1.apk`
+- 作用域：仅 `com.tencent.mm`（微信）
 
-## 本版重点
+## 这版有什么
 
-### 表情面板 / 加号面板的液态玻璃
+- **M3 Expressive 设计底座**：动态色彩（系统 Monet，失败回退微信绿）、30 个 type style、
+  10 级圆角、expressive 弹簧 token。
+- **App 顶部运行状态**：显示 Root 是否授权、LSPosed 是否已注入微信、原模块是否仍勾选微信。
+- **LiquidGlass 底部导航**：从 [WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)
+  （MIT）移植的悬浮液态玻璃底栏、水滴选中态、拖拽与弹簧动效。
+- **冲突检测**：检测到原版 `WeChat-LiquidGlass` 勾选微信时，只移除它的
+  `com.tencent.mm` 作用域，**保留 QQ**，不全局停用。
+- **崩溃修复**：微信 `BlurView` 用软件 Canvas 绘制 DecorView 时，AGSL 高光会抛
+  `Software rendering doesn't support RuntimeShader`；现在软件路径自动跳过高光。
 
-面板玻璃不再是"在面板上叠一层"，而是**画在面板自己的背景上**（`PanelGlassDrawable`），
-不向微信的 footer 插入任何 View，因此不参与它的测量与高度计算。
+## 已知问题
 
-效果栈与顶部胶囊同一套（KernelSU / miuix-blur 的移植）：
-
-```text
-采样壁纸 RenderNode
-  → saturation 1.5
-  → 高斯模糊（面板 18dp，胶囊 4dp）
-  → AGSL 圆角透镜（24dp 边缘折射，Android 13+）
-  → 40% 面层 0x66F2F2F7 / 0x662C2C2E
-  → 1dp 高光描边
-```
-
-采样源是 `ChattingContent`（聊天壁纸 `ChattingImageBGView` 所在容器），
-采样区域取"容器底部 h 像素、水平居中"，**不依赖面板上报的屏幕坐标**——
-微信通过 `translationY` 与父级 canvas 平移滑动 footer，`getLocationOnScreen`
-在中途会报出 `y=2381`（2400 高屏幕）这种不可用值。
-
-### 其它
-
-- 输入框在面板展开时底部圆角改为直角，和面板连成一张卡片。
-- 补 hook `SmileyPanelImpl.setPanelBackgroundColor / setTabBackgroundColor /
-  setTabBackgroundResource`，防止微信展开面板时重新刷不透明色。
-- 删除了失效的 `ensureUnionLiquid()`（它把玻璃加到 ContentFrameLayout 第 0 个孩子，
-  永远不可见，且每 250ms 把面板背景置空）。
-- 修复构建脚本在本机 JDK 17 下被 javac 的 deprecation 提示中断的问题。
-
-## 运行时调参（无需重编译）
-
-```powershell
-# 面层白度 0-255（默认 102 = 40%）
-adb shell su -c "setprop debug.wxglass.panel.wash 60"
-# 模糊半径 dp（默认 18）
-adb shell su -c "setprop debug.wxglass.panel.blur 26"
-# 排查：面板涂洋红 / 画未模糊采样
-adb shell su -c "setprop debug.wxglass.panel.probe 1"
-adb shell su -c "setprop debug.wxglass.panel.raw 1"
-```
-
-改完关闭再打开面板生效。
+- 消息列表/气泡的 M3E 重绘尚未完成，当前版本先发布设计底座、状态卡和底栏整合。
+- 底栏在微信 `BlurView` 的软件采样路径下会自动退回较平的材质，这是有意的安全降级。
+- 模块按微信 8.0.79 的类名适配，微信升级后可能失效。
 
 ## 安装
 
 ```powershell
-adb install -r wechat-glass-1.0.apk
-# 工作空间（user 10）必须单独装，否则跑的是旧模块：
-adb push wechat-glass-1.0.apk /data/local/tmp/wg.apk
-adb shell su -c "pm install -r --user 10 /data/local/tmp/wg.apk"
-adb shell su -c "am force-stop --user 10 com.tencent.mm"
+adb install -r .\wechat-glass-1.1.apk
+adb shell am force-stop --user 0 com.tencent.mm
+adb shell am start --user 0 -n com.tencent.mm/.ui.LauncherUI
 ```
 
-## 已知问题
+## 特别鸣谢
 
-- 微信每次展开面板会重建面板实例，旧实例仍留在树里；本版用"遍历所有实例 +
-  布局监听 + 600ms 轮询"兜底，但仍以首次可见那一刻的样式化为准。
-- 大面积面板默认偏白（面层直接沿用参考工程的 40%），可用上面的 `wash` 调低。
-- 状态栏为透明（Android 15 + targetSdk 35 下 `setStatusBarColor` 会被微信覆盖）。
+- [liuran001/WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)（MIT）：
+  底部导航液态玻璃、水滴拖拽与弹簧动效。完整许可见
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

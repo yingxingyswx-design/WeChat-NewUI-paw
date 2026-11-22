@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.yingxingyswx_design.wechatglass"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     compileOptions {
@@ -59,7 +59,7 @@ dependencies {
 val copyApk = tasks.register<Copy>("copyApk") {
     from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
     into(rootProject.layout.projectDirectory.dir("out"))
-    rename { "wechat-glass-1.0.apk" }
+    rename { "wechat-glass-1.1.apk" }
 }
 
 tasks.matching { it.name == "assembleRelease" }.configureEach {
