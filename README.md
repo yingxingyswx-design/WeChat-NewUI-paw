@@ -67,6 +67,12 @@
 .\build.ps1 -DebugSigning
 ```
 
+## 特别鸣谢
+
+- [liuran001/WeChat-LiquidGlass](https://github.com/liuran001/WeChat-LiquidGlass)（MIT）：
+  底部导航栏液态玻璃、水滴拖拽与弹簧动效的参考实现。本模块将在底部导航整合中复用其思路与部分代码，
+  并按 MIT 许可保留版权与许可声明。
+
 ## 已知问题
 
 - 自建列表（实验）在部分机型上与微信 ViewPager 的页面回收有冲突，可能出现切 tab 抖动/重影；默认的原生列表不受影响。
