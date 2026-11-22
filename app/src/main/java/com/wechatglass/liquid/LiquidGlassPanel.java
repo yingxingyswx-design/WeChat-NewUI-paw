@@ -54,7 +54,7 @@ final class LiquidGlassPanel extends View {
     /** RenderNode capture and RenderEffect blur; below this there is no glass panel. */
     static final int MIN_SDK = 31;
     /** AGSL, for the refracting rim and the drag highlight. */
-    static final int LENS_MIN_SDK = 33;
+    static final int LENS_MIN_SDK = 99;
 
     /** KernelSU: lens(refractionHeight = 24.dp, refractionAmount = 24.dp). */
     private static final float REFRACTION_DP = 24f;

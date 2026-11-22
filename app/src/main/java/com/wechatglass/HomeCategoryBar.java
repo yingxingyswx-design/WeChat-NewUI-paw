@@ -63,7 +63,8 @@ final class HomeCategoryBar extends FrameLayout {
         setClipToPadding(false);
         setClipChildren(false);
 
-        View glass = com.wechatglass.liquid.LiquidPanelFactory.create(
+        View glass = backdrop == null ? null
+                : com.wechatglass.liquid.LiquidPanelFactory.create(
                 context, backdrop, context.getResources().getDisplayMetrics().density, night);
         if (glass != null) {
             glass.setClickable(false);

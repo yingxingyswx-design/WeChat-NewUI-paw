@@ -61,6 +61,7 @@ final class HomeGlassHook {
 
     private View decor;
     private View actionBar;
+    private View pagerView;
     private View toolbar;
     private View titleView;
     private View leftView;
@@ -109,6 +110,7 @@ final class HomeGlassHook {
             // WeChat re-shows its ActionBar on tab switches; keep ours on top
             // and the native one hidden without running the full geometry pass.
             keepNativeBarHidden();
+            updateTabState();
             if (homeListView != null) {
                 // WeChat can replace the adapter again on resume; this is a
                 // cheap identity check, not a re-wrap.
@@ -118,7 +120,7 @@ final class HomeGlassHook {
                 categoryPageFilled = true;
                 categoryPage.show(HomeConversationFilter.mode());
             }
-            refreshHeaderTexts();
+            scanNativeRows();
             long now = android.os.SystemClock.uptimeMillis();
             long sinceAttach = now - attachedAt;
             if (isMiniProgramSurface()) {
@@ -209,7 +211,12 @@ final class HomeGlassHook {
         }
         HomeGlassHook old = INSTANCES.get(activity);
         if (old != null) {
-            old.destroy();
+            // Returning to the home tab must not rebuild the switch: a fresh
+            // bar starts its position spring at 0 and replays the selection
+            // animation, which looked like an endless tab-switch loop.
+            old.updateTabState();
+            old.keepNativeBarHidden();
+            return;
         }
         HomeGlassHook hook = new HomeGlassHook(activity);
         INSTANCES.put(activity, hook);
@@ -257,6 +264,9 @@ final class HomeGlassHook {
             return false;
         }
         actionBar = ab;
+        if (pagerView == null) {
+            pagerView = findViewPager(decor);
+        }
         toolbar = Ui.findByClass(ab, "androidx.appcompat.widget.Toolbar");
         if (toolbar == null) {
             toolbar = ab;
@@ -379,6 +389,9 @@ final class HomeGlassHook {
                 @Override public void run() {
                     View[] chips = {titleChip, searchChip, plusChip};
                     View bg = categoryPage != null ? categoryPage : findVisibleList(decor);
+                    if (bg == null) {
+                        return;
+                    }
                     for (View ch : chips) {
                         if (ch == null || ch.getWidth() <= 0 || ch.getHeight() <= 0) continue;
                         try {
@@ -389,7 +402,7 @@ final class HomeGlassHook {
                                         + bg.getClass().getSimpleName() + "@" + System.identityHashCode(bg));
                             }
                             View lp = com.wechatglass.liquid.LiquidPanelFactory.create(act,
-                                    (ViewGroup) (bg == null ? decor : bg),
+                                    (ViewGroup) bg,
                                     act.getResources().getDisplayMetrics().density,
                                     Ui.isNight(act));
                             if (lp == null) continue;
@@ -938,13 +951,19 @@ final class HomeGlassHook {
     }
 
     private void updateTabState() {
+        int tab = bottomTab;
+        if (pagerView != null) {
+            try {
+                tab = (Integer) de.robv.android.xposed.XposedHelpers
+                        .callMethod(pagerView, "getCurrentItem");
+            } catch (Throwable ignored) {
+            }
+        }
         int mode;
-        if (bottomTab >= 0) {
-            // LauncherUIBottomTabView.setTo(): 0 = Weixin, 1 = Discover,
-            // 2 = Contacts, 3 = Me. Only the Weixin page keeps a floating bar;
-            // the title capsule is gone everywhere, so the other pages have no
-            // overlay at all.
-            mode = bottomTab == 0 ? 0 : 1;
+        if (tab >= 0) {
+            // 0 = Weixin, 1 = Discover, 2 = Contacts, 3 = Me. Only the Weixin
+            // page keeps a floating bar.
+            mode = tab == 0 ? 0 : 1;
         } else {
             String text = titleView instanceof TextView
                     ? String.valueOf(((TextView) titleView).getText()) : "";
@@ -1203,6 +1222,9 @@ final class HomeGlassHook {
         if (overlay == null || activity == null) {
             return;
         }
+        if (categoryBar != null && categoryBar.getParent() == overlay) {
+            return;
+        }
         // The native list is hidden behind our page, so sampling it yields a
         // blank surface. When the custom page exists, the glass must sample it.
         View nativeList = findVisibleList(decor);
@@ -1213,13 +1235,12 @@ final class HomeGlassHook {
         boolean nativeMode = HookConfig.nativeList(activity);
         ViewGroup backdrop;
         if (nativeMode) {
-            backdrop = nativeList instanceof ViewGroup
-                    ? (ViewGroup) nativeList : (ViewGroup) decor;
+            backdrop = nativeList instanceof ViewGroup ? (ViewGroup) nativeList : null;
         } else {
-            backdrop = categoryPage != null ? categoryPage
-                    : nativeList instanceof ViewGroup ? (ViewGroup) nativeList
-                    : (ViewGroup) decor;
+            backdrop = categoryPage;
         }
+        // Never fall back to decor: the glass lives inside decor, so sampling it
+        // would draw the bar into itself and tile the screen.
         categoryBar = new HomeCategoryBar(activity, backdrop, Ui.isNight(activity),
                 categoryLabels(), HomeConversationFilter.mode());
         categoryBar.setOnSelect(new HomeCategoryBar.OnSelect() {
@@ -1233,6 +1254,10 @@ final class HomeGlassHook {
                 Ui.dp(activity, HomeCategoryBar.HEIGHT_DP));
         params.gravity = Gravity.TOP | Gravity.LEFT;
         params.leftMargin = Ui.dp(activity, 8f);
+        // Same top as the search / plus chips so the capsule is exactly level
+        // with them even before the first layout pass.
+        params.topMargin = Math.max(Ui.dp(activity, 4f),
+                Ui.statusBarHeight(decor) + Ui.dp(activity, 4f));
         overlay.addView(categoryBar, params);
         android.util.Log.i("WeChatGlass", "HL category bar installed");
         HomeConversationFilter.refresh();
@@ -1286,6 +1311,14 @@ final class HomeGlassHook {
 
     /** Opens the WeChat page behind one of the top entry rows. */
     private void openEntry(String action) {
+        if ("device".equals(action) && nativeDeviceRow != null) {
+            nativeDeviceRow.performClick();
+            return;
+        }
+        if ("note".equals(action) && nativeNoteRow != null) {
+            nativeNoteRow.performClick();
+            return;
+        }
         String className;
         if ("weapp".equals(action)) {
             className = "com.tencent.mm.plugin.appbrand.ui.AppBrandLauncherUI";
@@ -1301,6 +1334,149 @@ final class HomeGlassHook {
         } catch (Throwable throwable) {
             Log.e(TAG, "open entry failed: " + action, throwable);
         }
+    }
+
+    private View nativeDeviceRow;
+    private View nativeNoteRow;
+    private String nativeDeviceText;
+    private String nativeNoteText;
+    private int nativeRowTries;
+
+    /**
+     * Reuses WeChat's own header rows: {@code xq4.q} is the logged-in-device
+     * line, and the pinned-note line is the other xq4 row that carries a text.
+     * We only read their text and forward clicks, so behaviour stays native.
+     */
+    private void scanNativeRows() {
+        if (decor == null || nativeRowTries > 10) {
+            return;
+        }
+        nativeRowTries++;
+        if (nativeRowTries == 1) {
+            logXq4Rows(decor);
+        }
+        View device = findXq4(decor, "xq4.q");
+        if (device != null) {
+            nativeDeviceRow = device;
+            String text = firstText(device);
+            if (text != null && text.length() > 0) {
+                nativeDeviceText = text;
+            }
+        }
+        View note = findXq4Note(decor);
+        if (note != null) {
+            nativeNoteRow = note;
+            String text = firstText(note);
+            if (text != null && text.length() > 0) {
+                nativeNoteText = text;
+            }
+        }
+        android.util.Log.i("WeChatGlass", "HL native rows device=" + nativeDeviceText
+                + " note=" + nativeNoteText);
+        if (categoryPage != null) {
+            categoryPage.setHeaderTexts(nativeDeviceText, nativeNoteText);
+        }
+    }
+
+    private static View findViewPager(View root) {
+        if (root == null) {
+            return null;
+        }
+        if (root.getClass().getName().contains("ViewPager")) {
+            return root;
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findViewPager(group.getChildAt(i));
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void logXq4Rows(View root) {
+        if (root == null) {
+            return;
+        }
+        String name = root.getClass().getName();
+        if (name.startsWith("xq4.")) {
+            android.util.Log.i("WeChatGlass", "HL xq4 " + name + " => " + firstText(root));
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                logXq4Rows(group.getChildAt(i));
+            }
+        }
+    }
+
+    private View findXq4(View root, String exact) {
+        if (root == null) {
+            return null;
+        }
+        if (exact.equals(root.getClass().getName())) {
+            return root;
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findXq4(group.getChildAt(i), exact);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private View findXq4Note(View root) {
+        if (root == null) {
+            return null;
+        }
+        String name = root.getClass().getName();
+        if (name.startsWith("xq4.") && !"xq4.q".equals(name)
+                && !"xq4.n0".equals(name) && !"xq4.m".equals(name)) {
+            String text = firstText(root);
+            if (text != null && text.length() > 2
+                    && !text.contains("最近") && !text.contains("常用")) {
+                return root;
+            }
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findXq4Note(group.getChildAt(i));
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String firstText(View root) {
+        if (root == null) {
+            return null;
+        }
+        if (root instanceof android.widget.TextView) {
+            CharSequence text = ((android.widget.TextView) root).getText();
+            if (text != null && text.length() > 0) {
+                return text.toString();
+            }
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                String text = firstText(group.getChildAt(i));
+                if (text != null && text.length() > 0) {
+                    return text;
+                }
+            }
+        }
+        return null;
     }
 
     private void openChat(String username) {        try {
