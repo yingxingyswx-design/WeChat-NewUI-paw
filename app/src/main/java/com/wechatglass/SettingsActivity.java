@@ -104,7 +104,7 @@ public class SettingsActivity extends Activity {
         M3Switch nativeSwitch = new M3Switch(this);
         nativeSwitchField = nativeSwitch;
         nativeSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
-                .getBoolean(KEY_NATIVE, false));
+                .getBoolean(KEY_NATIVE, true));
         nativeSwitch.setOnClickListener(v -> {
             boolean on = !nativeSwitch.isChecked();
             nativeSwitch.setChecked(on);
@@ -115,7 +115,8 @@ public class SettingsActivity extends Activity {
         root.addView(nativeRow, lp(-1, -2, 0, dp(8)));
 
         TextView nativeHint = new TextView(this);
-        nativeHint.setText("开启后只去掉自定义会话列表，液态玻璃顶栏和分类切换保留。");
+        nativeHint.setText("默认使用微信原生会话列表（含小程序、已登入设备、置顶笔记）；"
+                + "关闭后改用自定义列表（实验）。");
         nativeHint.setTextSize(13f);
         nativeHint.setTextColor(onVar);
         root.addView(nativeHint, lp(-1, -2, 0, dp(16)));

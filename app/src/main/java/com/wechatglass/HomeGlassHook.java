@@ -421,7 +421,11 @@ final class HomeGlassHook {
         }
         forceContentBehindTop();
         setupList();
-        installCategoryPage();
+        // The custom page fights WeChat's ViewPager page recycling, so it is
+        // opt-in only; native list is the default mainline.
+        if (!HookConfig.nativeList(activity)) {
+            installCategoryPage();
+        }
         installCategoryBar();
         // The storage objects only work after MMApplication's kernel is up, so
         // the read-only category index is built a moment after the page shows.

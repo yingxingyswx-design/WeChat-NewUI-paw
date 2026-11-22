@@ -78,7 +78,7 @@ final class HookConfig {
     }
 
     static boolean nativeList(Context context) {
-        return context != null && context.getSharedPreferences(PREFS, 0)
-                .getBoolean(KEY_NATIVE_LIST, false);
+        return context == null || context.getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_NATIVE_LIST, true);
     }
 }
