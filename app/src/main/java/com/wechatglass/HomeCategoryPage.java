@@ -55,21 +55,45 @@ final class HomeCategoryPage extends FrameLayout {
         list.setDividerHeight(0);
         list.setCacheColorHint(0);
         list.setPadding(0, topInset, 0, bottomInset);
-        list.setClipToPadding(false);
+        list.setClipToPadding(true);
         list.setAdapter(adapter);
         list.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(android.widget.AdapterView<?> parent, View view,
                                     int position, long id) {
-                ConversationIndex.Entry entry = adapter.getItem(position);
-                if (entry != null && openChat != null) {
-                    openChat.open(entry.username);
+                Row row = adapter.rowAt(position);
+                if (row != null && row.entry != null && openChat != null) {
+                    openChat.open(row.entry.username);
                 }
             }
         });
+        // A hard top limit: the list is pushed down by a fixed margin instead of
+        // padding, because ListView resets its own padding when its adapter is
+        // set. The blocker keeps that strip blank (the floating top bar lives
+        // there) and stops rows from drawing underneath it.
+        // Padding version: rows are clipped below the top inset instead of
+        // being pushed by margins.
         addView(list, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         current = this;
+        android.util.Log.i("WeChatGlass", "HL page ctor topInset=" + topInset
+                + " bottomInset=" + bottomInset);
+    }
+
+    private static final class Row {
+        final ConversationIndex.Entry entry;
+        final String label;
+
+        Row(ConversationIndex.Entry entry) {
+            this.entry = entry;
+            this.label = null;
+        }
+
+        Row(String label) {
+            this.entry = null;
+            this.label = label;
+        }
     }
 
     void show(int mode) {
@@ -86,7 +110,41 @@ final class HomeCategoryPage extends FrameLayout {
                 data = ConversationIndex.friends();
                 break;
         }
-        adapter.setData(data);
+        List<ConversationIndex.Entry> pinned = new ArrayList<>();
+        List<ConversationIndex.Entry> unpinned = new ArrayList<>();
+        for (ConversationIndex.Entry entry : data) {
+            if (entry.pinned) {
+                pinned.add(entry);
+            } else {
+                unpinned.add(entry);
+            }
+        }
+        // Newest first, like WeChat's own list. (The contact query comes back
+        // in pinyin order, which is why the rows looked name-sorted.)
+        java.util.Comparator<ConversationIndex.Entry> byTime =
+                new java.util.Comparator<ConversationIndex.Entry>() {
+                    @Override
+                    public int compare(ConversationIndex.Entry a, ConversationIndex.Entry b) {
+                        return Long.compare(b.time, a.time);
+                    }
+                };
+        java.util.Collections.sort(pinned, byTime);
+        java.util.Collections.sort(unpinned, byTime);
+
+        List<Row> rows = new ArrayList<>();
+        if (!pinned.isEmpty()) {
+            rows.add(new Row("置顶"));
+            for (ConversationIndex.Entry entry : pinned) {
+                rows.add(new Row(entry));
+            }
+        }
+        if (!unpinned.isEmpty()) {
+            rows.add(new Row("未置顶"));
+            for (ConversationIndex.Entry entry : unpinned) {
+                rows.add(new Row(entry));
+            }
+        }
+        adapter.setData(rows);
         list.setSelection(0);
     }
 
@@ -95,11 +153,15 @@ final class HomeCategoryPage extends FrameLayout {
     }
 
     private final class EntryAdapter extends BaseAdapter {
-        private List<ConversationIndex.Entry> data = new ArrayList<>();
+        private List<Row> data = new ArrayList<>();
 
-        void setData(List<ConversationIndex.Entry> next) {
-            data = next == null ? new ArrayList<ConversationIndex.Entry>() : next;
+        void setData(List<Row> next) {
+            data = next == null ? new ArrayList<Row>() : next;
             notifyDataSetChanged();
+        }
+
+        Row rowAt(int position) {
+            return position >= 0 && position < data.size() ? data.get(position) : null;
         }
 
         @Override
@@ -108,8 +170,9 @@ final class HomeCategoryPage extends FrameLayout {
         }
 
         @Override
-        public ConversationIndex.Entry getItem(int position) {
-            return position >= 0 && position < data.size() ? data.get(position) : null;
+        public Object getItem(int position) {
+            Row row = rowAt(position);
+            return row == null ? null : row.entry;
         }
 
         @Override
@@ -119,17 +182,56 @@ final class HomeCategoryPage extends FrameLayout {
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            ConversationIndex.Entry entry = getItem(position);
-            LinearLayout row;
-            if (convertView instanceof LinearLayout) {
-                row = (LinearLayout) convertView;
-            } else {
-                row = buildRow();
+            Row row = rowAt(position);
+            if (row == null) {
+                return new View(getContext());
             }
-            bind(row, entry);
-            return row;
+            if (row.entry == null) {
+                return buildHeader(convertView, row.label);
+            }
+            LinearLayout view;
+            if (convertView instanceof LinearLayout) {
+                view = (LinearLayout) convertView;
+            } else {
+                view = buildRow();
+            }
+            bind(view, row.entry);
+            return view;
         }
     }
+
+    private View buildHeader(View convertView, String label) {
+        TextView header;
+        if (convertView instanceof TextView) {
+            header = (TextView) convertView;
+        } else {
+            header = new TextView(getContext());
+            header.setTextSize(12f);
+            header.setPadding(Ui.dp(getContext(), 14f), Ui.dp(getContext(), 12f),
+                    Ui.dp(getContext(), 14f), Ui.dp(getContext(), 6f));
+            header.setTextColor(night ? 0xFF9A9A9A : 0xFF8A8A8A);
+            header.setBackgroundColor(night ? 0xFF111111 : 0xFFEDEDED);
+        }
+        header.setText(label);
+        return header;
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        if (!logged) {
+            logged = true;
+            int[] location = new int[2];
+            getLocationOnScreen(location);
+            View first = list.getChildAt(0);
+            android.util.Log.i("WeChatGlass", "HL page geom top=" + location[1]
+                    + " listTop=" + list.getTop()
+                    + " childTop=" + (first == null ? -1 : first.getTop())
+                    + " h=" + getHeight());
+        }
+    }
+
+    private boolean logged;
 
     private LinearLayout buildRow() {
         Context context = getContext();
@@ -140,17 +242,20 @@ final class HomeCategoryPage extends FrameLayout {
         row.setPadding(pad, Ui.dp(context, 12f), pad, Ui.dp(context, 12f));
         row.setBackgroundColor(night ? 0xFF191919 : 0xFFFFFFFF);
 
-        TextView avatar = new TextView(context);
-        avatar.setGravity(Gravity.CENTER);
-        avatar.setTextColor(0xFFFFFFFF);
-        avatar.setTextSize(18f);
+        android.widget.ImageView avatar = new android.widget.ImageView(context);
+        avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         LinearLayout.LayoutParams avatarLp = new LinearLayout.LayoutParams(
                 Ui.dp(context, 44f), Ui.dp(context, 44f));
         avatarLp.rightMargin = Ui.dp(context, 12f);
-        GradientDrawable circle = new GradientDrawable();
-        circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(0xFF8A8A8A);
-        avatar.setBackground(circle);
+        avatar.setBackgroundColor(0xFFBDBDBD);
+        final int avatarRadius = Ui.dp(context, 8f);
+        avatar.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), avatarRadius);
+            }
+        });
+        avatar.setClipToOutline(true);
         row.addView(avatar, avatarLp);
 
         LinearLayout texts = new LinearLayout(context);
@@ -190,11 +295,8 @@ final class HomeCategoryPage extends FrameLayout {
             return;
         }
         holder.name.setText(entry.display);
-        holder.avatar.setText(initial(entry.display));
-        GradientDrawable circle = new GradientDrawable();
-        circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(colorFor(entry.username));
-        holder.avatar.setBackground(circle);
+        holder.avatar.setBackgroundColor(colorFor(entry.username));
+        AvatarLoader.load(holder.avatar, entry.username);
         if (entry.hasConversation) {
             holder.preview.setText(entry.preview == null || entry.preview.isEmpty()
                     ? "[无消息]" : entry.preview);
@@ -236,12 +338,12 @@ final class HomeCategoryPage extends FrameLayout {
     }
 
     private static final class Holder {
-        final TextView avatar;
+        final android.widget.ImageView avatar;
         final TextView name;
         final TextView preview;
         final TextView time;
 
-        Holder(TextView avatar, TextView name, TextView preview, TextView time) {
+        Holder(android.widget.ImageView avatar, TextView name, TextView preview, TextView time) {
             this.avatar = avatar;
             this.name = name;
             this.preview = preview;

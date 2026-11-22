@@ -114,6 +114,10 @@ final class HomeGlassHook {
                 // cheap identity check, not a re-wrap.
                 HomeConversationFilter.attach(homeListView);
             }
+            if (!categoryPageFilled && ConversationIndex.loaded() && categoryPage != null) {
+                categoryPageFilled = true;
+                categoryPage.show(HomeConversationFilter.mode());
+            }
             long now = android.os.SystemClock.uptimeMillis();
             long sinceAttach = now - attachedAt;
             if (isMiniProgramSurface()) {
@@ -393,6 +397,7 @@ final class HomeGlassHook {
         forceContentBehindTop();
         setupList();
         installCategoryBar();
+        installCategoryPage();
         // The storage objects only work after MMApplication's kernel is up, so
         // the read-only category index is built a moment after the page shows.
         final ClassLoader indexLoader = activity.getClassLoader();
@@ -936,6 +941,12 @@ final class HomeGlassHook {
             categoryBar.setVisibility(
                     full && HomeConversationFilter.active() ? View.VISIBLE : View.GONE);
         }
+        if (categoryPage != null) {
+            categoryPage.setVisibility(full ? View.VISIBLE : View.GONE);
+        }
+        if (homeListView != null) {
+            homeListView.setVisibility(full ? View.INVISIBLE : View.VISIBLE);
+        }
         setChipVisible(leftChip, false);
         setChipVisible(searchChip, full);
         setChipVisible(plusChip, full);
@@ -1199,7 +1210,8 @@ final class HomeGlassHook {
         }
         ViewGroup parent = (ViewGroup) homeListView.getParent();
         int index = parent.indexOfChild(homeListView);
-        int top = Ui.statusBarHeight(decor) + Ui.dp(activity, 52f);
+        int status = Math.max(Ui.statusBarHeight(decor), Ui.statusBarHeight(activity));
+        int top = status + Ui.dp(activity, 52f);
         int bottom = Ui.dp(activity, 92f);
         categoryPage = new HomeCategoryPage(activity, Ui.isNight(activity), top, bottom,
                 new HomeCategoryPage.OpenChat() {
@@ -1212,7 +1224,8 @@ final class HomeGlassHook {
                 new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
         homeListView.setVisibility(View.INVISIBLE);
-        android.util.Log.i("WeChatGlass", "HL category page installed");
+        android.util.Log.i("WeChatGlass", "HL category page installed top=" + top
+                + " status=" + status + " bottom=" + bottom);
     }
 
     private void openChat(String username) {

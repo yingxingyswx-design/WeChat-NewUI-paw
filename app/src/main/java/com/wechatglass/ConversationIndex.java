@@ -24,6 +24,8 @@ final class ConversationIndex {
         String display = "";
         boolean group;
         boolean hasConversation;
+        /** WeChat pins a conversation with this bit in rconversation.flag. */
+        boolean pinned;
         int unread;
         String preview = "";
         long time;
@@ -92,6 +94,7 @@ final class ConversationIndex {
                     e.unread = conv.unread;
                     e.preview = conv.preview;
                     e.time = conv.time;
+                    e.pinned = conv.pinned;
                     e.display = e.display.isEmpty() ? conv.display : e.display;
                 }
                 if (HomeConversationFilter.isSystem(e.username)) {
@@ -107,22 +110,27 @@ final class ConversationIndex {
                     e.unread = conv.unread;
                     e.preview = conv.preview;
                     e.time = conv.time;
+                    e.pinned = conv.pinned;
                 }
                 GROUPS.add(e);
             }
             // 微信自带：直接取现有会话里的系统号（文件传输助手、公众号、
-            // 服务号、通知、微信团队……），比从 rcontact 里猜更准。
+            // 服务号、通知、微信团队……），名字优先用 rcontact 里的昵称。
+            Map<String, String> names = queryNameMap(contactDb);
             for (Entry conv : conversations.values()) {
                 if (!HomeConversationFilter.isSystem(conv.username)) {
                     continue;
                 }
                 Entry e = new Entry();
                 e.username = conv.username;
-                e.display = conv.username;
+                String name = names.get(conv.username);
+                e.display = name != null && !name.isEmpty()
+                        ? name : systemName(conv.username);
                 e.hasConversation = true;
                 e.unread = conv.unread;
                 e.preview = conv.preview;
                 e.time = conv.time;
+                e.pinned = conv.pinned;
                 SYSTEM.add(e);
             }
             loaded = true;
@@ -248,6 +256,10 @@ final class ConversationIndex {
                     e.preview = contentCol >= 0 ? cursor.getString(contentCol) : "";
                     e.time = timeCol >= 0 ? cursor.getLong(timeCol) : 0L;
                     e.unread = unreadCol >= 0 ? cursor.getInt(unreadCol) : 0;
+                    if (flagCol >= 0) {
+                        long flag = cursor.getLong(flagCol);
+                        e.pinned = (flag & 0x40000000000000L) != 0L;
+                    }
                     out.put(username, e);
                     if (flagCol >= 0 && logged++ < 15) {
                         long flag = cursor.getLong(flagCol);
@@ -267,6 +279,83 @@ final class ConversationIndex {
             }
         }
         return out;
+    }
+
+    private static Map<String, String> queryNameMap(Object db) {
+        Map<String, String> out = new HashMap<>();
+        Cursor cursor = null;
+        try {
+            cursor = (Cursor) de.robv.android.xposed.XposedHelpers.callMethod(db, "A",
+                    "select username, nickname, conRemark from rcontact", null);
+            if (cursor != null) {
+                int userCol = cursor.getColumnIndex("username");
+                int nickCol = cursor.getColumnIndex("nickname");
+                int remarkCol = cursor.getColumnIndex("conRemark");
+                while (cursor.moveToNext()) {
+                    String username = cursor.getString(userCol);
+                    if (username == null) {
+                        continue;
+                    }
+                    String remark = remarkCol >= 0 ? cursor.getString(remarkCol) : null;
+                    String nick = nickCol >= 0 ? cursor.getString(nickCol) : null;
+                    String name = remark != null && !remark.isEmpty() ? remark : nick;
+                    if (name != null && !name.isEmpty()) {
+                        out.put(username, name);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            if (cursor != null) {
+                try {
+                    cursor.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return out;
+    }
+
+    private static String systemName(String username) {
+        String language = java.util.Locale.getDefault().getLanguage();
+        boolean ja = "ja".equals(language);
+        boolean zh = "zh".equals(language);
+        switch (username) {
+            case "filehelper":
+                return ja ? "ファイル転送" : zh ? "文件传输助手" : "File Transfer";
+            case "weixin":
+                return ja ? "Weixinチーム" : zh ? "微信团队" : "WeChat Team";
+            case "weixinpay":
+            case "wxpay":
+                return ja ? "Weixin Pay" : zh ? "微信支付" : "WeChat Pay";
+            case "officialaccounts":
+                return ja ? "公式アカウント" : zh ? "公众号" : "Official Accounts";
+            case "service_officialaccounts":
+                return ja ? "サービスアカウント" : zh ? "服务号" : "Service Accounts";
+            case "notifymessage":
+                return ja ? "サービス通知" : zh ? "服务通知" : "Service Notifications";
+            case "brandsessionholder":
+                return ja ? "購読" : zh ? "订阅号" : "Subscriptions";
+            case "brandservicesessionholder":
+                return ja ? "サービスアカウント" : zh ? "服务号" : "Services";
+            case "mphelper":
+                return ja ? "公式プラットフォームアシスタント" : zh ? "公众平台助手" : "MP Helper";
+            case "fmessage":
+                return ja ? "友だちのおすすめ" : zh ? "朋友推荐" : "Friend Recommendations";
+            case "medianote":
+                return ja ? "ボイスメモ" : zh ? "语音记事本" : "Voice Notes";
+            case "floatbottle":
+                return ja ? "ボトルメール" : zh ? "漂流瓶" : "Bottle";
+            case "qqmail":
+                return ja ? "QQメール" : zh ? "QQ邮箱提醒" : "QQ Mail";
+            case "newsapp":
+                return "腾讯新闻";
+            default:
+                if (username.startsWith("gh_")) {
+                    return ja ? "公式アカウント" : zh ? "公众号" : "Official Account";
+                }
+                return username;
+        }
     }
 
     static List<Entry> friends() {
