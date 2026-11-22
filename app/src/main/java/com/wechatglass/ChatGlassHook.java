@@ -1121,7 +1121,9 @@ final class ChatGlassHook {
             }
             if (exists) continue;
             View lp = com.wechatglass.liquid.LiquidPanelFactory.create(
-                    activity, (ViewGroup) bgParent, density, night);
+                    activity,
+                    chatContentGroup != null ? chatContentGroup : (ViewGroup) bgParent,
+                    density, night);
             if (lp == null) continue;
             lp.setTag(ch);
             int ph = Math.max(1, ch.getHeight() - 3);

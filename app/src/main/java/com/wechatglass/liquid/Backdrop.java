@@ -86,9 +86,9 @@ final class Backdrop {
                             new android.graphics.Rect(0, 0, width, height), wp);
                 }
             }
-            // Wallpaper mode is the whole backdrop: do not draw the live
-            // pager pages on top, or the chat glass captures the home page.
-            return;
+            // The wallpaper is the bottom layer only. The chat pages are drawn
+            // on top below, so the glass samples the conversation content with
+            // the chosen wallpaper showing through behind it.
         }
         Method drawChild = drawChild();
         boolean recorded = false;
