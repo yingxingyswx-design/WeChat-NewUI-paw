@@ -1,87 +1,59 @@
-# WeChat Glass Bar
+# 微信液态玻璃 UI（com.wechatglass）
 
-微信 8.0.79 聊天页的 LSPosed UI 模块：把顶部导航栏改成三段悬浮纯色岛，把底部输入栏改成悬浮纯色条。
+给微信 8.0.79 的界面加一层**液态玻璃**：悬浮顶栏、会话分类切换器、聊天页玻璃，以及聊天背景的壁纸模糊。
 
-只 Hook `com.tencent.mm` 的 `ChattingUI` 生命周期，只改 View 的背景、边距和绘制层；不碰消息、通讯、账号、支付、网络相关类。
+> 仅用于学习交流。修改微信界面存在**封号风险**，请自行评估、自行承担。
 
-## 产物
+## 美化了什么
 
-- 可安装 APK：[out/wechat-glass-1.0.apk](out/wechat-glass-1.0.apk)
-- 模块源码：[app/src/main/java/com/wechatglass](app/src/main/java/com/wechatglass)
-- 分析文档：[analysis/聊天界面与毛玻璃悬浮栏分析.md](analysis/聊天界面与毛玻璃悬浮栏分析.md)
+- **首页顶栏**：微信原生标题栏替换为悬浮的液态玻璃胶囊（搜索 / 加号），带微信灰描边，暗夜模式自动切换深色玻璃。
+- **三段切换器**：顶栏左侧「好友 / 群聊 / 微信」切换，选中态是绿色胶囊，带弹簧动画与长按拖拽。
+- **会话列表**：可选 Material Design 风格的自建列表，含「置顶 / 未置顶」分组、头像、时间排序与消息类型预览（贴纸 / 图片 / 语音 / App 标题）。
+- **聊天页**：顶部栏换成悬浮玻璃，表情面板与「+」面板同样玻璃化。
+- **聊天背景**：液态玻璃会采样一张壁纸并做模糊，得到真正的“壁纸透过玻璃”的效果。
 
-## 已实现
+## ⚠️ 重要：聊天页的壁纸模糊需要先指定壁纸
 
-- **真正的 edge-to-edge 聊天页**：
-  - `ActionBarContainer` 从 `ChattingUILayout` 的纵向布局里移出，改挂到内容 `FrameLayout` 顶部，后添加，所以画在聊天内容之上。
-  - `ChatFooter` 留在 `ChattingScrollLayout` 里，但 `topMargin = -footerHeight`、`bottomMargin = 0`，净占高为 0；`ChattingContent` 因此拿到全屏高度，消息列表从输入栏下面滚过。
-  - `RecyclerView` 顶部 padding = ActionBar 高度 + 6dp，底部 padding = ChatFooter 高度 + 14dp，并 `clipToPadding=false`。
-  - 不再使用假壁纸层；顶部玻璃直接采样真正的聊天内容。
-- 顶部三段悬浮纯色岛：
-  - 返回按钮：圆形
-  - 标题：圆角胶囊
-  - 右侧菜单：圆形/胶囊
-- 底部输入栏：
-  - `ChatFooter` 背景按结构逐层清空（从 EditText 往上找祖先），不依赖易变的资源 ID
-  - 左右 10dp 边距，26dp 圆角，底部 8dp 悬浮间隙
-  - 输入区 `d9e` 的内层白底去掉，文字直接坐在玻璃上
-  - 表情/更多/语音按钮保留原位，只做视觉透明化
-- 纯色：
-  - 浅色模式 `#FFFFFF`（微信白），暗色模式 `#2C2C2C`（微信灰），100% 不透明
-  - 不再抓屏、不再模糊：`GlassRenderer` 只画一个圆角矩形，`BlurUtil` 已删除
-  - 微信原生的 `FrostedContentView` 模糊层保持关闭
-- 夜间模式：自动切换纯色 tint 和边框
-- 横竖屏/深色模式切换：`onConfigurationChanged` 后重建悬浮层
+聊天页的液态玻璃**不会自动取你微信聊天背景**，它用的是模块自己保存的一张壁纸。所以：
 
-## 安装
+1. 打开模块 App「微信悬浮玻璃栏」；
+2. 点「选择壁纸」，从相册选一张图；
+3. 回到微信进入聊天页，玻璃后面就是这张壁纸的模糊。
 
-1. 安装 `out/wechat-glass-1.0.apk`。
-2. 在 LSPosed 里启用“微信悬浮玻璃栏”。
-3. 作用域只勾选 **微信**（`com.tencent.mm`）。
-4. 强制停止微信，重新打开任意聊天页。
+不选壁纸时，玻璃没有壁纸可采样，只会显示内容/纯色，**看起来就像没有模糊**——这不是 bug，是还没指定壁纸。
+
+## 环境
+
+- Android 12+（玻璃依赖 `RenderEffect`，更低版本自动退回普通背景）
+- LSPosed（Zygisk / Riru 均可）
+- 微信 `com.tencent.mm` 8.0.79（模块按该版本混淆名适配，其他版本可能不生效）
+- 同时安装本模块 App 用于配置（壁纸、开关、强制停止/打开微信）
+
+## 使用
+
+1. 安装 APK，在 LSPosed 中启用模块并勾选微信；
+2. 强制停止微信后重新打开；
+3. 打开模块 App 选择壁纸（聊天页模糊必需）；
+4. 首页顶栏出现三段切换器即生效。
+
+## 配置项
+
+- **开启液态玻璃（增加封号风险）**：总开关。
+- **启用 Material Design 设计风格（实验）**：自建会话列表；关闭则用微信原生列表（更稳定，含小程序 / 已登入设备 / 置顶笔记）。
+- **强制停止微信 / 打开微信**：改完配置后快速重启微信。
+- **背景壁纸**：聊天页玻璃采样的壁纸。
 
 ## 构建
 
-本机没有可用的 Gradle Wrapper/AGP 组合，所以用 SDK 自带工具直接构建（aapt2 + javac + d8 + zipalign + apksigner）：
+仓库不带 Gradle，使用 `build.ps1`（aapt2 + javac + d8 + zipalign + apksigner）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+.\build.ps1 -DebugSigning
 ```
 
-构建脚本会把工程复制到 `C:\wcg_build`（ASCII 路径），因为 aapt2 在中文路径下会报 `failed to open directory`。
+产物：`out/wechat-glass-1.0.apk`。
 
-依赖：
+## 已知问题
 
-- Android SDK 36（`android.jar`、`build-tools/36.0.0`）
-- JDK 17（`JAVA_HOME`）
-- Xposed API 82（已放在 `app/libs/api-82.jar`，构建脚本直接使用）
-
-## 调试状态
-
-- 已做两轮静态 debug：
-  1. 编译/API 检查：修复 `setClipToPadding` 编译错误、抓屏时用 `visibility` 导致布局循环的问题、底部 padding 被覆盖的问题。
-  2. 构建/清单检查：校验 `xposed_init`、`xposedmodule`、`xposedscope`、`xposedminversion`、APK v2 签名和 zipalign；确认模块 dex 只引用 `ChattingUI`，没有引用任何通讯/支付类。
-- 当前机器 `adb devices` 为空，**没有真机运行验证**。
-- 已知限制：
-  - 资源 ID 只对应微信 8.0.79；换版本会安全降级（找不到 View 就不改）。
-  - 新版 edge-to-edge 改动依赖 `ChattingScrollLayout` 的负 margin 行为；如果微信某个版本重新布局 footer，可能出现输入栏位置偏移，需要按真机截图继续调。
-  - 抓屏模糊在滚动时约 11fps 更新，低端机可能掉帧；可把 `GlassRenderer.CAPTURE_DELAY_MS` 调大或 `SCALE` 调小。
-  - 设备已连接但 `adb` 掉线时无法验证；当前 APK 需要重新安装后强制停止微信再测。
-
-## 文件
-
-```text
-app/src/main/
-  AndroidManifest.xml              LSPosed 元数据 + xposedscope
-  assets/xposed_init               com.wechatglass.HookEntry
-  res/values/arrays.xml            xposedscope = com.tencent.mm
-  java/com/wechatglass/
-    HookEntry.java                 Hook ChattingUI onCreate/onDestroy/onConfigurationChanged
-    ChatGlassHook.java             真 edge-to-edge 重构 + 顶栏三段岛 + 底栏悬浮
-    GlassRenderer.java             抓屏/降采样/模糊/按区域绘制
-    GlassChipView.java             顶部玻璃岛
-    GlassBarDrawable.java          底部玻璃背景
-    BlurUtil.java                  纯 Java stack blur
-    Ui.java                        dp/夜间/查找 View/清理 ActionBar 背景
-build.ps1                          无 Gradle 构建脚本
-```
+- 自建列表（实验）在部分机型上与微信 ViewPager 的页面回收有冲突，可能出现切 tab 抖动/重影；默认的原生列表不受影响。
+- 模块按微信 8.0.79 的类名适配，微信升级后可能失效。

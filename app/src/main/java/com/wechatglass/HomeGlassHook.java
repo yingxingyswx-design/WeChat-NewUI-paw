@@ -79,6 +79,7 @@ final class HomeGlassHook {
     private GlassChipView searchChip;
     private GlassChipView plusChip;
     private HomeCategoryBar categoryBar;
+    private int barAttempts;
     private HomeCategoryPage categoryPage;
     private android.widget.ListView homeListView;
     private View taskBarContainer;
@@ -420,8 +421,9 @@ final class HomeGlassHook {
         }
         forceContentBehindTop();
         setupList();
-        // Switch semantics: native list by default; enabling Material Design
-        // mounts the experimental custom page.
+        // Resolve WeChat's list before anything that needs it: the custom page
+        // anchors to that list, and the switch samples the page it sits on.
+        resolveHomeList();
         if (!HookConfig.nativeList(activity)) {
             installCategoryPage();
         }
@@ -1145,6 +1147,17 @@ final class HomeGlassHook {
         return status + bar;
     }
 
+    private void resolveHomeList() {
+        if (homeListView != null || decor == null) {
+            return;
+        }
+        View found = findVisibleList(decor);
+        if (found instanceof android.widget.ListView) {
+            homeListView = (android.widget.ListView) found;
+            HomeConversationFilter.attach(homeListView);
+        }
+    }
+
     private static ViewGroup findVisibleList(View root) {
         java.util.ArrayList<View> found = new java.util.ArrayList<>();
         collectLists(root, found);
@@ -1153,7 +1166,11 @@ final class HomeGlassHook {
         int[] loc = new int[2];
         for (int i = 0; i < found.size(); i++) {
             View view = found.get(i);
-            if (!(view instanceof ViewGroup) || !view.isShown()) {
+            // Do not require isShown(): when the custom page is mounted the
+            // native list is INVISIBLE, but it is still the view that paints
+            // the screen underneath and the one the glass must sample.
+            if (!(view instanceof ViewGroup) || view.getWidth() <= 0
+                    || view.getHeight() <= 0) {
                 continue;
             }
             view.getLocationOnScreen(loc);
@@ -1238,16 +1255,46 @@ final class HomeGlassHook {
         // The native list is hidden behind our page, so sampling it yields a
         // blank surface. When the custom page exists, the glass must sample it.
         View nativeList = findVisibleList(decor);
+        if (!(nativeList instanceof android.widget.ListView) && homeListView != null) {
+            nativeList = homeListView;
+        }
         if (nativeList instanceof android.widget.ListView) {
             homeListView = (android.widget.ListView) nativeList;
             HomeConversationFilter.attach(homeListView);
         }
+        resolveHomeList();
+        if (nativeList == null) {
+            nativeList = homeListView;
+        }
         boolean nativeMode = HookConfig.nativeList(activity);
-        // Sample whichever list is on screen. Never fall back to decor: the
-        // glass lives inside decor, so sampling it tiles the screen.
-        ViewGroup backdrop = nativeMode
-                ? (nativeList instanceof ViewGroup ? (ViewGroup) nativeList : null)
-                : categoryPage;
+        // Sample the container that actually paints the list (the list's
+        // parent); sampling a bare ListView sometimes yields an empty capture,
+        // which looked like the switch had lost its glass.
+        ViewGroup backdrop = null;
+        if (nativeMode) {
+            if (nativeList != null && nativeList.getParent() instanceof ViewGroup) {
+                backdrop = (ViewGroup) nativeList.getParent();
+            } else if (nativeList instanceof ViewGroup) {
+                backdrop = (ViewGroup) nativeList;
+            }
+        } else {
+            backdrop = categoryPage;
+        }
+        android.util.Log.i("WeChatGlass", "HL bar backdrop="
+                + (backdrop == null ? "null" : backdrop.getClass().getSimpleName()));
+        if (backdrop == null) {
+            // The list is not laid out yet; retry instead of building a bar
+            // without glass (that is what made the switch look glass-less).
+            if (barAttempts++ < 15) {
+                overlay.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        installCategoryBar();
+                    }
+                }, 150L);
+            }
+            return;
+        }
         categoryBar = new HomeCategoryBar(activity, backdrop, Ui.isNight(activity),
                 categoryLabels(), HomeConversationFilter.mode());
         categoryBar.setOnSelect(new HomeCategoryBar.OnSelect() {
