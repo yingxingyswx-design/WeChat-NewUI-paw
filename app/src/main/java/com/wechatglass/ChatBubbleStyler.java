@@ -40,6 +40,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> DIAGNOSTIC_SNAPSHOTS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, String> APPLIED_DIAGNOSTICS =
+            new WeakHashMap<>();
     private static final int MAX_DIAGNOSTIC_ITEMS = 48;
     private static final int MAX_DIAGNOSTIC_VIEWS = 32;
     private static final int MAX_DIAGNOSTIC_CANDIDATES = 12;
@@ -283,6 +285,7 @@ final class ChatBubbleStyler {
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
         DIAGNOSTIC_SNAPSHOTS.clear();
+        APPLIED_DIAGNOSTICS.clear();
         diagnosticItemsLogged = 0;
     }
 
@@ -390,6 +393,9 @@ final class ChatBubbleStyler {
         }
         remember(bubble);
         bubble.setBackground(shape);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            bubble.setBackgroundTintList(null);
+        }
         APPLIED.put(bubble, shape);
         bubble.setPadding(M3Theme.dp(context, 14f), M3Theme.dp(context, 10f),
                 M3Theme.dp(context, 14f), M3Theme.dp(context, 10f));
@@ -421,6 +427,7 @@ final class ChatBubbleStyler {
             } catch (Throwable ignored) {
             }
         }
+        logAppliedSurface("text", bubble);
     }
 
     /**
@@ -794,7 +801,7 @@ final class ChatBubbleStyler {
             android.util.Log.i("WeChatGlass", "CB rounded sticker "
                     + (panelThumbnails ? "panel " : "message ")
                     + view.getClass().getName() + " " + view.getWidth()
-                    + "x" + view.getHeight());
+                    + "x" + view.getHeight() + " clip=" + view.getClipToOutline());
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
@@ -1104,6 +1111,7 @@ final class ChatBubbleStyler {
             card.requestLayout();
         }
         applyCardTheme(card, card, avatar, textTarget, color, textColor, 0);
+        logAppliedSurface("card", card);
     }
 
     private static void styleMediaBubble(View media, View item, View avatar,
@@ -1153,6 +1161,31 @@ final class ChatBubbleStyler {
             parent.setClipChildren(false);
         }
         media.requestLayout();
+        logAppliedSurface("media", media);
+    }
+
+    private static void logAppliedSurface(String kind, View view) {
+        if (view == null) {
+            return;
+        }
+        android.graphics.drawable.Drawable background = view.getBackground();
+        android.graphics.drawable.Drawable foreground = android.os.Build.VERSION.SDK_INT < 23
+                ? null : view.getForeground();
+        String signature = kind + ":bg="
+                + (background == null ? "-" : background.getClass().getSimpleName()
+                + "@" + Integer.toHexString(System.identityHashCode(background)))
+                + ",fg=" + (foreground == null ? "-"
+                : foreground.getClass().getSimpleName())
+                + ",tint=" + (android.os.Build.VERSION.SDK_INT < 21
+                || view.getBackgroundTintList() == null ? "-" : "set")
+                + ",clip=" + view.getClipToOutline()
+                + ",attached=" + view.isAttachedToWindow()
+                + ",size=" + view.getWidth() + "x" + view.getHeight();
+        if (signature.equals(APPLIED_DIAGNOSTICS.get(view))) {
+            return;
+        }
+        APPLIED_DIAGNOSTICS.put(view, signature);
+        android.util.Log.i("WeChatGlass", "CB applied " + signature);
     }
 
     private static void applyCardTheme(View view, View root, View avatar,
