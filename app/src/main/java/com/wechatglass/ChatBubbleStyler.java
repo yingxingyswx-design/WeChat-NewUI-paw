@@ -510,6 +510,22 @@ final class ChatBubbleStyler {
 
     private static void updateMessageTime(View item, View anchor, View avatar,
                                           Context context) {
+        try {
+            updateMessageTimeInternal(item, anchor, avatar, context);
+        } catch (Throwable error) {
+            String rowClass = item == null ? "-" : item.getClass().getName();
+            String anchorClass = anchor == null ? "-" : anchor.getClass().getName();
+            StackTraceElement where = error.getStackTrace().length == 0
+                    ? null : error.getStackTrace()[0];
+            android.util.Log.e("WeChatGlass", "CB time update failed row=" + rowClass
+                    + " anchor=" + anchorClass + " error=" + error.getClass().getName()
+                    + " at=" + (where == null ? "-" : where.toString()));
+            removeMessageTime(item);
+        }
+    }
+
+    private static void updateMessageTimeInternal(View item, View anchor, View avatar,
+                                                  Context context) {
         if (!(item instanceof ViewGroup) || anchor == null || anchor == item
                 || anchor.getWidth() <= 0 || anchor.getHeight() <= 0
                 || anchor.getVisibility() != View.VISIBLE || !anchor.isAttachedToWindow()) {
@@ -566,7 +582,6 @@ final class ChatBubbleStyler {
         x = Math.max(0, Math.min(x, Math.max(0, row.getWidth() - labelWidth)));
         y = Math.max(0, Math.min(y, Math.max(0, row.getHeight() - labelHeight)));
         label.layout(x, y, x + labelWidth, y + labelHeight);
-        label.bringToFront();
         label.invalidate();
 
         String source = item.getClass().getName() + ":" + search.bestPath
