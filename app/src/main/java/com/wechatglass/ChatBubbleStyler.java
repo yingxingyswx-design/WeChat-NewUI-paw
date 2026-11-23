@@ -706,7 +706,8 @@ final class ChatBubbleStyler {
                 || bubble.getHeight() > target.getHeight() + extra) {
             return false;
         }
-        if (countVisibleTextObjects(bubble, target, 0) != 1
+        if (bubble.isClickable() || bubble.isLongClickable()
+                || countVisibleTextObjects(bubble, target, 0) != 1
                 || hasInteractiveContent(bubble, bubble, target, 0)) {
             return false;
         }
