@@ -375,9 +375,11 @@ final class ChatBubbleStyler {
                     listenerClass.getClassLoader(), new Class<?>[]{listenerClass},
                     (proxy, method, args) -> {
                         String name = method.getName();
-                        if ("onChildViewAttachedToWindow".equals(name)
-                                && args != null && args.length == 1
+                        if (args != null && args.length == 1
                                 && args[0] instanceof View && session.enabled) {
+                            // WeChat may ship an obfuscated AndroidX listener
+                            // interface; both callbacks carry one View. The
+                            // posted task checks attachment before styling.
                             scheduleStyleItem(session, activity, (View) args[0], 0, true);
                         }
                         if ("equals".equals(name)) {
@@ -412,8 +414,7 @@ final class ChatBubbleStyler {
                 continue;
             }
             Class<?> parameter = method.getParameterTypes()[0];
-            if (parameter.isInterface()
-                    && parameter.getSimpleName().contains("OnChildAttachStateChangeListener")) {
+            if (parameter.isInterface()) {
                 return method;
             }
         }
