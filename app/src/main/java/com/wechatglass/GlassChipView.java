@@ -20,6 +20,7 @@ final class GlassChipView extends View {
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint flatPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint dyePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     GlassChipView(Context context, GlassRenderer renderer, float radius,
                   int tintColor, int borderColor) {
@@ -78,6 +79,13 @@ final class GlassChipView extends View {
             strokePaint.setColor(borderColor);
             canvas.drawRoundRect(0.6f, 0.6f, getWidth() - 0.6f, getHeight() - 0.6f,
                     radius, radius, strokePaint);
+        }
+        // Faint dye ON TOP of the glass, under icon/text: white light, black dark.
+        if (renderer == null || !renderer.isCapturing()) {
+            dyePaint.setColor(Ui.isNight(getContext())
+                    ? 0x33000000 : 0x33FFFFFF);
+            canvas.drawRoundRect(0f, 0f, getWidth(), getHeight(),
+                    radius, radius, dyePaint);
         }
         if (icon != null) {
             int save = canvas.save();

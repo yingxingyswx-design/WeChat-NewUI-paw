@@ -50,6 +50,8 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookPanelBgMethods(lpparam.classLoader);
         hookLogPanelBg(lpparam.classLoader);
         hookFreGriest(lpparam.classLoader);
+        hookNeatTextBackground(lpparam.classLoader);
+        hookNeatTextAttach(lpparam.classLoader);
         hookShadowLoader();
         XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
                 Bundle.class, new XC_MethodHook() {
@@ -58,6 +60,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         try {
                             if (param.thisObject instanceof Activity) {
                                 ChatGlassHook.attach((Activity) param.thisObject);
+                                ChatBubbleStyler.attach((Activity) param.thisObject);
                             }
                         } catch (Throwable throwable) {
                             XposedBridge.log(TAG + " attach failed: " + throwable);
@@ -72,6 +75,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         try {
                             if (param.thisObject instanceof Activity) {
                                 ChatGlassHook.attach((Activity) param.thisObject);
+                                ChatBubbleStyler.attach((Activity) param.thisObject);
                             }
                         } catch (Throwable throwable) {
                             XposedBridge.log(TAG + " config refresh failed: " + throwable);
@@ -152,6 +156,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 Activity activity = (Activity) param.thisObject;
                                 if (chat) {
                                     ChatGlassHook.reapplyStatusBar(activity);
+                                    ChatBubbleStyler.attach(activity);
                                 } else {
                                     HomeGlassHook.reapplyStatusBar(activity);
                                     com.wechatglass.liquidtab.LiquidGlassInstaller
@@ -203,6 +208,41 @@ public class HookEntry implements IXposedHookLoadPackage {
      * floating home bar follows the actual page instead of guessing from the
      * title text (the "Me" page has no title at all).
      */
+    /** WeChat rebinds its own 9-patch on every text row; keep our bubble. */
+    private static void hookNeatTextBackground(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.ui.widget.MMNeat7extView", cl,
+                    "setBackgroundResource", int.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (param.thisObject instanceof android.widget.TextView) {
+                                ChatBubbleStyler.force((android.widget.TextView) param.thisObject);
+                                param.setResult(null);
+                            }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void hookNeatTextAttach(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.ui.widget.MMNeat7extView", cl,
+                    "onAttachedToWindow", new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            if (param.thisObject instanceof android.widget.TextView) {
+                                ChatBubbleStyler.attachText(
+                                        (android.widget.TextView) param.thisObject);
+                            }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static void hookHomeBottomTab(ClassLoader cl) {
         try {
             XposedHelpers.findAndHookMethod(

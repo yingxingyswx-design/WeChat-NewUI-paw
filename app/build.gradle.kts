@@ -54,6 +54,7 @@ android {
 
 dependencies {
     compileOnly(files("libs/api-82.jar"))
+    compileOnly("androidx.recyclerview:recyclerview:1.3.2")
 }
 
 val copyApk = tasks.register<Copy>("copyApk") {

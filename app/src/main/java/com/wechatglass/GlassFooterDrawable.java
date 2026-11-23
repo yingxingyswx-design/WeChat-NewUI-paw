@@ -103,7 +103,7 @@ final class GlassFooterDrawable extends Drawable {
         canvas.translate(al[0] - fl[0], al[1] - fl[1]);
         canvas.clipPath(shape);
         canvas.drawRenderNode(node);
-        // frost fill
+        // faint glass dye: white in light mode, black in dark mode
         tintPaint.setStyle(android.graphics.Paint.Style.FILL);
         tintPaint.setColor(Ui.isNight(footer.getContext()) ? 0x33000000 : 0x33FFFFFF);
         canvas.drawPath(shape, tintPaint);

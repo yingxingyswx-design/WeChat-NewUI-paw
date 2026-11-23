@@ -137,7 +137,7 @@ final class GlassLayerView extends View {
             int save = canvas.save();
             canvas.clipPath(shape);
             canvas.drawRenderNode(node);
-            canvas.drawPath(shape, tintPaint);
+            // Faint glass dye: white in light mode, black in dark mode.
             tintPaint.setColor(night ? 0x33000000 : 0x33FFFFFF);
             canvas.drawPath(shape, tintPaint);
             borderPaint.setStyle(Paint.Style.STROKE);
