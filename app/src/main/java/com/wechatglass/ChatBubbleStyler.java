@@ -44,6 +44,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> ROUNDED_STICKERS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, Boolean> STICKER_PANEL_ROOTS =
+            new WeakHashMap<>();
     private static final WeakHashMap<View, android.view.ViewOutlineProvider>
             STICKER_OUTLINES = new WeakHashMap<>();
     private static final WeakHashMap<View, Float> STICKER_OUTLINE_RADII =
@@ -803,6 +805,7 @@ final class ChatBubbleStyler {
         SETTLE_GENERATIONS.clear();
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
+        STICKER_PANEL_ROOTS.clear();
         STICKER_OUTLINES.clear();
         STICKER_OUTLINE_RADII.clear();
         DIAGNOSTIC_SNAPSHOTS.clear();
@@ -1836,6 +1839,12 @@ final class ChatBubbleStyler {
 
     /** Round rendered stickers in a visible message or sticker grid. */
     static void roundStickerPanel(View view, Context context) {
+        if (view != null && STICKER_PANEL_ROOTS.put(view, Boolean.TRUE) == null) {
+            android.util.Log.i("WeChatGlass", "CB sticker panel scan root="
+                    + view.getClass().getName() + " size=" + view.getWidth() + "x"
+                    + view.getHeight() + " children=" + (view instanceof ViewGroup
+                    ? ((ViewGroup) view).getChildCount() : 0));
+        }
         roundStickers(view, context, 0, true);
     }
 
@@ -1921,16 +1930,19 @@ final class ChatBubbleStyler {
     }
 
     private static boolean isPanelStickerThumbnail(View view, Context context) {
-        if (!(view instanceof android.widget.ImageView)
-                || view.getVisibility() != View.VISIBLE) {
+        if (view.getVisibility() != View.VISIBLE
+                || !(view instanceof android.widget.ImageView
+                || view instanceof ViewGroup)) {
             return false;
         }
         int minSide = M3Theme.dp(context, 20f);
-        if (view.getWidth() < minSide || view.getHeight() < minSide) {
+        int maxSide = M3Theme.dp(context, 100f);
+        if (view.getWidth() < minSide || view.getHeight() < minSide
+                || view.getWidth() > maxSide || view.getHeight() > maxSide) {
             return false;
         }
         float aspect = view.getWidth() / (float) view.getHeight();
-        return aspect >= 0.62f && aspect <= 1.62f;
+        return aspect >= 0.70f && aspect <= 1.43f;
     }
 
     private static boolean isStickerView(View view) {
