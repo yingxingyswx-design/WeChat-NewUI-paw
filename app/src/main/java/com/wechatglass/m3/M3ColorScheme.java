@@ -108,6 +108,11 @@ public final class M3ColorScheme {
     public static M3ColorScheme forContext(Context context) {
         boolean dark = (context.getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        return forContext(context, dark);
+    }
+
+    /** Build the current selected palette for an explicitly requested mode. */
+    public static M3ColorScheme forContext(Context context, boolean dark) {
         boolean monet = monetEnabled(context);
         int seed = seedColor(context);
         if (monet && Build.VERSION.SDK_INT >= 31) {

@@ -62,6 +62,8 @@ final class ChatBubbleStyler {
 
     private static final class ViewState {
         final android.graphics.drawable.Drawable background;
+        final android.content.res.ColorStateList backgroundTint;
+        final android.graphics.PorterDuff.Mode backgroundTintMode;
         final android.graphics.drawable.Drawable foreground;
         final int visibility;
         final int paddingLeft;
@@ -86,6 +88,10 @@ final class ChatBubbleStyler {
 
         ViewState(View view) {
             background = view.getBackground();
+            backgroundTint = android.os.Build.VERSION.SDK_INT >= 21
+                    ? view.getBackgroundTintList() : null;
+            backgroundTintMode = android.os.Build.VERSION.SDK_INT >= 21
+                    ? view.getBackgroundTintMode() : null;
             foreground = android.os.Build.VERSION.SDK_INT >= 23
                     ? view.getForeground() : null;
             visibility = view.getVisibility();
@@ -126,6 +132,10 @@ final class ChatBubbleStyler {
 
         void restore(View view) {
             view.setBackground(background);
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                view.setBackgroundTintList(backgroundTint);
+                view.setBackgroundTintMode(backgroundTintMode);
+            }
             if (android.os.Build.VERSION.SDK_INT >= 23) {
                 view.setForeground(foreground);
             }
@@ -295,6 +305,10 @@ final class ChatBubbleStyler {
         }
         if (bubble == null || bubble == item
                 || !isSimpleBubbleObject(item, bubble, target, avatar)) {
+            View card = findRichCardObject(item, avatar, target, context);
+            if (card != null) {
+                styleRichCard(card, item, target, avatar, context);
+            }
             return;
         }
         if (diag < 30) {
@@ -725,6 +739,182 @@ final class ChatBubbleStyler {
                     ? (View) ancestor.getParent() : null;
         }
         return true;
+    }
+
+    private static View findRichCardObject(View item, View avatar, View target,
+                                          Context context) {
+        return findRichCardObject(item, item, avatar, target, context, 0);
+    }
+
+    private static View findRichCardObject(View item, View view, View avatar,
+                                          View target, Context context, int depth) {
+        if (view == null || view == avatar || depth > 18
+                || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
+            return null;
+        }
+        if (view != item && view instanceof ViewGroup
+                && isDescendantOf(target, view) && !isDescendantOf(avatar, view)
+                && view.getWidth() >= M3Theme.dp(context, 112f)
+                && view.getHeight() >= M3Theme.dp(context, 48f)
+                && view.getWidth() <= item.getWidth() * 88 / 100
+                && view.getHeight() <= item.getHeight() * 92 / 100) {
+            int textCount = countVisibleTextObjects(view, target, 0);
+            int imageCount = countVisibleContentImages(view, avatar, 0);
+            boolean interactive = view.isClickable() || view.isLongClickable()
+                    || hasInteractiveContent(view, view, target, 0);
+            boolean cardContent = textCount >= 2 && imageCount <= 1
+                    && (interactive || imageCount == 0);
+            if (cardContent && hasBackgroundSurface(view, avatar, 0)
+                    && isContentBesideAvatar(item, view, avatar, context)) {
+                return view;
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findRichCardObject(item, group.getChildAt(i), avatar,
+                        target, context, depth + 1);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean isContentBesideAvatar(View item, View content,
+                                                 View avatar, Context context) {
+        if (avatar == null) {
+            return true;
+        }
+        int[] itemPos = new int[2];
+        int[] avatarPos = new int[2];
+        int[] contentPos = new int[2];
+        item.getLocationOnScreen(itemPos);
+        avatar.getLocationOnScreen(avatarPos);
+        content.getLocationOnScreen(contentPos);
+        int mid = itemPos[0] + item.getWidth() / 2;
+        int gap = M3Theme.dp(context, 8f);
+        if (avatarPos[0] + avatar.getWidth() / 2 < mid) {
+            return contentPos[0] >= avatarPos[0] + avatar.getWidth() - gap;
+        }
+        return contentPos[0] + content.getWidth() <= avatarPos[0] + gap;
+    }
+
+    private static boolean hasBackgroundSurface(View view, View avatar, int depth) {
+        if (view == null || view == avatar || depth > 16
+                || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
+            return false;
+        }
+        if (view.getBackground() != null) {
+            return true;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (hasBackgroundSurface(group.getChildAt(i), avatar, depth + 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void styleRichCard(View card, View item, View textTarget,
+                                      View avatar, Context context) {
+        int screen = context.getResources().getDisplayMetrics().widthPixels;
+        boolean outgoing;
+        if (avatar != null) {
+            outgoing = isOutgoingByAvatar(avatar, screen);
+        } else {
+            int[] loc = new int[2];
+            card.getLocationOnScreen(loc);
+            outgoing = loc[0] > screen - (loc[0] + card.getWidth());
+        }
+
+        M3ColorScheme current = M3Theme.colors(context);
+        // Transaction/red-packet cards use the selected primary role from the
+        // opposite brightness palette, as requested for their colored fill.
+        M3ColorScheme cardScheme = M3ColorScheme.forContext(context, !current.dark);
+        int color = cardScheme.primary;
+        int textColor = cardScheme.onPrimary;
+        float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
+        float tail = M3Theme.dpF(context, 7f);
+        BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing);
+        BubbleDrawable previous = APPLIED.get(card);
+        boolean alreadyApplied = previous != null && card.getBackground() == previous
+                && previous.matches(color, radius, tail, outgoing);
+        if (!alreadyApplied) {
+            remember(card);
+            card.setBackground(shape);
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                card.setBackgroundTintList(null);
+            }
+            APPLIED.put(card, shape);
+            ViewState original = ORIGINAL.get(card);
+            int inset = M3Theme.dp(context, 8f);
+            if (original != null && original.paddingRelative) {
+                card.setPaddingRelative(original.paddingStart + inset,
+                        original.paddingTop + inset, original.paddingEnd + inset,
+                        original.paddingBottom + inset);
+            } else if (original != null) {
+                card.setPadding(original.paddingLeft + inset,
+                        original.paddingTop + inset, original.paddingRight + inset,
+                        original.paddingBottom + inset);
+            }
+            if (card instanceof ViewGroup) {
+                ((ViewGroup) card).setClipChildren(false);
+            }
+            if (card.getParent() instanceof ViewGroup) {
+                ViewGroup parent = (ViewGroup) card.getParent();
+                remember(parent);
+                parent.setClipChildren(false);
+            }
+            card.requestLayout();
+        }
+        applyCardTheme(card, card, avatar, textTarget, color, textColor, 0);
+    }
+
+    private static void applyCardTheme(View view, View root, View avatar,
+                                       View textTarget, int backgroundColor,
+                                       int textColor, int depth) {
+        if (view == null || view == avatar || depth > 18
+                || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
+            return;
+        }
+        if (view != root && view.getBackground() != null
+                && android.os.Build.VERSION.SDK_INT >= 21) {
+            android.content.res.ColorStateList tint = view.getBackgroundTintList();
+            if (tint == null || tint.getDefaultColor() != backgroundColor) {
+                remember(view);
+                view.setBackgroundTintList(
+                        android.content.res.ColorStateList.valueOf(backgroundColor));
+            }
+        }
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            if (text.getCurrentTextColor() != textColor) {
+                remember(text);
+                text.setTextColor(textColor);
+            }
+        } else if (view == textTarget) {
+            remember(view);
+            ViewState original = ORIGINAL.get(view);
+            if (original != null && original.reflectedTextColor != null) {
+                try {
+                    view.getClass().getMethod("setTextColor", int.class)
+                            .invoke(view, textColor);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                applyCardTheme(group.getChildAt(i), root, avatar, textTarget,
+                        backgroundColor, textColor, depth + 1);
+            }
+        }
     }
 
     private static boolean isDescendantOf(View view, View ancestor) {
