@@ -360,13 +360,17 @@ final class ChatBubbleStyler {
                                                    final android.app.Activity activity,
                                                    final ViewGroup list) {
         try {
-            Class<?> recyclerClass = findRecyclerViewClass(list.getClass());
-            if (recyclerClass == null) {
-                throw new ClassNotFoundException("RecyclerView base class");
+            java.lang.reflect.Method add = findChildListenerMethod(list.getClass(),
+                    "addOnChildAttachStateChangeListener");
+            java.lang.reflect.Method remove = findChildListenerMethod(list.getClass(),
+                    "removeOnChildAttachStateChangeListener");
+            if (add == null || remove == null) {
+                throw new NoSuchMethodException("RecyclerView child attach listener");
             }
-            Class<?> listenerClass = Class.forName(
-                    recyclerClass.getName() + "$OnChildAttachStateChangeListener",
-                    false, recyclerClass.getClassLoader());
+            Class<?> listenerClass = add.getParameterTypes()[0];
+            if (!listenerClass.isInterface()) {
+                throw new IllegalStateException("Child attach listener is not an interface");
+            }
             Object listener = java.lang.reflect.Proxy.newProxyInstance(
                     listenerClass.getClassLoader(), new Class<?>[]{listenerClass},
                     (proxy, method, args) -> {
@@ -387,10 +391,6 @@ final class ChatBubbleStyler {
                         }
                         return null;
                     });
-            java.lang.reflect.Method add = recyclerClass.getMethod(
-                    "addOnChildAttachStateChangeListener", listenerClass);
-            java.lang.reflect.Method remove = recyclerClass.getMethod(
-                    "removeOnChildAttachStateChangeListener", listenerClass);
             add.invoke(list, listener);
             session.childAttachListener = listener;
             session.removeChildAttachListener = remove;
@@ -399,18 +399,23 @@ final class ChatBubbleStyler {
         } catch (Throwable error) {
             if (session.list == list) {
                 android.util.Log.w("WeChatGlass", "CB child listener unavailable "
-                        + error.getClass().getSimpleName());
+                        + error.getClass().getSimpleName() + ":" + error.getMessage()
+                        + " list=" + list.getClass().getName());
             }
         }
     }
 
-    private static Class<?> findRecyclerViewClass(Class<?> type) {
-        Class<?> current = type;
-        while (current != null && current != Object.class) {
-            if ("androidx.recyclerview.widget.RecyclerView".equals(current.getName())) {
-                return current;
+    private static java.lang.reflect.Method findChildListenerMethod(Class<?> type,
+                                                                     String name) {
+        for (java.lang.reflect.Method method : type.getMethods()) {
+            if (!name.equals(method.getName()) || method.getParameterTypes().length != 1) {
+                continue;
             }
-            current = current.getSuperclass();
+            Class<?> parameter = method.getParameterTypes()[0];
+            if (parameter.isInterface()
+                    && parameter.getSimpleName().contains("OnChildAttachStateChangeListener")) {
+                return method;
+            }
         }
         return null;
     }
