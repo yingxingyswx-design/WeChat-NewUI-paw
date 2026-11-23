@@ -86,6 +86,7 @@ final class ChatBubbleStyler {
         ViewGroup list;
         Object childAttachListener;
         java.lang.reflect.Method removeChildAttachListener;
+        java.util.Collection<?> childAttachListenerCollection;
         boolean enabled;
     }
 
@@ -360,16 +361,13 @@ final class ChatBubbleStyler {
                                                    final android.app.Activity activity,
                                                    final ViewGroup list) {
         try {
-            java.lang.reflect.Method add = findChildListenerMethod(list.getClass(),
-                    "addOnChildAttachStateChangeListener");
-            java.lang.reflect.Method remove = findChildListenerMethod(list.getClass(),
-                    "removeOnChildAttachStateChangeListener");
-            if (add == null || remove == null) {
-                throw new NoSuchMethodException("RecyclerView child attach listener");
+            Class<?> recyclerClass = findRecyclerViewClass(list.getClass());
+            if (recyclerClass == null) {
+                throw new ClassNotFoundException("RecyclerView base class");
             }
-            Class<?> listenerClass = add.getParameterTypes()[0];
-            if (!listenerClass.isInterface()) {
-                throw new IllegalStateException("Child attach listener is not an interface");
+            Class<?> listenerClass = findChildAttachListenerInterface(recyclerClass);
+            if (listenerClass == null) {
+                throw new ClassNotFoundException("RecyclerView child listener interface");
             }
             Object listener = java.lang.reflect.Proxy.newProxyInstance(
                     listenerClass.getClassLoader(), new Class<?>[]{listenerClass},
@@ -393,11 +391,48 @@ final class ChatBubbleStyler {
                         }
                         return null;
                     });
-            add.invoke(list, listener);
+            ArrayList<java.lang.reflect.Method> candidates =
+                    findChildAttachListenerMethods(recyclerClass, listenerClass);
+            java.lang.reflect.Method add = null;
+            java.util.Collection<?> listenerCollection = null;
+            for (java.lang.reflect.Method method : candidates) {
+                try {
+                    method.setAccessible(true);
+                    method.invoke(list, listener);
+                    listenerCollection = findListenerCollection(recyclerClass, list, listener);
+                    if (listenerCollection != null) {
+                        add = method;
+                        break;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            if (add == null || listenerCollection == null) {
+                throw new NoSuchMethodException("Could not identify listener registration method");
+            }
+
+            java.lang.reflect.Method remove = null;
+            for (java.lang.reflect.Method method : candidates) {
+                if (method == add) {
+                    continue;
+                }
+                try {
+                    method.setAccessible(true);
+                    method.invoke(list, listener);
+                    if (!listenerCollection.contains(listener)) {
+                        remove = method;
+                        add.invoke(list, listener);
+                        break;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
             session.childAttachListener = listener;
             session.removeChildAttachListener = remove;
+            session.childAttachListenerCollection = listenerCollection;
             android.util.Log.i("WeChatGlass", "CB child attach listener active"
-                    + " list=" + list.getClass().getSimpleName());
+                    + " list=" + list.getClass().getSimpleName()
+                    + " removeMethod=" + (remove != null));
         } catch (Throwable error) {
             if (session.list == list) {
                 android.util.Log.w("WeChatGlass", "CB child listener unavailable "
@@ -407,15 +442,79 @@ final class ChatBubbleStyler {
         }
     }
 
-    private static java.lang.reflect.Method findChildListenerMethod(Class<?> type,
-                                                                     String name) {
-        for (java.lang.reflect.Method method : type.getMethods()) {
-            if (!name.equals(method.getName()) || method.getParameterTypes().length != 1) {
-                continue;
+    private static Class<?> findRecyclerViewClass(Class<?> type) {
+        Class<?> current = type;
+        while (current != null && current != Object.class) {
+            if ("androidx.recyclerview.widget.RecyclerView".equals(current.getName())) {
+                return current;
             }
-            Class<?> parameter = method.getParameterTypes()[0];
-            if (parameter.isInterface()) {
-                return method;
+            current = current.getSuperclass();
+        }
+        return null;
+    }
+
+    private static Class<?> findChildAttachListenerInterface(Class<?> recyclerClass) {
+        for (Class<?> current = recyclerClass; current != null
+                && current != Object.class; current = current.getSuperclass()) {
+            for (Class<?> nested : current.getDeclaredClasses()) {
+                if (!nested.isInterface()) {
+                    continue;
+                }
+                java.lang.reflect.Method[] methods = nested.getDeclaredMethods();
+                if (methods.length != 2) {
+                    continue;
+                }
+                boolean viewCallbacks = true;
+                for (java.lang.reflect.Method method : methods) {
+                    Class<?>[] parameters = method.getParameterTypes();
+                    if (parameters.length != 1 || parameters[0] != View.class) {
+                        viewCallbacks = false;
+                        break;
+                    }
+                }
+                if (viewCallbacks) {
+                    return nested;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static ArrayList<java.lang.reflect.Method> findChildAttachListenerMethods(
+            Class<?> recyclerClass, Class<?> listenerClass) {
+        ArrayList<java.lang.reflect.Method> result = new ArrayList<>();
+        for (Class<?> current = recyclerClass; current != null
+                && current != Object.class; current = current.getSuperclass()) {
+            for (java.lang.reflect.Method method : current.getDeclaredMethods()) {
+                Class<?>[] parameters = method.getParameterTypes();
+                if (!java.lang.reflect.Modifier.isStatic(method.getModifiers())
+                        && parameters.length == 1 && parameters[0] == listenerClass
+                        && method.getReturnType() == void.class) {
+                    result.add(method);
+                }
+            }
+        }
+        return result;
+    }
+
+    private static java.util.Collection<?> findListenerCollection(Class<?> recyclerClass,
+                                                                  ViewGroup list,
+                                                                  Object listener) {
+        for (Class<?> current = recyclerClass; current != null
+                && current != Object.class; current = current.getSuperclass()) {
+            for (java.lang.reflect.Field field : current.getDeclaredFields()) {
+                if (!java.util.Collection.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(list);
+                    if (value instanceof java.util.Collection
+                            && ((java.util.Collection<?>) value).contains(listener)) {
+                        return (java.util.Collection<?>) value;
+                    }
+                } catch (Throwable ignored) {
+                }
             }
         }
         return null;
@@ -429,9 +528,17 @@ final class ChatBubbleStyler {
                         session.childAttachListener);
             } catch (Throwable ignored) {
             }
+        } else if (session.childAttachListener != null
+                && session.childAttachListenerCollection != null) {
+            try {
+                session.childAttachListenerCollection.remove(
+                        session.childAttachListener);
+            } catch (Throwable ignored) {
+            }
         }
         session.childAttachListener = null;
         session.removeChildAttachListener = null;
+        session.childAttachListenerCollection = null;
     }
 
     private static void styleVisibleChildren(Session session,
