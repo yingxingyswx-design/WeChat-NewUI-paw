@@ -515,7 +515,7 @@ final class ChatBubbleStyler {
             boolean targetInside = target == null || isDescendantOf(target, view);
             boolean avatarInside = isDescendantOf(avatar, view);
             String reason = cardCandidateRejection(item, view, target, avatar,
-                    context, textCount, imageCount, interactive, background,
+                    context, textCount, imageCount, background,
                     targetInside, avatarInside);
             android.util.Log.i("WeChatGlass", "CB candidate class="
                     + view.getClass().getName()
@@ -541,7 +541,7 @@ final class ChatBubbleStyler {
     private static String cardCandidateRejection(View item, View view, View target,
                                                  View avatar, Context context,
                                                  int textCount, int imageCount,
-                                                 boolean interactive, boolean background,
+                                                 boolean background,
                                                  boolean targetInside,
                                                  boolean avatarInside) {
         if (avatarInside) return "contains-avatar";
@@ -553,8 +553,7 @@ final class ChatBubbleStyler {
                 || view.getHeight() > item.getHeight() * 98 / 100) {
             return "too-large";
         }
-        boolean cardContent = textCount >= 2
-                || (textCount >= 1 && interactive);
+        boolean cardContent = textCount >= 2;
         if (!cardContent) return "insufficient-content";
         if (imageCount > 2) return "too-many-images";
         if (!background) return "no-background";
@@ -951,9 +950,6 @@ final class ChatBubbleStyler {
                 || bubble.getHeight() > target.getHeight() + extra) {
             return "bubble-larger-than-target";
         }
-        if (bubble.isClickable() || bubble.isLongClickable()) {
-            return "bubble-interactive";
-        }
         int textCount = countVisibleTextObjects(bubble, target, 0);
         if (textCount != 1) {
             return "bubble-text-count-" + textCount;
@@ -997,10 +993,7 @@ final class ChatBubbleStyler {
         if (cardCandidate) {
             int textCount = countVisibleTextObjects(view, target, 0);
             int imageCount = countVisibleContentImages(view, avatar, 0);
-            boolean interactive = view.isClickable() || view.isLongClickable()
-                    || hasInteractiveContent(view, view, target, 0);
-            boolean cardContent = textCount >= 2
-                    || (textCount >= 1 && interactive);
+            boolean cardContent = textCount >= 2;
             cardCandidate = cardContent && imageCount <= 2
                     && hasBackgroundSurface(view, avatar, 0);
         }
