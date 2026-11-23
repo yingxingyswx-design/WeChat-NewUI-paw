@@ -56,6 +56,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, ViewGroup> MESSAGE_TIME_HOSTS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, MessageTimePadding> MESSAGE_TIME_PADDING =
+            new WeakHashMap<>();
     private static final WeakHashMap<View, String> MESSAGE_TIME_SOURCES =
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> TIME_DIAGNOSTICS =
@@ -112,6 +114,21 @@ final class ChatBubbleStyler {
                 bestRank = rank;
                 bestPath = path;
             }
+        }
+    }
+
+    private static final class MessageTimePadding {
+        final int left;
+        final int top;
+        final int right;
+        final int bottom;
+        int extraTop;
+
+        MessageTimePadding(View view) {
+            left = view.getPaddingLeft();
+            top = view.getPaddingTop();
+            right = view.getPaddingRight();
+            bottom = view.getPaddingBottom();
         }
     }
 
@@ -353,6 +370,7 @@ final class ChatBubbleStyler {
         }
         MESSAGE_TIME_LABELS.clear();
         MESSAGE_TIME_HOSTS.clear();
+        MESSAGE_TIME_PADDING.clear();
         MESSAGE_TIME_SOURCES.clear();
         TIME_DIAGNOSTICS.clear();
         APPLIED.clear();
@@ -531,7 +549,9 @@ final class ChatBubbleStyler {
 
     private static void updateMessageTimeInternal(View item, View anchor, View avatar,
                                                   Context context) {
-        ViewGroup overlayHost = findTimeOverlayHost(item);
+        // Keep each label in its message row. A RecyclerView overlay is
+        // stationary while child rows scroll, which makes labels lag and stack.
+        ViewGroup overlayHost = item instanceof ViewGroup ? (ViewGroup) item : null;
         if (overlayHost == null || anchor == null || anchor == item
                 || anchor.getWidth() <= 0 || anchor.getHeight() <= 0
                 || anchor.getVisibility() != View.VISIBLE || !anchor.isAttachedToWindow()
@@ -585,6 +605,32 @@ final class ChatBubbleStyler {
                 0, 0, anchor.getWidth(), anchor.getHeight());
         overlayHost.offsetDescendantRectToMyCoords(anchor, anchorBounds);
         int gap = M3Theme.dp(context, 2f);
+        MessageTimePadding padding = MESSAGE_TIME_PADDING.get(item);
+        if (padding == null) {
+            padding = new MessageTimePadding(item);
+            MESSAGE_TIME_PADDING.put(item, padding);
+        }
+        // Reserve only the missing space above this bubble. The label can then
+        // stay inside the row overlay and move with the row during scrolling.
+        int baseAnchorTop = Math.max(0, anchorBounds.top - padding.extraTop);
+        int extraTop = Math.max(0, labelHeight + gap - baseAnchorTop);
+        if (extraTop != padding.extraTop) {
+            remember(item);
+            padding.extraTop = extraTop;
+            item.setPadding(padding.left, padding.top + extraTop,
+                    padding.right, padding.bottom);
+            item.requestLayout();
+            final View timeAnchor = anchor;
+            final View timeAvatar = avatar;
+            item.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (item.isAttachedToWindow()) {
+                        updateMessageTime(item, timeAnchor, timeAvatar, context);
+                    }
+                }
+            });
+        }
         boolean outgoing = avatar != null
                 ? isOutgoingByAvatar(avatar, context.getResources().getDisplayMetrics().widthPixels)
                 : anchorBounds.centerX()
@@ -601,6 +647,7 @@ final class ChatBubbleStyler {
                 + ":anchor=" + anchor.getClass().getName()
                 + ":host=" + overlayHost.getClass().getName()
                 + ":anchorBounds=" + anchorBounds.toShortString()
+                + ":extraTop=" + extraTop
                 + ":labelAt=" + x + "," + y;
         if (!source.equals(MESSAGE_TIME_SOURCES.get(item))) {
             MESSAGE_TIME_SOURCES.put(item, source);
@@ -608,24 +655,6 @@ final class ChatBubbleStyler {
                     + " row=" + item.getClass().getName()
                     + " label=" + label.getWidth() + "x" + label.getHeight());
         }
-    }
-
-    private static ViewGroup findTimeOverlayHost(View item) {
-        View current = item;
-        ViewGroup fallback = null;
-        while (current != null) {
-            if (current instanceof ViewGroup) {
-                if (fallback == null) {
-                    fallback = (ViewGroup) current;
-                }
-                if (isRecyclerViewObject(current)) {
-                    return (ViewGroup) current;
-                }
-            }
-            current = current.getParent() instanceof View
-                    ? (View) current.getParent() : null;
-        }
-        return fallback;
     }
 
     private static void logMissingMessageTime(View item, View anchor,
@@ -686,12 +715,20 @@ final class ChatBubbleStyler {
         TextView label = MESSAGE_TIME_LABELS.remove(item);
         ViewGroup host = MESSAGE_TIME_HOSTS.remove(item);
         MESSAGE_TIME_SOURCES.remove(item);
+        MessageTimePadding padding = MESSAGE_TIME_PADDING.remove(item);
         if (host == null && item instanceof ViewGroup) {
             host = (ViewGroup) item;
         }
         if (label != null && host != null) {
             try {
                 host.getOverlay().remove(label);
+            } catch (Throwable ignored) {
+            }
+        }
+        if (padding != null && item != null) {
+            try {
+                item.setPadding(padding.left, padding.top, padding.right, padding.bottom);
+                item.requestLayout();
             } catch (Throwable ignored) {
             }
         }
