@@ -6,7 +6,7 @@ import android.content.Context;
 public final class M3Theme {
 
     private static M3ColorScheme sScheme;
-    private static int sUiMode = Integer.MIN_VALUE;
+    private static String sConfigKey;
 
     private M3Theme() {
     }
@@ -14,16 +14,18 @@ public final class M3Theme {
     public static synchronized M3ColorScheme colors(Context context) {
         int mode = context.getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
-        if (sScheme == null || sUiMode != mode) {
+        String key = mode + ":" + M3ColorScheme.monetEnabled(context)
+                + ":" + M3ColorScheme.seedColor(context);
+        if (sScheme == null || !key.equals(sConfigKey)) {
             sScheme = M3ColorScheme.forContext(context);
-            sUiMode = mode;
+            sConfigKey = key;
         }
         return sScheme;
     }
 
     public static synchronized void refresh() {
         sScheme = null;
-        sUiMode = Integer.MIN_VALUE;
+        sConfigKey = null;
     }
 
     public static boolean isDark(Context context) {

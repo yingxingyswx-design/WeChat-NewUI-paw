@@ -11,11 +11,11 @@ import android.view.animation.PathInterpolator;
 /** Material 3 Expressive style switch, fully custom drawn. */
 public class M3Switch extends View {
 
-    private static final int ON_TRACK = 0xFF6750A4;
-    private static final int OFF_TRACK = 0xFFE7E0EC;
-    private static final int OFF_STROKE = 0xFF79747E;
-    private static final int ON_THUMB = 0xFFFFFFFF;
-    private static final int OFF_THUMB = 0xFF79747E;
+    private int onTrack;
+    private int offTrack;
+    private int offStroke;
+    private int onThumb;
+    private int offThumb;
 
     private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint thumb = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -29,6 +29,13 @@ public class M3Switch extends View {
 
     public M3Switch(Context c) {
         super(c);
+        com.wechatglass.m3.M3ColorScheme scheme =
+                com.wechatglass.m3.M3Theme.colors(c);
+        onTrack = scheme.primary;
+        offTrack = scheme.surfaceContainerHighest;
+        offStroke = scheme.outline;
+        onThumb = scheme.onPrimary;
+        offThumb = scheme.outline;
         setClickable(true);
         setFocusable(true);
         stroke.setStyle(Paint.Style.STROKE);
@@ -70,24 +77,24 @@ public class M3Switch extends View {
         rect.set(0, (h - trackH) / 2f, w, (h + trackH) / 2f);
         float r = trackH / 2f;
 
-        track.setColor(blend(OFF_TRACK, ON_TRACK, progress));
+        track.setColor(blend(offTrack, onTrack, progress));
         track.setStyle(Paint.Style.FILL);
         canvas.drawRoundRect(rect, r, r, track);
 
         if (progress < 0.98f) {
-            stroke.setColor(OFF_STROKE);
+            stroke.setColor(offStroke);
             canvas.drawRoundRect(rect, r, r, stroke);
         }
 
         float thumbR = trackH * 0.42f;
         float cx = r + (w - 2 * r) * progress;
         float cy = h / 2f;
-        thumb.setColor(blend(OFF_THUMB, ON_THUMB, progress));
+        thumb.setColor(blend(offThumb, onThumb, progress));
         canvas.drawCircle(cx, cy, thumbR, thumb);
 
         // Expressive squish: a second, wider ellipse behind the thumb while moving.
         if (stretch > 0.01f) {
-            thumb.setColor(blend(OFF_THUMB, ON_THUMB, progress));
+            thumb.setColor(blend(offThumb, onThumb, progress));
             thumb.setAlpha(90);
             canvas.drawOval(cx - thumbR * (1 + stretch), cy - thumbR,
                     cx + thumbR * (1 + stretch), cy + thumbR, thumb);

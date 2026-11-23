@@ -21,6 +21,9 @@ final class HookConfig {
     static final String PREFS = "wechatglass";
     static final String KEY_GLASS = "glass";
     static final String KEY_NATIVE_LIST = "native_list";
+    static final String KEY_COLOR_MONET = "color_monet";
+    static final String KEY_COLOR_SEED = "color_seed";
+    static final int DEFAULT_SEED = 0xFF07C160;
 
     private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
     private static volatile Runnable onChange;
@@ -50,6 +53,10 @@ final class HookConfig {
                                 .getBoolean(KEY_GLASS, true));
                         reply.putExtra(KEY_NATIVE_LIST, ctx.getSharedPreferences(PREFS, 0)
                                 .getBoolean(KEY_NATIVE_LIST, true));
+                        reply.putExtra(KEY_COLOR_MONET, ctx.getSharedPreferences(PREFS, 0)
+                                .getBoolean(KEY_COLOR_MONET, true));
+                        reply.putExtra(KEY_COLOR_SEED, ctx.getSharedPreferences(PREFS, 0)
+                                .getInt(KEY_COLOR_SEED, DEFAULT_SEED));
                         ctx.sendBroadcast(reply);
                         return;
                     }
@@ -58,12 +65,18 @@ final class HookConfig {
                     }
                     boolean glass = intent.getBooleanExtra(KEY_GLASS, true);
                     boolean nativeList = intent.getBooleanExtra(KEY_NATIVE_LIST, false);
+                    boolean monet = intent.getBooleanExtra(KEY_COLOR_MONET, true);
+                    int seed = intent.getIntExtra(KEY_COLOR_SEED, DEFAULT_SEED);
                     ctx.getSharedPreferences(PREFS, 0).edit()
                             .putBoolean(KEY_GLASS, glass)
                             .putBoolean(KEY_NATIVE_LIST, nativeList)
+                            .putBoolean(KEY_COLOR_MONET, monet)
+                            .putInt(KEY_COLOR_SEED, seed)
                             .apply();
+                    com.wechatglass.m3.M3Theme.refresh();
                     android.util.Log.i("WeChatGlass", "config broadcast glass=" + glass
-                            + " nativeList=" + nativeList);
+                            + " nativeList=" + nativeList + " monet=" + monet
+                            + " seed=#" + Integer.toHexString(seed));
                     Runnable listener = onChange;
                     if (listener != null) {
                         listener.run();

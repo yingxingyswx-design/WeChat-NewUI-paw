@@ -103,14 +103,51 @@ public final class M3ColorScheme {
         this.surfaceBright = c[33];
     }
 
+    public static final int DEFAULT_SEED = 0xFF07C160;
+
     public static M3ColorScheme forContext(Context context) {
         boolean dark = (context.getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
-        if (Build.VERSION.SDK_INT >= 31) {
+        boolean monet = monetEnabled(context);
+        int seed = seedColor(context);
+        if (monet && Build.VERSION.SDK_INT >= 31) {
             try {
                 return monet(context, dark);
             } catch (Throwable ignored) {
                 // Some OEM ROMs ship without the system_* palette.
+            }
+        }
+        return fromSeed(seed, dark);
+    }
+
+    /**
+     * The hook stores colour config in WeChat's "wechatglass" prefs; the module
+     * app stores it in "settings". Read whichever one actually has the keys.
+     */
+    private static android.content.SharedPreferences colorPrefs(Context context) {
+        android.content.SharedPreferences hook =
+                context.getSharedPreferences("wechatglass", 0);
+        if (hook.contains("color_monet") || hook.contains("color_seed")) {
+            return hook;
+        }
+        return context.getSharedPreferences("settings", 0);
+    }
+
+    public static boolean monetEnabled(Context context) {
+        return colorPrefs(context).getBoolean("color_monet", true);
+    }
+
+    public static int seedColor(Context context) {
+        return colorPrefs(context).getInt("color_seed", DEFAULT_SEED);
+    }
+
+    /** One of the GUI swatches; unknown seeds fall back to WeChat green. */
+    public static M3ColorScheme fromSeed(int seed, boolean dark) {
+        int key = seed & 0x00FFFFFF;
+        for (int i = 0; i < M3Palettes.SEEDS.length; i++) {
+            if ((M3Palettes.SEEDS[i] & 0x00FFFFFF) == key) {
+                return new M3ColorScheme(dark, false,
+                        dark ? M3Palettes.DARK[i] : M3Palettes.LIGHT[i]);
             }
         }
         return fallback(dark);
@@ -118,26 +155,35 @@ public final class M3ColorScheme {
 
     /** Monet palette, mapped onto M3 tones. */
     private static M3ColorScheme monet(Context c, boolean dark) {
+        int a1_0 = sys(c, android.R.color.system_accent1_0);
         int a1_100 = sys(c, android.R.color.system_accent1_100);
         int a1_200 = sys(c, android.R.color.system_accent1_200);
         int a1_300 = sys(c, android.R.color.system_accent1_300);
         int a1_400 = sys(c, android.R.color.system_accent1_400);
+        int a1_600 = sys(c, android.R.color.system_accent1_600);
+        int a1_700 = sys(c, android.R.color.system_accent1_700);
         int a1_800 = sys(c, android.R.color.system_accent1_800);
         int a1_900 = sys(c, android.R.color.system_accent1_900);
         int a1_1000 = sys(c, android.R.color.system_accent1_1000);
 
+        int a2_0 = sys(c, android.R.color.system_accent2_0);
         int a2_100 = sys(c, android.R.color.system_accent2_100);
         int a2_200 = sys(c, android.R.color.system_accent2_200);
         int a2_300 = sys(c, android.R.color.system_accent2_300);
         int a2_400 = sys(c, android.R.color.system_accent2_400);
+        int a2_600 = sys(c, android.R.color.system_accent2_600);
+        int a2_700 = sys(c, android.R.color.system_accent2_700);
         int a2_800 = sys(c, android.R.color.system_accent2_800);
         int a2_900 = sys(c, android.R.color.system_accent2_900);
         int a2_1000 = sys(c, android.R.color.system_accent2_1000);
 
+        int a3_0 = sys(c, android.R.color.system_accent3_0);
         int a3_100 = sys(c, android.R.color.system_accent3_100);
         int a3_200 = sys(c, android.R.color.system_accent3_200);
         int a3_300 = sys(c, android.R.color.system_accent3_300);
         int a3_400 = sys(c, android.R.color.system_accent3_400);
+        int a3_600 = sys(c, android.R.color.system_accent3_600);
+        int a3_700 = sys(c, android.R.color.system_accent3_700);
         int a3_800 = sys(c, android.R.color.system_accent3_800);
         int a3_900 = sys(c, android.R.color.system_accent3_900);
         int a3_1000 = sys(c, android.R.color.system_accent3_1000);
@@ -148,6 +194,8 @@ public final class M3ColorScheme {
         int n1_900 = sys(c, android.R.color.system_neutral1_900);
         int n1_1000 = sys(c, android.R.color.system_neutral1_1000);
 
+        int n2_100 = sys(c, android.R.color.system_neutral2_100);
+        int n2_200 = sys(c, android.R.color.system_neutral2_200);
         int n2_300 = sys(c, android.R.color.system_neutral2_300);
         int n2_500 = sys(c, android.R.color.system_neutral2_500);
         int n2_600 = sys(c, android.R.color.system_neutral2_600);
@@ -156,63 +204,65 @@ public final class M3ColorScheme {
 
         int[] v = new int[34];
         if (!dark) {
-            v[0] = a1_400;
-            v[1] = a1_1000;
-            v[2] = a1_900;
-            v[3] = a1_100;
-            v[4] = a2_400;
-            v[5] = a2_1000;
-            v[6] = a2_900;
-            v[7] = a2_100;
-            v[8] = a3_400;
-            v[9] = a3_1000;
-            v[10] = a3_900;
-            v[11] = a3_100;
-            v[16] = mix(n1_1000, n1_900, 0.02f);
-            v[17] = n1_100;
-            v[18] = n2_900;
-            v[19] = n2_300;
-            v[20] = n1_1000;
-            v[21] = mix(n1_1000, n1_900, 0.08f);
-            v[22] = mix(n1_1000, n1_900, 0.12f);
-            v[23] = mix(n1_1000, n1_900, 0.16f);
-            v[24] = mix(n1_1000, n1_900, 0.20f);
-            v[25] = n2_500;
-            v[26] = n2_800;
-            v[27] = n1_200;
-            v[28] = n1_900;
-            v[29] = a1_800;
-            v[32] = mix(n1_1000, n1_900, 0.32f);
-            v[33] = n1_1000;
-        } else {
-            v[0] = a1_800;
-            v[1] = a1_200;
-            v[2] = a1_300;
+            // Tone 40 / 100 / 90 / 10: accent values are named by
+            // (100 - tone) * 10 on Android, so a1_600 is tone 40.
+            v[0] = a1_600;
+            v[1] = a1_0;
+            v[2] = a1_100;
             v[3] = a1_900;
-            v[4] = a2_800;
-            v[5] = a2_200;
-            v[6] = a2_300;
+            v[4] = a2_600;
+            v[5] = a2_0;
+            v[6] = a2_100;
             v[7] = a2_900;
-            v[8] = a3_800;
-            v[9] = a3_200;
-            v[10] = a3_300;
+            v[8] = a3_600;
+            v[9] = a3_0;
+            v[10] = a3_100;
             v[11] = a3_900;
-            v[16] = n1_100;
-            v[17] = n1_900;
-            v[18] = n2_300;
+            v[16] = n1_0;
+            v[17] = n1_1000;
+            v[18] = n2_100;
             v[19] = n2_800;
             v[20] = n1_0;
-            v[21] = mix(n1_100, n1_1000, 0.04f);
-            v[22] = mix(n1_100, n1_1000, 0.08f);
-            v[23] = mix(n1_100, n1_1000, 0.12f);
-            v[24] = mix(n1_100, n1_1000, 0.16f);
-            v[25] = n2_600;
-            v[26] = n2_300;
+            v[21] = mix(n1_0, n1_100, 0.08f);
+            v[22] = mix(n1_0, n1_100, 0.12f);
+            v[23] = mix(n1_0, n1_100, 0.16f);
+            v[24] = mix(n1_0, n1_100, 0.20f);
+            v[25] = n2_500;
+            v[26] = n2_200;
             v[27] = n1_900;
-            v[28] = n1_200;
-            v[29] = a1_400;
-            v[32] = n1_100;
-            v[33] = mix(n1_100, n1_1000, 0.24f);
+            v[28] = n1_100;
+            v[29] = a1_200;
+            v[32] = mix(n1_0, n1_100, 0.32f);
+            v[33] = n1_0;
+        } else {
+            v[0] = a1_200;
+            v[1] = a1_900;
+            v[2] = a1_700;
+            v[3] = a1_100;
+            v[4] = a2_200;
+            v[5] = a2_900;
+            v[6] = a2_700;
+            v[7] = a2_100;
+            v[8] = a3_200;
+            v[9] = a3_900;
+            v[10] = a3_700;
+            v[11] = a3_100;
+            v[16] = n1_900;
+            v[17] = n1_0;
+            v[18] = n2_800;
+            v[19] = n2_300;
+            v[20] = n1_1000;
+            v[21] = mix(n1_900, n1_1000, 0.08f);
+            v[22] = mix(n1_900, n1_1000, 0.12f);
+            v[23] = mix(n1_900, n1_1000, 0.16f);
+            v[24] = mix(n1_900, n1_1000, 0.20f);
+            v[25] = n2_500;
+            v[26] = n2_800;
+            v[27] = n1_0;
+            v[28] = n1_900;
+            v[29] = a1_600;
+            v[32] = n1_900;
+            v[33] = mix(n1_900, n1_0, 0.24f);
         }
         error(v, dark);
         v[30] = 0xFF000000;

@@ -27,6 +27,16 @@ public class SettingsActivity extends Activity {
     private static final String KEY_WALLPAPER = "wallpaper_uri";
     private static final String KEY_NATIVE = "native_list";
     private static final String KEY_AUTO_CONFLICT = "auto_disable_original";
+    private static final String KEY_MONET = "color_monet";
+    private static final String KEY_SEED = "color_seed";
+    private static final int DEFAULT_SEED = 0xFF07C160;
+    private static final int[] SEED_COLORS = {
+            0xFF07C160, 0xFF1A73E8, 0xFF6750A4, 0xFFFF7A00,
+            0xFFE53935, 0xFF00A6A6, 0xFFE91E63, 0xFFF2B600
+    };
+    private static final String[] SEED_NAMES = {
+            "微信绿", "蓝", "紫", "橙", "红", "青", "粉", "琥珀"
+    };
     private static final String ACTION = "com.wechatglass.CONFIG";
     private static final String ACTION_QUERY = "com.wechatglass.QUERY";
     private static final String ACTION_STATE = "com.wechatglass.STATE";
@@ -43,20 +53,27 @@ public class SettingsActivity extends Activity {
     private volatile boolean stateReceived;
     private int statusGeneration;
     private boolean hasResumed;
+    private M3Switch monetSwitch;
+    private LinearLayout swatchRow;
+    private int selectedSeed = DEFAULT_SEED;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        boolean night = (getResources().getConfiguration().uiMode
-                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
-                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
-        int bg = night ? 0xFF141218 : 0xFFF7F2FA;
-        int card = night ? 0xFF211F26 : 0xFFFFFFFF;
-        int onBg = night ? 0xFFE6E0E9 : 0xFF1D1B20;
-        int onVar = night ? 0xFFCAC4D0 : 0xFF49454F;
+        com.wechatglass.m3.M3ColorScheme scheme =
+                com.wechatglass.m3.M3ColorScheme.forContext(this);
+        int bg = scheme.surface;
+        int card = scheme.surfaceContainerLow;
+        int onBg = scheme.onSurface;
+        int onVar = scheme.onSurfaceVariant;
         getWindow().setStatusBarColor(bg);
         getWindow().setNavigationBarColor(bg);
+        int lightFlags = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            lightFlags |= android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        getWindow().getDecorView().setSystemUiVisibility(scheme.dark ? 0 : lightFlags);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(bg);
@@ -82,6 +99,49 @@ public class SettingsActivity extends Activity {
         root.addView(sub, lp(-1, -2, 0, dp(24)));
 
         buildStatusCard(root, card, onBg, onVar);
+
+        root.addView(section("动态色彩", card, onBg, onVar));
+
+        LinearLayout monetRow = new LinearLayout(this);
+        monetRow.setOrientation(LinearLayout.HORIZONTAL);
+        monetRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView monetLabel = new TextView(this);
+        monetLabel.setText("使用系统 Monet 取色");
+        monetLabel.setTextSize(16f);
+        monetLabel.setTextColor(onBg);
+        monetRow.addView(monetLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        monetSwitch = new M3Switch(this);
+        monetSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_MONET, true));
+        monetSwitch.setOnClickListener(v -> {
+            boolean on = !monetSwitch.isChecked();
+            monetSwitch.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_MONET, on).apply();
+            refreshSwatches();
+            pushConfig();
+            recreate();
+        });
+        monetRow.addView(monetSwitch);
+        root.addView(monetRow, lp(-1, -2, 0, dp(4)));
+
+        TextView monetHint = new TextView(this);
+        monetHint.setText("关闭后使用下方色卡；默认微信绿。");
+        monetHint.setTextSize(13f);
+        monetHint.setTextColor(onVar);
+        root.addView(monetHint, lp(-1, -2, 0, dp(10)));
+
+        android.widget.HorizontalScrollView swatchScroll =
+                new android.widget.HorizontalScrollView(this);
+        swatchScroll.setHorizontalScrollBarEnabled(false);
+        swatchRow = new LinearLayout(this);
+        swatchRow.setOrientation(LinearLayout.HORIZONTAL);
+        swatchRow.setPadding(dp(2), dp(2), dp(2), dp(2));
+        swatchScroll.addView(swatchRow);
+        root.addView(swatchScroll, lp(-1, dp(56), 0, dp(16)));
+
+        selectedSeed = getSharedPreferences(PREFS, 0).getInt(KEY_SEED, DEFAULT_SEED);
+        refreshSwatches();
 
         root.addView(section("液态玻璃", card, onBg, onVar));
 
@@ -178,7 +238,8 @@ public class SettingsActivity extends Activity {
         conflictButton.setAllCaps(false);
         conflictButton.setTextSize(15f);
         conflictButton.setOnClickListener(v -> checkConflictAsync(true));
-        root.addView(conflictButton, lp(-1, dp(52), 0, dp(8)));
+        styleButton(conflictButton, false);
+        root.addView(conflictButton, lp(-1, dp(56), 0, dp(8)));
 
         root.addView(section("操作", card, onBg, onVar));
 
@@ -189,15 +250,17 @@ public class SettingsActivity extends Activity {
         stopButton.setAllCaps(false);
         stopButton.setTextSize(15f);
         stopButton.setOnClickListener(v -> forceStopWeChat());
+        styleButton(stopButton, true);
         Button openButton = new Button(this);
         openButton.setText("打开微信");
         openButton.setAllCaps(false);
         openButton.setTextSize(15f);
         openButton.setOnClickListener(v -> openWeChat());
-        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        styleButton(openButton, false);
+        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(0, dp(56), 1f);
         stopLp.rightMargin = dp(8);
         actions.addView(stopButton, stopLp);
-        actions.addView(openButton, new LinearLayout.LayoutParams(0, dp(52), 1f));
+        actions.addView(openButton, new LinearLayout.LayoutParams(0, dp(56), 1f));
         root.addView(actions, lp(-1, -2, 0, dp(8)));
 
         TextView wallTitle = new TextView(this);
@@ -218,6 +281,7 @@ public class SettingsActivity extends Activity {
         pick.setAllCaps(false);
         pick.setTextSize(16f);
         pick.setOnClickListener(v -> pickWallpaper());
+        styleButton(pick, false);
         root.addView(pick, lp(-1, dp(56), 0, dp(8)));
 
         registerStateReceiver();
@@ -260,6 +324,25 @@ public class SettingsActivity extends Activity {
                 if (nativeSwitchField != null) {
                     nativeSwitchField.setCheckedNoAnim(!nativeList);
                 }
+                if (!intent.hasExtra("color_monet") && !intent.hasExtra("color_seed")) {
+                    return;
+                }
+                boolean monet = intent.getBooleanExtra("color_monet", true);
+                int seed = intent.getIntExtra("color_seed", DEFAULT_SEED);
+                boolean changed = selectedSeed != seed
+                        || (monetSwitch != null && monetSwitch.isChecked() != monet);
+                selectedSeed = seed;
+                if (monetSwitch != null) {
+                    monetSwitch.setCheckedNoAnim(monet);
+                }
+                getSharedPreferences(PREFS, 0).edit()
+                        .putBoolean(KEY_MONET, monet)
+                        .putInt(KEY_SEED, seed)
+                        .apply();
+                refreshSwatches();
+                if (changed) {
+                    recreate();
+                }
             }
         };
         IntentFilter filter = new IntentFilter(ACTION_STATE);
@@ -301,9 +384,65 @@ public class SettingsActivity extends Activity {
             intent.putExtra("glass", glassSwitch == null || glassSwitch.isChecked());
             intent.putExtra("native_list",
                     !(nativeSwitchField != null && nativeSwitchField.isChecked()));
+            intent.putExtra("color_monet",
+                    monetSwitch == null || monetSwitch.isChecked());
+            intent.putExtra("color_seed", selectedSeed);
             sendBroadcast(intent);
         } catch (Throwable ignored) {
         }
+    }
+
+    private void styleButton(Button button, boolean filled) {
+        com.wechatglass.m3.M3ColorScheme scheme =
+                com.wechatglass.m3.M3Theme.colors(this);
+        button.setAllCaps(false);
+        button.setTextSize(15f);
+        button.setTextColor(filled ? scheme.onPrimary : scheme.onPrimaryContainer);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(filled ? scheme.primary : scheme.primaryContainer);
+        bg.setCornerRadius(dp(20));
+        button.setBackground(bg);
+        button.setMinHeight(dp(56));
+        button.setPadding(dp(16), dp(10), dp(16), dp(10));
+    }
+
+    private void refreshSwatches() {
+        if (swatchRow == null) {
+            return;
+        }
+        com.wechatglass.m3.M3ColorScheme scheme =
+                com.wechatglass.m3.M3Theme.colors(this);
+        boolean monet = monetSwitch != null && monetSwitch.isChecked();
+        swatchRow.removeAllViews();
+        for (int i = 0; i < SEED_COLORS.length; i++) {
+            final int seed = SEED_COLORS[i];
+            View swatch = new View(this);
+            GradientDrawable dot = new GradientDrawable();
+            dot.setShape(GradientDrawable.OVAL);
+            dot.setColor(seed);
+            boolean selected = !monet && (seed == selectedSeed);
+            dot.setStroke(dp(selected ? 3 : 1),
+                    selected ? scheme.onSurface : scheme.outlineVariant);
+            swatch.setBackground(dot);
+            swatch.setAlpha(monet ? 0.45f : 1f);
+            swatch.setContentDescription(SEED_NAMES[i]);
+            swatch.setOnClickListener(v -> selectSeed(seed));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(44), dp(44));
+            p.setMargins(dp(6), dp(4), dp(6), dp(4));
+            swatchRow.addView(swatch, p);
+        }
+    }
+
+    private void selectSeed(int seed) {
+        selectedSeed = seed;
+        getSharedPreferences(PREFS, 0).edit().putInt(KEY_SEED, seed).apply();
+        if (monetSwitch != null && monetSwitch.isChecked()) {
+            monetSwitch.setChecked(false);
+            getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_MONET, false).apply();
+        }
+        refreshSwatches();
+        pushConfig();
+        recreate();
     }
 
     private void buildStatusCard(LinearLayout root, int card, int onBg, int onVar) {
