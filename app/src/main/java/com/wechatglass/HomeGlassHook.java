@@ -121,7 +121,8 @@ final class HomeGlassHook {
                 // happen before it has any conversations. Show once per index
                 // version (and after every explicit reload).
                 int version = ConversationIndex.version();
-                if (!categoryPageFilled || version != lastIndexVersion) {
+                if (!categoryPageFilled || version != lastIndexVersion
+                        || !categoryPage.hasRows()) {
                     categoryPageFilled = true;
                     lastIndexVersion = version;
                     categoryPage.show(HomeConversationFilter.mode());
@@ -508,6 +509,7 @@ final class HomeGlassHook {
         if (renderer != null) {
             renderer.requestUpdate();
         }
+        applySystemBars();
         Log.i(TAG, "home glass attached");
         return true;
     }
@@ -943,7 +945,15 @@ final class HomeGlassHook {
     /** Applies a live GUI change (native list / glass / wallpaper). */
     private void applyConfig() {
         boolean nativeList = HookConfig.nativeList(activity);
-        if (!nativeList && categoryPage == null) {
+        // A colour change replaces the M3 scheme; rebuild the page so every
+        // row picks up the new surface/primary tokens immediately.
+        if (categoryPage != null && categoryPage.getParent() instanceof ViewGroup) {
+            ((ViewGroup) categoryPage.getParent()).removeView(categoryPage);
+            categoryPage = null;
+            categoryPageFilled = false;
+            lastIndexVersion = -1;
+        }
+        if (!nativeList) {
             installCategoryPage();
         }
         // The glass backdrop differs between native and custom list, so the
@@ -959,6 +969,32 @@ final class HomeGlassHook {
         updateTabState();
         if (renderer != null) {
             renderer.requestUpdate();
+        }
+        applySystemBars();
+    }
+
+    /** Status/navigation bars follow the same theme as the switcher pill. */
+    private void applySystemBars() {
+        if (activity == null) {
+            return;
+        }
+        try {
+            com.wechatglass.m3.M3ColorScheme scheme =
+                    com.wechatglass.m3.M3Theme.colors(activity);
+            int color = scheme.primary;
+            android.view.Window window = activity.getWindow();
+            window.addFlags(android.view.WindowManager.LayoutParams
+                    .FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            window.clearFlags(android.view.WindowManager.LayoutParams
+                    .FLAG_TRANSLUCENT_STATUS);
+            window.setStatusBarColor(color);
+            window.setNavigationBarColor(color);
+            int flags = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                flags |= android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+            window.getDecorView().setSystemUiVisibility(scheme.dark ? 0 : flags);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -1016,9 +1052,10 @@ final class HomeGlassHook {
         }
         if (homeListView != null) {
             // Keep WeChat's list laid out and visible: hiding it made the
-            // ViewPager recycle pages and glitch. The custom page is opaque and
-            // sits on top, so the user still sees our list.
+            // ViewPager recycle pages and glitch. Alpha 0 keeps that layout
+            // alive while letting our page (which sits above it) show through.
             homeListView.setVisibility(View.VISIBLE);
+            homeListView.setAlpha(full && !nativeList ? 0f : 1f);
         }
         setChipVisible(leftChip, false);
         setChipVisible(searchChip, full);
@@ -1314,7 +1351,7 @@ final class HomeGlassHook {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Ui.dp(activity, HomeCategoryBar.HEIGHT_DP));
         params.gravity = Gravity.TOP | Gravity.LEFT;
-        params.leftMargin = Ui.dp(activity, 8f);
+        params.leftMargin = Ui.dp(activity, 16f);
         // Same top as the search / plus chips so the capsule is exactly level
         // with them even before the first layout pass.
         params.topMargin = Math.max(Ui.dp(activity, 4f),
@@ -2012,7 +2049,7 @@ final class HomeGlassHook {
                 switchW = Ui.dp(activity, 160f);
             }
             switchW = Math.min(switchW, width / 2);
-            int switchX = Ui.dp(activity, 8f);
+            int switchX = Ui.dp(activity, 20f);
             FrameLayout.LayoutParams cp =
                     (FrameLayout.LayoutParams) categoryBar.getLayoutParams();
             if (cp == null) {

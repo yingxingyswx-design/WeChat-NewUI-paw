@@ -67,8 +67,12 @@ public class SettingsActivity extends Activity {
         int card = scheme.surfaceContainerLow;
         int onBg = scheme.onSurface;
         int onVar = scheme.onSurfaceVariant;
-        getWindow().setStatusBarColor(bg);
-        getWindow().setNavigationBarColor(bg);
+        int barColor = scheme.primary;
+        getWindow().setStatusBarColor(barColor);
+        getWindow().setNavigationBarColor(barColor);
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            getWindow().setNavigationBarDividerColor(barColor);
+        }
         int lightFlags = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             lightFlags |= android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;

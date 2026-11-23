@@ -11,6 +11,12 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import com.wechatglass.m3.M3ColorScheme;
+import com.wechatglass.m3.M3Drawable;
+import com.wechatglass.m3.M3Shape;
+import com.wechatglass.m3.M3Theme;
+import com.wechatglass.m3.M3Type;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,35 +47,40 @@ final class HomeCategoryPage extends FrameLayout {
     private final EntryAdapter adapter = new EntryAdapter();
     private final int topInset;
     private final int bottomInset;
-    private final boolean night;
+    private final M3ColorScheme scheme;
+    private final int pageBg;
+    private final int cardBg;
     private final OpenChat openChat;
     private final OpenAction openAction;
 
     HomeCategoryPage(Context context, boolean night, int topInset, int bottomInset,
                      OpenChat openChat, final Runnable onPullDown, OpenAction openAction) {
         super(context);
-        this.night = night;
+        this.scheme = M3Theme.colors(context);
+        // Sampled from Google Chat's light home: neutral page + card.
+        this.pageBg = scheme.dark ? scheme.surfaceContainer : 0xFFF0EDEF;
+        this.cardBg = scheme.dark ? scheme.surfaceContainerHigh : 0xFFFCF8F9;
         this.topInset = topInset;
         this.bottomInset = bottomInset;
         this.openChat = openChat;
         this.openAction = openAction;
-        setBackgroundColor(night ? 0xFF111111 : 0xFFEDEDED);
+        setBackgroundColor(pageBg);
 
         list = new ListView(context);
-        list.setBackgroundColor(night ? 0xFF191919 : 0xFFFFFFFF);
+        list.setBackgroundColor(pageBg);
         list.setDivider(null);
         list.setDividerHeight(0);
         list.setCacheColorHint(0);
         // A real blank area at the top. ListView resets its own padding while
         // installing an adapter, so the space is a header item instead.
         View topSpace = new View(context);
-        topSpace.setBackgroundColor(night ? 0xFF111111 : 0xFFEDEDED);
+        topSpace.setBackgroundColor(pageBg);
         topSpace.setLayoutParams(new android.widget.AbsListView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, topInset));
         list.addHeaderView(topSpace, null, false);
         if (bottomInset > 0) {
             View bottomSpace = new View(context);
-            bottomSpace.setBackgroundColor(night ? 0xFF111111 : 0xFFEDEDED);
+            bottomSpace.setBackgroundColor(pageBg);
             bottomSpace.setLayoutParams(new android.widget.AbsListView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, bottomInset));
             list.addFooterView(bottomSpace, null, false);
@@ -134,8 +145,6 @@ final class HomeCategoryPage extends FrameLayout {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         current = this;
-        android.util.Log.i("WeChatGlass", "HL page ctor topInset=" + topInset
-                + " bottomInset=" + bottomInset);
     }
 
     private static final class Row {
@@ -167,9 +176,21 @@ final class HomeCategoryPage extends FrameLayout {
     private int currentMode = HomeConversationFilter.FRIEND;
 
     void setHeaderTexts(String device, String note) {
+        if (equal(deviceText, device) && equal(noteText, note)) {
+            return;
+        }
         deviceText = device;
         noteText = note;
         show(currentMode);
+    }
+
+    private static boolean equal(String a, String b) {
+        return a == null ? b == null : a.equals(b);
+    }
+
+    /** Actions-only means the async index was not ready when show() ran. */
+    boolean hasRows() {
+        return adapter.getCount() > 3;
     }
 
     void show(int mode) {
@@ -227,6 +248,9 @@ final class HomeCategoryPage extends FrameLayout {
         }
         adapter.setData(rows);
         list.setSelection(0);
+        if (getParent() instanceof ViewGroup) {
+            bringToFront();
+        }
     }
 
     void setPaddings(int top, int bottom) {
@@ -291,80 +315,90 @@ final class HomeCategoryPage extends FrameLayout {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(context, 14f);
-        row.setPadding(pad, Ui.dp(context, 10f), pad, Ui.dp(context, 10f));
-        row.setBackgroundColor(night ? 0xFF191919 : 0xFFFFFFFF);
+        row.setMinimumHeight(M3Theme.dp(context, 56f));
+        int pad = M3Theme.dp(context, 16f);
+        row.setPadding(pad, M3Theme.dp(context, 10f), pad, M3Theme.dp(context, 10f));
+        row.setBackground(cardBackground(context));
 
         TextView text = new TextView(context);
         text.setText(label);
-        text.setTextSize(16f);
+        M3Type.apply(text, M3Type.TITLE_MEDIUM);
+        text.setTextColor(scheme.onSurface);
         text.setSingleLine(true);
         text.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        text.setTextColor(night ? 0xFFF2F2F2 : 0xFF1A1A1A);
-        row.addView(text, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        textLp.leftMargin = M3Theme.dp(context, 20f);
+        row.addView(text, textLp);
 
         TextView chevron = new TextView(context);
         chevron.setText("›");
-        chevron.setTextSize(18f);
-        chevron.setTextColor(night ? 0xFF8A8A8A : 0xFF9A9A9A);
-        row.addView(chevron);
+        chevron.setTextSize(20f);
+        chevron.setTextColor(scheme.onSurfaceVariant);
+        LinearLayout.LayoutParams chevronLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        chevronLp.rightMargin = M3Theme.dp(context, 20f);
+        row.addView(chevron, chevronLp);
         return row;
     }
 
-    private View buildHeader(View convertView, String label) {        TextView header;
+    private View buildHeader(View convertView, String label) {
+        TextView header;
         if (convertView instanceof TextView) {
             header = (TextView) convertView;
         } else {
             header = new TextView(getContext());
-            header.setTextSize(12f);
-            header.setPadding(Ui.dp(getContext(), 14f), Ui.dp(getContext(), 12f),
-                    Ui.dp(getContext(), 14f), Ui.dp(getContext(), 6f));
-            header.setTextColor(night ? 0xFF9A9A9A : 0xFF8A8A8A);
-            header.setBackgroundColor(night ? 0xFF111111 : 0xFFEDEDED);
+            header.setPadding(M3Theme.dp(getContext(), 16f), M3Theme.dp(getContext(), 16f),
+                    M3Theme.dp(getContext(), 16f), M3Theme.dp(getContext(), 4f));
+            header.setTextColor(scheme.onSurfaceVariant);
+            header.setBackgroundColor(pageBg);
+            header.setTextSize(14f);
+            header.setTypeface(android.graphics.Typeface.create(
+                    "sans-serif-medium", android.graphics.Typeface.NORMAL));
         }
         header.setText(label);
         return header;
     }
 
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        if (!logged) {
-            logged = true;
-            int[] location = new int[2];
-            getLocationOnScreen(location);
-            View first = list.getChildAt(0);
-            android.util.Log.i("WeChatGlass", "HL page geom top=" + location[1]
-                    + " listTop=" + list.getTop()
-                    + " padTop=" + list.getPaddingTop()
-                    + " childTop=" + (first == null ? -1 : first.getTop())
-                    + " h=" + getHeight());
-        }
+    private android.graphics.drawable.Drawable cardBackground(Context context) {
+        int insetX = M3Theme.dp(context, 20f);
+        int insetY = M3Theme.dp(context, 3f);
+        android.graphics.drawable.StateListDrawable states =
+                new android.graphics.drawable.StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_pressed},
+                new android.graphics.drawable.InsetDrawable(
+                        M3Drawable.fill(context,
+                                M3ColorScheme.mix(cardBg, scheme.onSurface, 0.08f),
+                                M3Shape.LARGE),
+                        insetX, insetY, insetX, insetY));
+        states.addState(new int[]{},
+                new android.graphics.drawable.InsetDrawable(
+                        M3Drawable.fill(context, cardBg, M3Shape.LARGE),
+                        insetX, insetY, insetX, insetY));
+        return states;
     }
-
-    private boolean logged;
 
     private LinearLayout buildRow() {
         Context context = getContext();
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(context, 14f);
-        row.setPadding(pad, Ui.dp(context, 12f), pad, Ui.dp(context, 12f));
-        row.setBackgroundColor(night ? 0xFF191919 : 0xFFFFFFFF);
+        row.setMinimumHeight(M3Theme.dp(context, 72f));
+        int pad = M3Theme.dp(context, 16f);
+        row.setPadding(pad, M3Theme.dp(context, 8f), pad, M3Theme.dp(context, 8f));
+        row.setBackground(cardBackground(context));
 
         android.widget.ImageView avatar = new android.widget.ImageView(context);
         avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         LinearLayout.LayoutParams avatarLp = new LinearLayout.LayoutParams(
-                Ui.dp(context, 44f), Ui.dp(context, 44f));
-        avatarLp.rightMargin = Ui.dp(context, 12f);
-        avatar.setBackgroundColor(0xFFBDBDBD);
-        final int avatarRadius = Ui.dp(context, 8f);
+                M3Theme.dp(context, 40f), M3Theme.dp(context, 40f));
+        avatarLp.leftMargin = M3Theme.dp(context, 20f);
+        avatarLp.rightMargin = M3Theme.dp(context, 16f);
+        avatar.setBackgroundColor(scheme.surfaceContainerHighest);
         avatar.setOutlineProvider(new android.view.ViewOutlineProvider() {
             @Override
             public void getOutline(View view, android.graphics.Outline outline) {
-                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), avatarRadius);
+                outline.setOval(0, 0, view.getWidth(), view.getHeight());
             }
         });
         avatar.setClipToOutline(true);
@@ -378,26 +412,45 @@ final class HomeCategoryPage extends FrameLayout {
 
         TextView name = new TextView(context);
         name.setTextSize(16f);
+        name.setTypeface(android.graphics.Typeface.create(
+                "sans-serif-medium", android.graphics.Typeface.NORMAL));
         name.setSingleLine(true);
-        name.setTextColor(night ? 0xFFF2F2F2 : 0xFF1A1A1A);
+        name.setTextColor(scheme.onSurface);
         texts.addView(name);
 
         TextView preview = new TextView(context);
-        preview.setTextSize(13f);
+        preview.setTextSize(14f);
         preview.setSingleLine(true);
-        preview.setTextColor(night ? 0xFF9A9A9A : 0xFF8A8A8A);
+        preview.setTextColor(scheme.onSurfaceVariant);
         texts.addView(preview);
 
         TextView time = new TextView(context);
         time.setTextSize(12f);
         time.setSingleLine(true);
-        time.setTextColor(night ? 0xFF8A8A8A : 0xFF9A9A9A);
+        time.setTextColor(scheme.onSurfaceVariant);
         LinearLayout.LayoutParams timeLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        timeLp.leftMargin = Ui.dp(context, 8f);
+        timeLp.leftMargin = M3Theme.dp(context, 8f);
+        timeLp.rightMargin = M3Theme.dp(context, 20f);
         row.addView(time, timeLp);
 
-        row.setTag(new Holder(avatar, name, preview, time));
+        TextView unread = new TextView(context);
+        unread.setTextSize(11f);
+        unread.setTypeface(android.graphics.Typeface.create(
+                "sans-serif-medium", android.graphics.Typeface.NORMAL));
+        unread.setTextColor(scheme.onError);
+        unread.setGravity(Gravity.CENTER);
+        unread.setMinWidth(M3Theme.dp(context, 20f));
+        unread.setPadding(M3Theme.dp(context, 5f), 0, M3Theme.dp(context, 5f), 0);
+        unread.setBackground(M3Drawable.fill(context, scheme.error, M3Shape.FULL));
+        unread.setVisibility(View.GONE);
+        LinearLayout.LayoutParams unreadLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, M3Theme.dp(context, 20f));
+        unreadLp.leftMargin = M3Theme.dp(context, 6f);
+        unreadLp.rightMargin = M3Theme.dp(context, 20f);
+        row.addView(unread, unreadLp);
+
+        row.setTag(new Holder(avatar, name, preview, time, unread));
         return row;
     }
 
@@ -416,6 +469,12 @@ final class HomeCategoryPage extends FrameLayout {
         } else {
             holder.preview.setText("无聊天记录");
             holder.time.setText("");
+        }
+        if (entry.unread > 0) {
+            holder.unread.setText(entry.unread > 99 ? "99+" : String.valueOf(entry.unread));
+            holder.unread.setVisibility(View.VISIBLE);
+        } else {
+            holder.unread.setVisibility(View.GONE);
         }
     }
 
@@ -454,12 +513,15 @@ final class HomeCategoryPage extends FrameLayout {
         final TextView name;
         final TextView preview;
         final TextView time;
+        final TextView unread;
 
-        Holder(android.widget.ImageView avatar, TextView name, TextView preview, TextView time) {
+        Holder(android.widget.ImageView avatar, TextView name, TextView preview,
+               TextView time, TextView unread) {
             this.avatar = avatar;
             this.name = name;
             this.preview = preview;
             this.time = time;
+            this.unread = unread;
         }
     }
 }

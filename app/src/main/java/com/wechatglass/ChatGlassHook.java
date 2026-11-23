@@ -118,6 +118,9 @@ final class ChatGlassHook {
             // 600ms refresh here so the input bar never drifts off-screen.
             applyEdgeLayout();
             updateTopGeometry();
+            if (list instanceof ViewGroup) {
+                ChatBubbleStyler.styleVisible((ViewGroup) list, activity);
+            }
             handler.postDelayed(this, 600L);
         }
     };

@@ -39,6 +39,7 @@ final class HomeCategoryBar extends FrameLayout {
     private final TextView[] tabs = new TextView[3];
     private final LinearLayout row;
     private final View indicator;
+    private final com.wechatglass.m3.M3ColorScheme scheme;
     private OnSelect onSelect;
     private int mode;
     private boolean night;
@@ -60,6 +61,7 @@ final class HomeCategoryBar extends FrameLayout {
         super(context);
         this.night = night;
         this.mode = mode;
+        this.scheme = com.wechatglass.m3.M3Theme.colors(context);
         setClipToPadding(false);
         setClipChildren(false);
 
@@ -82,7 +84,7 @@ final class HomeCategoryBar extends FrameLayout {
 
         indicator = new View(context);
         GradientDrawable pill = new GradientDrawable();
-        pill.setColor(WECHAT_GREEN);
+        pill.setColor(scheme.primary);
         pill.setCornerRadius(Ui.dp(context, (HEIGHT_DP - 6) / 2f));
         indicator.setBackground(pill);
         addView(indicator, new LayoutParams(0, 0));
@@ -90,8 +92,8 @@ final class HomeCategoryBar extends FrameLayout {
         row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(context, 3f);
-        row.setPadding(pad, pad, pad, pad);
+        int pad = Ui.dp(context, 6f);
+        row.setPadding(pad, Ui.dp(context, 3f), pad, Ui.dp(context, 3f));
         for (int i = 0; i < 3; i++) {
             final int index = i;
             TextView tab = new TextView(context);
@@ -169,7 +171,7 @@ final class HomeCategoryBar extends FrameLayout {
             TextView tab = tabs[i];
             boolean selected = i == mode;
             tab.setTextColor(selected
-                    ? 0xFFFFFFFF
+                    ? scheme.onPrimary
                     : (night ? 0xFFE8E8E8 : 0xFF333333));
             tab.setTypeface(null, selected
                     ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
