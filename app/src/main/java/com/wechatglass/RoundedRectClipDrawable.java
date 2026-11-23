@@ -9,7 +9,8 @@ import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 
 /** Draws an ImageView's current content through a rounded-rectangle clip. */
-final class RoundedRectClipDrawable extends Drawable implements Drawable.Callback {
+final class RoundedRectClipDrawable extends Drawable
+        implements Drawable.Callback, android.graphics.drawable.Animatable {
 
     private final Drawable wrapped;
     private final float radius;
@@ -89,6 +90,26 @@ final class RoundedRectClipDrawable extends Drawable implements Drawable.Callbac
     @Override
     public int getIntrinsicHeight() {
         return wrapped.getIntrinsicHeight();
+    }
+
+    @Override
+    public void start() {
+        if (wrapped instanceof android.graphics.drawable.Animatable) {
+            ((android.graphics.drawable.Animatable) wrapped).start();
+        }
+    }
+
+    @Override
+    public void stop() {
+        if (wrapped instanceof android.graphics.drawable.Animatable) {
+            ((android.graphics.drawable.Animatable) wrapped).stop();
+        }
+    }
+
+    @Override
+    public boolean isRunning() {
+        return wrapped instanceof android.graphics.drawable.Animatable
+                && ((android.graphics.drawable.Animatable) wrapped).isRunning();
     }
 
     @Override
