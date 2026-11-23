@@ -290,6 +290,13 @@ final class ChatBubbleStyler {
             avatar.setClipToOutline(true);
         }
         avatar.invalidateOutline();
+        if (avatar instanceof android.widget.ImageView) {
+            android.widget.ImageView image = (android.widget.ImageView) avatar;
+            android.graphics.drawable.Drawable drawable = image.getDrawable();
+            if (drawable != null && !(drawable instanceof OvalClipDrawable)) {
+                image.setImageDrawable(new OvalClipDrawable(drawable));
+            }
+        }
     }
 
     /** Locate and clip the avatar object by its geometry inside this message row. */
