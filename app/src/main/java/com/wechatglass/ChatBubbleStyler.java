@@ -34,6 +34,11 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static volatile boolean active;
     private static int diag;
+    // One structural trace per direction is enough to identify whether the
+    // visible tail is our drawable or an unremoved WeChat child view. Do not
+    // log message text here: chat content must never enter diagnostic logs.
+    private static boolean tracedIncoming;
+    private static boolean tracedOutgoing;
 
     private ChatBubbleStyler() {
     }
@@ -142,6 +147,7 @@ final class ChatBubbleStyler {
             int rightMargin = screen - (bl[0] + bubble.getWidth());
             outgoing = bl[0] > rightMargin;
         }
+        traceItemOnce(item, bubble, target, outgoing);
         int[] txl = new int[2];
         target.getLocationOnScreen(txl);
         android.util.Log.i("WeChatGlass", "CB dir outgoing=" + outgoing
@@ -203,6 +209,52 @@ final class ChatBubbleStyler {
                 target.getClass().getMethod("setTextColor", int.class)
                         .invoke(target, textColor);
             } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static void traceItemOnce(View item, View bubble, View target,
+                                      boolean outgoing) {
+        if (outgoing ? tracedOutgoing : tracedIncoming) {
+            return;
+        }
+        if (outgoing) {
+            tracedOutgoing = true;
+        } else {
+            tracedIncoming = true;
+        }
+        android.util.Log.i("WeChatGlass", "CB tree begin direction="
+                + (outgoing ? "outgoing" : "incoming"));
+        logTree(item, bubble, target, 0);
+        android.util.Log.i("WeChatGlass", "CB tree end direction="
+                + (outgoing ? "outgoing" : "incoming"));
+    }
+
+    private static void logTree(View view, View bubble, View target, int depth) {
+        if (view == null || depth > 6) {
+            return;
+        }
+        int[] loc = new int[2];
+        view.getLocationOnScreen(loc);
+        String bg = view.getBackground() == null ? "-"
+                : view.getBackground().getClass().getSimpleName();
+        String fg = "-";
+        if (android.os.Build.VERSION.SDK_INT >= 23 && view.getForeground() != null) {
+            fg = view.getForeground().getClass().getSimpleName();
+        }
+        int children = view instanceof ViewGroup ? ((ViewGroup) view).getChildCount() : 0;
+        String role = view == bubble ? " bubble" : view == target ? " target" : "";
+        android.util.Log.i("WeChatGlass", "CB tree " + depth + role
+                + " class=" + view.getClass().getName()
+                + " id=0x" + Integer.toHexString(view.getId())
+                + " screen=" + loc[0] + "," + loc[1]
+                + " size=" + view.getWidth() + "x" + view.getHeight()
+                + " vis=" + view.getVisibility()
+                + " bg=" + bg + " fg=" + fg + " children=" + children);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                logTree(group.getChildAt(i), bubble, target, depth + 1);
             }
         }
     }
