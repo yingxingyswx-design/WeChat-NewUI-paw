@@ -373,11 +373,13 @@ final class ChatBubbleStyler {
                     listenerClass.getClassLoader(), new Class<?>[]{listenerClass},
                     (proxy, method, args) -> {
                         String name = method.getName();
-                        if (args != null && args.length == 1
+                        // The current WeChat build obfuscates the AndroidX
+                        // callbacks to g(View)=detached and m(View)=attached.
+                        // Keep the standard name too for un-obfuscated builds.
+                        boolean attachedCallback = "onChildViewAttachedToWindow".equals(name)
+                                || "m".equals(name);
+                        if (attachedCallback && args != null && args.length == 1
                                 && args[0] instanceof View && session.enabled) {
-                            // WeChat may ship an obfuscated AndroidX listener
-                            // interface; both callbacks carry one View. The
-                            // posted task checks attachment before styling.
                             scheduleStyleItem(session, activity, (View) args[0], 0, true);
                         }
                         if ("equals".equals(name)) {
@@ -577,7 +579,7 @@ final class ChatBubbleStyler {
                     return;
                 }
                 styleItem(item, activity);
-                if (settle) {
+                if (settle && MESSAGE_TIME_LABELS.get(item) == null) {
                     item.postDelayed(new Runnable() {
                         @Override
                         public void run() {
