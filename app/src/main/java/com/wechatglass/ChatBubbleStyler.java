@@ -45,6 +45,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> AVATAR_CHAIN_LOGGED =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, Boolean> MESSAGE_TIME_VIEWS =
+            new WeakHashMap<>();
     private static final String AVATAR_CLIP_SAVE = "wechatglass.avatar.clip.save";
     private static volatile boolean avatarDrawChildHookInstalled;
     private static volatile boolean avatarDrawableHookInstalled;
@@ -217,6 +219,7 @@ final class ChatBubbleStyler {
         if (item == null) {
             return;
         }
+        showMessageTime(item);
         // Sticker messages do not necessarily contain text, so apply their
         // visual treatment before looking for a text-bubble target.
         roundStickers(item, context, 0);
@@ -333,6 +336,86 @@ final class ChatBubbleStyler {
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    /**
+     * Make the timestamp TextView belonging to this runtime message row visible.
+     * The timestamp is a centered direct child of ChattingItemContainer; looking
+     * at the row relationship and its time-shaped value avoids touching message
+     * text or unrelated TextViews elsewhere in the chat screen.
+     */
+    private static void showMessageTime(View item) {
+        if (!(item instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup row = (ViewGroup) item;
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View child = row.getChildAt(i);
+            if (!(child instanceof TextView)
+                    || !isCenteredInRow(child)
+                    || !hasTimeValue(((TextView) child).getText())) {
+                continue;
+            }
+            int previousVisibility = child.getVisibility();
+            if (child.getVisibility() != View.VISIBLE) {
+                child.setVisibility(View.VISIBLE);
+                child.requestLayout();
+                item.requestLayout();
+            }
+            if (MESSAGE_TIME_VIEWS.put(child, Boolean.TRUE) == null) {
+                android.util.Log.i("WeChatGlass", "CB per-message time object="
+                        + Integer.toHexString(System.identityHashCode(child))
+                        + " row=" + Integer.toHexString(System.identityHashCode(item))
+                        + " visibility=" + previousVisibility + "->"
+                        + child.getVisibility());
+            }
+        }
+    }
+
+    private static boolean isCenteredInRow(View view) {
+        ViewGroup.LayoutParams raw = view.getLayoutParams();
+        if (!(raw instanceof android.widget.RelativeLayout.LayoutParams)) {
+            return false;
+        }
+        android.widget.RelativeLayout.LayoutParams params =
+                (android.widget.RelativeLayout.LayoutParams) raw;
+        return params.getRule(android.widget.RelativeLayout.CENTER_HORIZONTAL) != 0;
+    }
+
+    /** Matches a time (optionally preceded by a localized date) without logging it. */
+    private static boolean hasTimeValue(CharSequence value) {
+        if (value == null || value.length() == 0 || value.length() > 48) {
+            return false;
+        }
+        String text = value.toString().trim();
+        int colon = text.lastIndexOf(':');
+        if (colon < 1 || colon + 2 >= text.length()
+                || !Character.isDigit(text.charAt(colon + 1))
+                || !Character.isDigit(text.charAt(colon + 2))) {
+            return false;
+        }
+        String suffix = text.substring(colon + 3).trim();
+        if (!suffix.isEmpty() && !"AM".equalsIgnoreCase(suffix)
+                && !"PM".equalsIgnoreCase(suffix)) {
+            return false;
+        }
+        String prefix = text.substring(0, colon).trim();
+        if (prefix.isEmpty() || prefix.length() > 36) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length(); i++) {
+            char c = prefix.charAt(i);
+            if (!Character.isDigit(c) && !Character.isLetter(c)
+                    && !Character.isWhitespace(c) && c != '/'
+                    && c != '-' && c != '.' && c != ','
+                    && c != '，' && c != '年' && c != '月'
+                    && c != '日' && c != '周' && c != '星'
+                    && c != '期' && c != '上' && c != '下'
+                    && c != '午') {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void traceItemOnce(View item, View bubble, View target,
