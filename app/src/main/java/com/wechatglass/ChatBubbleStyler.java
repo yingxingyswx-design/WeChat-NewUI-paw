@@ -338,14 +338,12 @@ final class ChatBubbleStyler {
                 + " text=" + (target instanceof TextView
                 ? String.valueOf(((TextView) target).getText()) : target.getClass().getSimpleName()));
         M3ColorScheme scheme = M3Theme.colors(context);
-        boolean night = isDarkTheme(context, item);
-        // Google Chat message tokens, independent of the accent color.
+        // Use the selected M3 seed for sent messages; received messages stay
+        // on the neutral surface roles so both remain legible in light/dark.
         int color = outgoing
-                ? (night ? 0xFF1F3A5F : 0xFFD3E3FD)
-                : (night ? 0xFF2B2B2B : 0xFFF2F2F2);
+                ? scheme.primaryContainer : scheme.surfaceContainerLow;
         int textColor = outgoing
-                ? (night ? 0xFFFFFFFF : 0xFF001D35)
-                : (night ? 0xFFE6E6E6 : 0xFF1F1F1F);
+                ? scheme.onPrimaryContainer : scheme.onSurface;
 
         View cur = target;
         while (cur != null && cur != bubble) {
@@ -696,27 +694,6 @@ final class ChatBubbleStyler {
             }
         }
         return best;
-    }
-
-    private static boolean isDarkTheme(Context context, View item) {
-        if (M3Theme.colors(context).dark) {
-            return true;
-        }
-        View v = item;
-        for (int i = 0; i < 8 && v != null; i++) {
-            android.graphics.drawable.Drawable d = v.getBackground();
-            if (d instanceof android.graphics.drawable.ColorDrawable) {
-                int c = ((android.graphics.drawable.ColorDrawable) d).getColor();
-                if (android.graphics.Color.alpha(c) > 0) {
-                    double lum = 0.2126 * android.graphics.Color.red(c)
-                            + 0.7152 * android.graphics.Color.green(c)
-                            + 0.0722 * android.graphics.Color.blue(c);
-                    return lum < 115;
-                }
-            }
-            v = v.getParent() instanceof View ? (View) v.getParent() : null;
-        }
-        return false;
     }
 
     private static void clearNative(View view, View keep) {
