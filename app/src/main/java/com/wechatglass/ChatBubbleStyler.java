@@ -41,13 +41,19 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, android.graphics.Path> AVATAR_CLIP_PATHS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, android.graphics.Path> AVATAR_LOCAL_CLIP_PATHS =
+            new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> AVATAR_CLIP_LOGGED =
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> AVATAR_CHAIN_LOGGED =
             new WeakHashMap<>();
     private static final String AVATAR_CLIP_SAVE = "wechatglass.avatar.clip.save";
+    private static final String AVATAR_LOCAL_CLIP_SAVE =
+            "wechatglass.avatar.local.clip.save";
     private static volatile boolean avatarDrawChildHookInstalled;
+    private static volatile boolean avatarLocalDrawHookInstalled;
     private static int avatarClipDrawDiag;
+    private static int avatarLocalDrawDiag;
     private static int avatarChainDiag;
     private static final android.view.ViewOutlineProvider CIRCLE_OUTLINE =
             new android.view.ViewOutlineProvider() {
@@ -68,6 +74,68 @@ final class ChatBubbleStyler {
     }
 
     static void installAvatarClipHook() {
+        if (!avatarLocalDrawHookInstalled) {
+            try {
+                // drawChild runs with parent coordinates that vary with WeChat's
+                // nested transforms. View.draw runs in the target object's own
+                // local coordinates, so this oval follows the actual avatar bounds.
+                de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                        View.class, "draw", android.graphics.Canvas.class,
+                        new de.robv.android.xposed.XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (!active || !(param.args[0] instanceof android.graphics.Canvas)
+                                    || !(param.thisObject instanceof View)) {
+                                return;
+                            }
+                            View avatar = (View) param.thisObject;
+                            if (!CHAT_AVATAR_OBJECTS.containsKey(avatar)
+                                    || avatar.getWidth() <= 0 || avatar.getHeight() <= 0) {
+                                return;
+                            }
+                            android.graphics.Canvas canvas =
+                                    (android.graphics.Canvas) param.args[0];
+                            int save = canvas.save();
+                            android.graphics.Path path =
+                                    AVATAR_LOCAL_CLIP_PATHS.get(avatar);
+                            if (path == null) {
+                                path = new android.graphics.Path();
+                                AVATAR_LOCAL_CLIP_PATHS.put(avatar, path);
+                            }
+                            path.reset();
+                            path.addOval(0f, 0f, avatar.getWidth(), avatar.getHeight(),
+                                    android.graphics.Path.Direction.CW);
+                            canvas.clipPath(path);
+                            if (avatarLocalDrawDiag < 8) {
+                                avatarLocalDrawDiag++;
+                                android.util.Log.i("WeChatGlass", "CB avatar View.draw hit="
+                                        + avatarLocalDrawDiag + " object="
+                                        + Integer.toHexString(System.identityHashCode(avatar))
+                                        + " local=0,0 size="
+                                        + avatar.getWidth() + "x" + avatar.getHeight());
+                            }
+                            param.setObjectExtra(AVATAR_LOCAL_CLIP_SAVE,
+                                    Integer.valueOf(save));
+                        }
+
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            Object saved = param.getObjectExtra(AVATAR_LOCAL_CLIP_SAVE);
+                            if (saved instanceof Integer
+                                    && param.args[0] instanceof android.graphics.Canvas) {
+                                ((android.graphics.Canvas) param.args[0])
+                                        .restoreToCount(((Integer) saved).intValue());
+                                param.setObjectExtra(AVATAR_LOCAL_CLIP_SAVE, null);
+                            }
+                        }
+                    });
+                avatarLocalDrawHookInstalled = true;
+            } catch (Throwable throwable) {
+                de.robv.android.xposed.XposedBridge.log(
+                        "WeChatGlass avatar local draw hook failed: " + throwable);
+            }
+        }
+
         if (avatarDrawChildHookInstalled) {
             return;
         }
