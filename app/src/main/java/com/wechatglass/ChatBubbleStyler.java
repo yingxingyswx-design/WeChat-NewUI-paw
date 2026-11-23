@@ -293,7 +293,8 @@ final class ChatBubbleStyler {
         if (bubble == null) {
             bubble = item.findViewById(ID_BKJ);
         }
-        if (bubble == null || bubble == item) {
+        if (bubble == null || bubble == item
+                || !isSimpleBubbleObject(item, bubble, target, avatar)) {
             return;
         }
         if (diag < 30) {
@@ -330,13 +331,8 @@ final class ChatBubbleStyler {
             outgoing = bl[0] > rightMargin;
         }
         traceItemOnce(item, bubble, target, outgoing);
-        int[] txl = new int[2];
-        target.getLocationOnScreen(txl);
         android.util.Log.i("WeChatGlass", "CB dir outgoing=" + outgoing
-                + " bx=" + bl[0] + " bw=" + bubble.getWidth()
-                + " targetX=" + txl[0]
-                + " text=" + (target instanceof TextView
-                ? String.valueOf(((TextView) target).getText()) : target.getClass().getSimpleName()));
+                + " bx=" + bl[0] + " bw=" + bubble.getWidth());
         M3ColorScheme scheme = M3Theme.colors(context);
         // Use the selected M3 seed for sent messages; received messages stay
         // on the neutral surface roles so both remain legible in light/dark.
@@ -355,10 +351,6 @@ final class ChatBubbleStyler {
             }
             cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
         }
-
-        // Keep our own Drawable on bubble, but clear native backgrounds in
-        // its children. This makes the APPLIED cache meaningful again.
-        clearNative(item, bubble);
 
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
         float tail = M3Theme.dpF(context, 7f);
@@ -698,47 +690,114 @@ final class ChatBubbleStyler {
         return best;
     }
 
-    private static void clearNative(View view, View keep) {
-        if (view == null) {
-            return;
+    /**
+     * Only reshape a compact, simple text/call bubble. Rich message cards such
+     * as transfers and red packets expose several text/image/action objects;
+     * leave those objects and their ancestors entirely native.
+     */
+    private static boolean isSimpleBubbleObject(View item, View bubble,
+                                                View target, View avatar) {
+        if (!isDescendantOf(target, bubble) || bubble.getWidth() <= 0
+                || bubble.getHeight() <= 0) {
+            return false;
         }
-        if (view == keep) {
-            if (view instanceof ViewGroup) {
-                ViewGroup g = (ViewGroup) view;
-                for (int i = 0; i < g.getChildCount(); i++) {
-                    clearNative(g.getChildAt(i), null);
-                }
-            }
-            return;
+        int extra = dp(48f);
+        if (bubble.getWidth() > target.getWidth() + dp(96f)
+                || bubble.getHeight() > target.getHeight() + extra) {
+            return false;
         }
-        String n = view.getClass().getSimpleName();
-        boolean image = n.contains("Image") || n.contains("Avatar")
-                || n.contains("Mask") || n.contains("CheckBox");
-        if (!image) {
-            if (view.getBackground() != null) {
-                remember(view);
-                view.setBackground(null);
+        if (countVisibleTextObjects(bubble, target, 0) != 1
+                || hasInteractiveContent(bubble, bubble, target, 0)) {
+            return false;
+        }
+
+        View ancestor = bubble.getParent() instanceof View
+                ? (View) bubble.getParent() : null;
+        int depth = 0;
+        while (ancestor != null && ancestor != item && depth++ < 8) {
+            if (ancestor.isClickable() || ancestor.isLongClickable()
+                    || countVisibleTextObjects(ancestor, target, 0) > 2
+                    || countVisibleContentImages(ancestor, avatar, 0) > 1) {
+                return false;
             }
-            if (android.os.Build.VERSION.SDK_INT >= 23
-                    && view.getForeground() != null) {
-                remember(view);
-                view.setForeground(null);
+            ancestor = ancestor.getParent() instanceof View
+                    ? (View) ancestor.getParent() : null;
+        }
+        return true;
+    }
+
+    private static boolean isDescendantOf(View view, View ancestor) {
+        View current = view;
+        while (current != null) {
+            if (current == ancestor) {
+                return true;
             }
-            // Native bubble tails are tiny id-less plain Views. Clearing
-            // their background is not enough if they draw in onDraw.
-            if (view.getClass() == View.class && view.getId() == View.NO_ID
-                    && view.getWidth() > 0 && view.getHeight() > 0
-                    && view.getWidth() < dp(56) && view.getHeight() < dp(56)) {
-                remember(view);
-                view.setVisibility(View.INVISIBLE);
+            current = current.getParent() instanceof View
+                    ? (View) current.getParent() : null;
+        }
+        return false;
+    }
+
+    private static int countVisibleTextObjects(View view, View target, int depth) {
+        if (view == null || depth > 16 || view.getVisibility() != View.VISIBLE
+                || view.getAlpha() <= 0f) {
+            return 0;
+        }
+        int count = 0;
+        if (view == target) {
+            count++;
+        } else if (view instanceof TextView) {
+            CharSequence text = ((TextView) view).getText();
+            if (text != null && text.length() > 0 && !isChromeText(text.toString())) {
+                count++;
             }
+        }
+        if (count >= 3 || !(view instanceof ViewGroup)) {
+            return count;
+        }
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount() && count < 3; i++) {
+            count += countVisibleTextObjects(group.getChildAt(i), target, depth + 1);
+        }
+        return Math.min(count, 3);
+    }
+
+    private static int countVisibleContentImages(View view, View avatar, int depth) {
+        if (view == null || view == avatar || depth > 16
+                || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
+            return 0;
+        }
+        int count = view instanceof android.widget.ImageView
+                && view.getWidth() > 0 && view.getHeight() > 0 ? 1 : 0;
+        if (count >= 2 || !(view instanceof ViewGroup)) {
+            return count;
+        }
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount() && count < 2; i++) {
+            count += countVisibleContentImages(group.getChildAt(i), avatar, depth + 1);
+        }
+        return Math.min(count, 2);
+    }
+
+    private static boolean hasInteractiveContent(View view, View root,
+                                                  View target, int depth) {
+        if (view == null || depth > 16 || view.getVisibility() != View.VISIBLE
+                || view.getAlpha() <= 0f) {
+            return false;
+        }
+        if (view != root && view != target
+                && (view.isClickable() || view.isLongClickable())) {
+            return true;
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                clearNative(group.getChildAt(i), keep);
+                if (hasInteractiveContent(group.getChildAt(i), root, target, depth + 1)) {
+                    return true;
+                }
             }
         }
+        return false;
     }
 
     private static View contentContainer(View item, TextView text) {
