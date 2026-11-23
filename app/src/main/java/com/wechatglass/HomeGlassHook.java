@@ -53,6 +53,29 @@ final class HomeGlassHook {
         try {
             com.wechatglass.m3.M3ColorScheme scheme =
                     com.wechatglass.m3.M3Theme.colors(((View) target).getContext());
+            int selected = scheme.primary;
+            int idle = scheme.onSurfaceVariant;
+            // MainTabUI.onPageScrolled interpolates between these fields every
+            // frame; changing only the TextViews would be overwritten as soon
+            // as the user swipes. Replace the source colors + channel deltas.
+            int sr = (selected >> 16) & 0xFF;
+            int sg = (selected >> 8) & 0xFF;
+            int sb = selected & 0xFF;
+            int ir = (idle >> 16) & 0xFF;
+            int ig = (idle >> 8) & 0xFF;
+            int ib = idle & 0xFF;
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "m", selected);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "n", sr);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "o", sg);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "p", sb);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "q", idle);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "r", ir);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "s", ig);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "t", ib);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "u", sr - ir);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "v", sg - ig);
+            de.robv.android.xposed.XposedHelpers.setIntField(target, "w", sb - ib);
+
             String[] fields = {"f", "h", "g", "i"};
             for (int i = 0; i < fields.length; i++) {
                 Object tab = de.robv.android.xposed.XposedHelpers
@@ -64,7 +87,7 @@ final class HomeGlassHook {
                         de.robv.android.xposed.XposedHelpers
                                 .getObjectField(tab, "f");
                 if (label != null) {
-                    label.setTextColor(i == index ? scheme.primary : scheme.onSurfaceVariant);
+                    label.setTextColor(i == index ? selected : idle);
                 }
                 Object icon = de.robv.android.xposed.XposedHelpers
                         .getObjectField(tab, "e");

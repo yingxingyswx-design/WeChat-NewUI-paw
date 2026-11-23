@@ -214,8 +214,17 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 Object tab = param.args[0];
                                 if (tab instanceof Integer) {
                                     HomeGlassHook.onBottomTab((Integer) tab);
+                                    final int navIndex = (Integer) tab;
                                     HomeGlassHook.applyBottomTabTheme(
-                                            param.thisObject, (Integer) tab);
+                                            param.thisObject, navIndex);
+                                    // MainTabUI can re-apply its own green
+                                    // text color right after setTo(); run once
+                                    // more on the next frame to win that race.
+                                    if (param.thisObject instanceof android.view.View) {
+                                        ((android.view.View) param.thisObject).postDelayed(
+                                                () -> HomeGlassHook.applyBottomTabTheme(
+                                                        null, navIndex), 80L);
+                                    }
                                 }
                             } catch (Throwable ignored) {
                             }
