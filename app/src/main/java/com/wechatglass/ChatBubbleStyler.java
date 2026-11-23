@@ -12,6 +12,7 @@ import com.wechatglass.m3.M3Shape;
 import com.wechatglass.m3.M3Theme;
 import com.wechatglass.m3.M3Type;
 
+import java.util.ArrayList;
 import java.util.WeakHashMap;
 
 /**
@@ -37,6 +38,11 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> AVATAR_CHAIN_LOGGED =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, String> DIAGNOSTIC_SNAPSHOTS =
+            new WeakHashMap<>();
+    private static final int MAX_DIAGNOSTIC_ITEMS = 48;
+    private static final int MAX_DIAGNOSTIC_VIEWS = 32;
+    private static final int MAX_DIAGNOSTIC_CANDIDATES = 12;
     private static int avatarChainDiag;
     private static final android.view.ViewOutlineProvider CIRCLE_OUTLINE =
             new android.view.ViewOutlineProvider() {
@@ -46,12 +52,7 @@ final class ChatBubbleStyler {
                 }
             };
     private static volatile boolean active;
-    private static int diag;
-    // One structural trace per direction is enough to identify whether the
-    // visible tail is our drawable or an unremoved WeChat child view. Do not
-    // log message text here: chat content must never enter diagnostic logs.
-    private static boolean tracedIncoming;
-    private static boolean tracedOutgoing;
+    private static int diagnosticItemsLogged;
 
     private static final class Session {
         final android.os.Handler handler = new android.os.Handler(
@@ -281,6 +282,8 @@ final class ChatBubbleStyler {
         ORIGINAL.clear();
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
+        DIAGNOSTIC_SNAPSHOTS.clear();
+        diagnosticItemsLogged = 0;
     }
 
     private static void styleItem(View item, Context context) {
@@ -296,6 +299,9 @@ final class ChatBubbleStyler {
         if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0
                 || target.getVisibility() != View.VISIBLE) {
             View card = findRichCardObject(item, avatar, null, context);
+            logRuntimeDetection(item, avatar, target, null, card,
+                    card == null ? "miss:no-text-target" : "rich-hit:no-text-target",
+                    context, true);
             if (card != null) {
                 styleRichCard(card, item, null, avatar, context);
             }
@@ -307,33 +313,24 @@ final class ChatBubbleStyler {
         if (bubble == null) {
             bubble = item.findViewById(ID_BKJ);
         }
-        if (bubble == null || bubble == item
-                || !isSimpleBubbleObject(item, bubble, target, avatar)) {
+        String simpleFailure = bubble == null ? "bubble-missing"
+                : bubble == item ? "bubble-is-row"
+                : simpleBubbleFailure(item, bubble, target, avatar);
+        if (simpleFailure != null) {
             View card = findRichCardObject(item, avatar, target, context);
+            logRuntimeDetection(item, avatar, target, bubble, card,
+                    card == null ? "miss:" + simpleFailure
+                            : "rich-hit;simple-reject:" + simpleFailure,
+                    context, card == null);
             if (card != null) {
                 styleRichCard(card, item, target, avatar, context);
             }
             return;
         }
-        if (diag < 30) {
-            diag++;
-            int[] ax = new int[2];
-            if (avatar != null) avatar.getLocationOnScreen(ax);
-            ViewGroup.LayoutParams lp = bubble.getLayoutParams();
-            android.util.Log.i("WeChatGlass", "CB layout item="
-                    + item.getClass().getSimpleName()
-                    + " bubble=" + bubble.getClass().getSimpleName()
-                    + " bx=" + bubble.getLeft() + " bw=" + bubble.getWidth()
-                    + " lp=" + (lp == null ? "null" : lp.getClass().getSimpleName())
-                    + " avatar=" + (avatar == null ? "null" : avatar.getClass().getSimpleName())
-                    + "@" + ax[0] + " " + (avatar == null ? 0 : avatar.getWidth()));
-            android.util.Log.i("WeChatGlass", "CB item="
-                    + item.getClass().getSimpleName()
-                    + " target=" + target.getClass().getSimpleName()
-                    + " " + target.getWidth() + "x" + target.getHeight()
-                    + " bubble=" + bubble.getClass().getSimpleName()
-                    + " " + bubble.getWidth() + "x" + bubble.getHeight());
-        }
+        logRuntimeDetection(item, avatar, target, bubble, null,
+                containsDiagnosticMedia(item, avatar, 0)
+                        ? "simple-hit;media-present" : "simple-hit",
+                context, containsDiagnosticMedia(item, avatar, 0));
 
         int screen = context.getResources().getDisplayMetrics().widthPixels;
         int[] bl = new int[2];
@@ -348,9 +345,6 @@ final class ChatBubbleStyler {
             int rightMargin = screen - (bl[0] + bubble.getWidth());
             outgoing = bl[0] > rightMargin;
         }
-        traceItemOnce(item, bubble, target, outgoing);
-        android.util.Log.i("WeChatGlass", "CB dir outgoing=" + outgoing
-                + " bx=" + bl[0] + " bw=" + bubble.getWidth());
         M3ColorScheme scheme = M3ColorScheme.forContext(context, true);
         int color = scheme.primary;
         int textColor = scheme.onPrimary;
@@ -407,50 +401,172 @@ final class ChatBubbleStyler {
         }
     }
 
-    private static void traceItemOnce(View item, View bubble, View target,
-                                      boolean outgoing) {
-        if (outgoing ? tracedOutgoing : tracedIncoming) {
+    /**
+     * Emit bounded, text-free diagnostics for the live message objects. The
+     * poller runs every 600 ms, so identical view trees are logged only once.
+     */
+    private static void logRuntimeDetection(View item, View avatar, View target,
+                                            View bubble, View card, String branch,
+                                            Context context, boolean explainCards) {
+        ArrayList<String> views = new ArrayList<>();
+        collectDiagnosticViews(item, avatar, target, bubble, card, 0, views);
+        String summary = "branch=" + branch
+                + " item=" + objectName(item)
+                + " avatar=" + objectName(avatar)
+                + " target=" + objectName(target)
+                + " bubble=" + objectName(bubble)
+                + " card=" + objectName(card)
+                + " textCount=" + countVisibleTextObjects(item, target, 0)
+                + " imageCount=" + countVisibleContentImages(item, avatar, 0)
+                + " interactive=" + hasInteractiveContent(item, item, target, 0)
+                + " surface=" + hasBackgroundSurface(item, avatar, 0);
+        String signature = summary + views.toString();
+        if (signature.equals(DIAGNOSTIC_SNAPSHOTS.get(item))) {
             return;
         }
-        if (outgoing) {
-            tracedOutgoing = true;
-        } else {
-            tracedIncoming = true;
+        DIAGNOSTIC_SNAPSHOTS.put(item, signature);
+        if (diagnosticItemsLogged >= MAX_DIAGNOSTIC_ITEMS) {
+            return;
         }
-        android.util.Log.i("WeChatGlass", "CB tree begin direction="
-                + (outgoing ? "outgoing" : "incoming"));
-        logTree(item, bubble, target, 0);
-        android.util.Log.i("WeChatGlass", "CB tree end direction="
-                + (outgoing ? "outgoing" : "incoming"));
+        diagnosticItemsLogged++;
+        android.util.Log.i("WeChatGlass", "CB detect " + summary);
+        for (int i = 0; i < views.size(); i++) {
+            android.util.Log.i("WeChatGlass", "CB object " + i + " " + views.get(i));
+        }
+        if (explainCards) {
+            int[] logged = {0};
+            logCardCandidateReasons(item, item, avatar, target, context, 0, logged);
+        }
     }
 
-    private static void logTree(View view, View bubble, View target, int depth) {
-        if (view == null || depth > 6) {
+    private static void collectDiagnosticViews(View view, View avatar, View target,
+                                              View bubble, View card, int depth,
+                                              ArrayList<String> out) {
+        if (view == null || depth > 10 || out.size() >= MAX_DIAGNOSTIC_VIEWS) {
             return;
         }
-        int[] loc = new int[2];
-        view.getLocationOnScreen(loc);
-        String bg = view.getBackground() == null ? "-"
+        String background = view.getBackground() == null ? "-"
                 : view.getBackground().getClass().getSimpleName();
-        String fg = "-";
-        if (android.os.Build.VERSION.SDK_INT >= 23 && view.getForeground() != null) {
-            fg = view.getForeground().getClass().getSimpleName();
-        }
+        String foreground = android.os.Build.VERSION.SDK_INT < 23
+                || view.getForeground() == null ? "-"
+                : view.getForeground().getClass().getSimpleName();
         int children = view instanceof ViewGroup ? ((ViewGroup) view).getChildCount() : 0;
-        String role = view == bubble ? " bubble" : view == target ? " target" : "";
-        android.util.Log.i("WeChatGlass", "CB tree " + depth + role
-                + " class=" + view.getClass().getName()
+        String role = (view == avatar ? "A" : "")
+                + (view == target ? "T" : "")
+                + (view == bubble ? "B" : "")
+                + (view == card ? "C" : "");
+        out.add("depth=" + depth + " class=" + view.getClass().getName()
+                + " object=" + Integer.toHexString(System.identityHashCode(view))
                 + " id=0x" + Integer.toHexString(view.getId())
-                + " screen=" + loc[0] + "," + loc[1]
+                + " at=" + view.getLeft() + "," + view.getTop()
                 + " size=" + view.getWidth() + "x" + view.getHeight()
-                + " vis=" + view.getVisibility()
-                + " bg=" + bg + " fg=" + fg + " children=" + children);
+                + " bg=" + background + " fg=" + foreground
+                + " visible=" + (view.getVisibility() == View.VISIBLE)
+                + " click=" + view.isClickable()
+                + " longClick=" + view.isLongClickable()
+                + " children=" + children + " role=" + role);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount()
+                    && out.size() < MAX_DIAGNOSTIC_VIEWS; i++) {
+                collectDiagnosticViews(group.getChildAt(i), avatar, target, bubble,
+                        card, depth + 1, out);
+            }
+        }
+    }
+
+    private static void logCardCandidateReasons(View item, View view, View avatar,
+                                                View target, Context context,
+                                                int depth, int[] logged) {
+        if (view == null || depth > 18 || logged[0] >= MAX_DIAGNOSTIC_CANDIDATES
+                || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
+            return;
+        }
+        if (view != item && view != avatar && view instanceof ViewGroup
+                && view.getWidth() >= M3Theme.dp(context, 48f)
+                && view.getHeight() >= M3Theme.dp(context, 24f)) {
+            int textCount = countVisibleTextObjects(view, target, 0);
+            int imageCount = countVisibleContentImages(view, avatar, 0);
+            boolean interactive = view.isClickable() || view.isLongClickable()
+                    || hasInteractiveContent(view, view, target, 0);
+            boolean background = hasBackgroundSurface(view, avatar, 0);
+            boolean targetInside = target == null || isDescendantOf(target, view);
+            boolean avatarInside = isDescendantOf(avatar, view);
+            String reason = cardCandidateRejection(item, view, target, avatar,
+                    context, textCount, imageCount, interactive, background,
+                    targetInside, avatarInside);
+            android.util.Log.i("WeChatGlass", "CB candidate class="
+                    + view.getClass().getName()
+                    + " object=" + Integer.toHexString(System.identityHashCode(view))
+                    + " id=0x" + Integer.toHexString(view.getId())
+                    + " size=" + view.getWidth() + "x" + view.getHeight()
+                    + " text=" + textCount + " image=" + imageCount
+                    + " interactive=" + interactive + " surface=" + background
+                    + " targetInside=" + targetInside
+                    + " avatarInside=" + avatarInside + " result=" + reason);
+            logged[0]++;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount()
+                    && logged[0] < MAX_DIAGNOSTIC_CANDIDATES; i++) {
+                logCardCandidateReasons(item, group.getChildAt(i), avatar, target,
+                        context, depth + 1, logged);
+            }
+        }
+    }
+
+    private static String cardCandidateRejection(View item, View view, View target,
+                                                 View avatar, Context context,
+                                                 int textCount, int imageCount,
+                                                 boolean interactive, boolean background,
+                                                 boolean targetInside,
+                                                 boolean avatarInside) {
+        if (!targetInside) return "target-outside";
+        if (avatarInside) return "contains-avatar";
+        if (view.getWidth() < M3Theme.dp(context, 88f)
+                || view.getHeight() < M3Theme.dp(context, 36f)) {
+            return "too-small";
+        }
+        if (view.getWidth() > item.getWidth() * 96 / 100
+                || view.getHeight() > item.getHeight() * 98 / 100) {
+            return "too-large";
+        }
+        boolean cardContent = textCount >= 2
+                || (textCount >= 1 && (imageCount > 0 || interactive));
+        if (!cardContent) return "insufficient-content";
+        if (imageCount > 2) return "too-many-images";
+        if (!background) return "no-background";
+        return "would-match";
+    }
+
+    private static String objectName(View view) {
+        return view == null ? "-" : view.getClass().getName() + "#"
+                + Integer.toHexString(System.identityHashCode(view)) + "/"
+                + view.getWidth() + "x" + view.getHeight();
+    }
+
+    private static boolean containsDiagnosticMedia(View view, View avatar, int depth) {
+        if (view == null || view == avatar || depth > 18
+                || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
+            return false;
+        }
+        if (view.getWidth() > 0 && view.getHeight() > 0
+                && (view instanceof android.widget.ImageView
+                || view instanceof android.view.SurfaceView
+                || view instanceof android.view.TextureView
+                || isStickerView(view))) {
+            return true;
+        }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                logTree(group.getChildAt(i), bubble, target, depth + 1);
+                if (containsDiagnosticMedia(group.getChildAt(i), avatar, depth + 1)) {
+                    return true;
+                }
             }
         }
+        return false;
     }
 
     private static int dp(float value) {
@@ -462,15 +578,20 @@ final class ChatBubbleStyler {
         if (avatar == null || avatar.getWidth() <= 0 || avatar.getHeight() <= 0) {
             return;
         }
+        boolean outlineChanged = false;
         if (avatar.getOutlineProvider() != CIRCLE_OUTLINE) {
             remember(avatar);
             avatar.setOutlineProvider(CIRCLE_OUTLINE);
+            outlineChanged = true;
         }
         if (!avatar.getClipToOutline()) {
             remember(avatar);
             avatar.setClipToOutline(true);
+            outlineChanged = true;
         }
-        avatar.invalidateOutline();
+        if (outlineChanged) {
+            avatar.invalidateOutline();
+        }
         if (avatar instanceof android.widget.ImageView) {
             android.widget.ImageView image = (android.widget.ImageView) avatar;
             android.graphics.drawable.Drawable drawable = image.getDrawable();
@@ -592,15 +713,7 @@ final class ChatBubbleStyler {
         }
         int[] loc = new int[2];
         avatar.getLocationOnScreen(loc);
-        boolean out = loc[0] + avatar.getWidth() / 2 > screen / 2;
-        android.util.Log.i("WeChatGlass", "CB avatar object="
-                + Integer.toHexString(System.identityHashCode(avatar))
-                + " left=" + avatar.getLeft()
-                + " x=" + loc[0] + " " + avatar.getWidth() + "x"
-                + avatar.getHeight() + " outgoing=" + out
-                + " clip=" + avatar.getClipToOutline()
-                + " oval=" + (avatar.getOutlineProvider() == CIRCLE_OUTLINE));
-        return out;
+        return loc[0] + avatar.getWidth() / 2 > screen / 2;
     }
 
     private static View findAvatar(View item) {
@@ -707,21 +820,26 @@ final class ChatBubbleStyler {
      * as transfers and red packets expose several text/image/action objects;
      * leave those objects and their ancestors entirely native.
      */
-    private static boolean isSimpleBubbleObject(View item, View bubble,
-                                                View target, View avatar) {
+    private static String simpleBubbleFailure(View item, View bubble,
+                                              View target, View avatar) {
         if (!isDescendantOf(target, bubble) || bubble.getWidth() <= 0
                 || bubble.getHeight() <= 0) {
-            return false;
+            return "target-not-in-sized-bubble";
         }
         int extra = dp(48f);
         if (bubble.getWidth() > target.getWidth() + dp(96f)
                 || bubble.getHeight() > target.getHeight() + extra) {
-            return false;
+            return "bubble-larger-than-target";
         }
-        if (bubble.isClickable() || bubble.isLongClickable()
-                || countVisibleTextObjects(bubble, target, 0) != 1
-                || hasInteractiveContent(bubble, bubble, target, 0)) {
-            return false;
+        if (bubble.isClickable() || bubble.isLongClickable()) {
+            return "bubble-interactive";
+        }
+        int textCount = countVisibleTextObjects(bubble, target, 0);
+        if (textCount != 1) {
+            return "bubble-text-count-" + textCount;
+        }
+        if (hasInteractiveContent(bubble, bubble, target, 0)) {
+            return "nested-interactive-content";
         }
 
         View ancestor = bubble.getParent() instanceof View
@@ -731,12 +849,12 @@ final class ChatBubbleStyler {
             if (ancestor.isClickable() || ancestor.isLongClickable()
                     || countVisibleTextObjects(ancestor, target, 0) > 2
                     || countVisibleContentImages(ancestor, avatar, 0) > 1) {
-                return false;
+                return "ancestor-has-rich-content";
             }
             ancestor = ancestor.getParent() instanceof View
                     ? (View) ancestor.getParent() : null;
         }
-        return true;
+        return null;
     }
 
     private static View findRichCardObject(View item, View avatar, View target,
