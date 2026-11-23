@@ -341,9 +341,11 @@ final class ChatBubbleStyler {
         // Use the selected M3 seed for sent messages; received messages stay
         // on the neutral surface roles so both remain legible in light/dark.
         int color = outgoing
-                ? scheme.primaryContainer : scheme.surfaceContainerLow;
+                ? (scheme.dark ? scheme.secondaryContainer : scheme.primaryContainer)
+                : scheme.surfaceContainerLow;
         int textColor = outgoing
-                ? scheme.onPrimaryContainer : scheme.onSurface;
+                ? (scheme.dark ? scheme.onSecondaryContainer : scheme.onPrimaryContainer)
+                : scheme.onSurface;
 
         View cur = target;
         while (cur != null && cur != bubble) {
