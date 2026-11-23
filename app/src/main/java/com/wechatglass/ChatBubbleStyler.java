@@ -54,6 +54,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, TextView> MESSAGE_TIME_LABELS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, ViewGroup> MESSAGE_TIME_HOSTS =
+            new WeakHashMap<>();
     private static final WeakHashMap<View, String> MESSAGE_TIME_SOURCES =
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> TIME_DIAGNOSTICS =
@@ -338,14 +340,19 @@ final class ChatBubbleStyler {
         for (java.util.Map.Entry<View, TextView> entry : MESSAGE_TIME_LABELS.entrySet()) {
             View item = entry.getKey();
             TextView label = entry.getValue();
-            if (item instanceof ViewGroup && label != null) {
+            ViewGroup host = MESSAGE_TIME_HOSTS.get(item);
+            if (host == null && item instanceof ViewGroup) {
+                host = (ViewGroup) item;
+            }
+            if (host != null && label != null) {
                 try {
-                    ((ViewGroup) item).getOverlay().remove(label);
+                    host.getOverlay().remove(label);
                 } catch (Throwable ignored) {
                 }
             }
         }
         MESSAGE_TIME_LABELS.clear();
+        MESSAGE_TIME_HOSTS.clear();
         MESSAGE_TIME_SOURCES.clear();
         TIME_DIAGNOSTICS.clear();
         APPLIED.clear();
@@ -524,9 +531,11 @@ final class ChatBubbleStyler {
 
     private static void updateMessageTimeInternal(View item, View anchor, View avatar,
                                                   Context context) {
-        if (!(item instanceof ViewGroup) || anchor == null || anchor == item
+        ViewGroup overlayHost = findTimeOverlayHost(item);
+        if (overlayHost == null || anchor == null || anchor == item
                 || anchor.getWidth() <= 0 || anchor.getHeight() <= 0
-                || anchor.getVisibility() != View.VISIBLE || !anchor.isAttachedToWindow()) {
+                || anchor.getVisibility() != View.VISIBLE || !anchor.isAttachedToWindow()
+                || !isDescendantOf(anchor, overlayHost)) {
             removeMessageTime(item);
             return;
         }
@@ -555,18 +564,26 @@ final class ChatBubbleStyler {
             label.setFocusableInTouchMode(false);
             label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             label.setElevation(0f);
-            row.getOverlay().add(label);
+            overlayHost.getOverlay().add(label);
             MESSAGE_TIME_LABELS.put(item, label);
+            MESSAGE_TIME_HOSTS.put(item, overlayHost);
+        } else if (MESSAGE_TIME_HOSTS.get(item) != overlayHost) {
+            ViewGroup oldHost = MESSAGE_TIME_HOSTS.get(item);
+            if (oldHost != null) {
+                oldHost.getOverlay().remove(label);
+            }
+            overlayHost.getOverlay().add(label);
+            MESSAGE_TIME_HOSTS.put(item, overlayHost);
         }
         label.setText(formatMessageTime(search.bestMillis));
         label.setTextColor(M3ColorScheme.forContext(context, false).onSurfaceVariant);
-        label.measure(View.MeasureSpec.makeMeasureSpec(row.getWidth(), View.MeasureSpec.AT_MOST),
-                View.MeasureSpec.makeMeasureSpec(row.getHeight(), View.MeasureSpec.AT_MOST));
+        label.measure(View.MeasureSpec.makeMeasureSpec(overlayHost.getWidth(), View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(overlayHost.getHeight(), View.MeasureSpec.AT_MOST));
         int labelWidth = label.getMeasuredWidth();
         int labelHeight = label.getMeasuredHeight();
         android.graphics.Rect anchorBounds = new android.graphics.Rect(
                 0, 0, anchor.getWidth(), anchor.getHeight());
-        row.offsetDescendantRectToMyCoords(anchor, anchorBounds);
+        overlayHost.offsetDescendantRectToMyCoords(anchor, anchorBounds);
         int gap = M3Theme.dp(context, 2f);
         boolean outgoing = avatar != null
                 ? isOutgoingByAvatar(avatar, context.getResources().getDisplayMetrics().widthPixels)
@@ -575,13 +592,14 @@ final class ChatBubbleStyler {
         int x = outgoing
                 ? anchorBounds.right - labelWidth : anchorBounds.left;
         int y = anchorBounds.top - labelHeight - gap;
-        x = Math.max(0, Math.min(x, Math.max(0, row.getWidth() - labelWidth)));
-        y = Math.max(0, Math.min(y, Math.max(0, row.getHeight() - labelHeight)));
+        x = Math.max(0, Math.min(x, Math.max(0, overlayHost.getWidth() - labelWidth)));
+        y = Math.max(0, Math.min(y, Math.max(0, overlayHost.getHeight() - labelHeight)));
         label.layout(x, y, x + labelWidth, y + labelHeight);
         label.invalidate();
 
         String source = item.getClass().getName() + ":" + search.bestPath
                 + ":anchor=" + anchor.getClass().getName()
+                + ":host=" + overlayHost.getClass().getName()
                 + ":anchorBounds=" + anchorBounds.toShortString()
                 + ":labelAt=" + x + "," + y;
         if (!source.equals(MESSAGE_TIME_SOURCES.get(item))) {
@@ -590,6 +608,24 @@ final class ChatBubbleStyler {
                     + " row=" + item.getClass().getName()
                     + " label=" + label.getWidth() + "x" + label.getHeight());
         }
+    }
+
+    private static ViewGroup findTimeOverlayHost(View item) {
+        View current = item;
+        ViewGroup fallback = null;
+        while (current != null) {
+            if (current instanceof ViewGroup) {
+                if (fallback == null) {
+                    fallback = (ViewGroup) current;
+                }
+                if (isRecyclerViewObject(current)) {
+                    return (ViewGroup) current;
+                }
+            }
+            current = current.getParent() instanceof View
+                    ? (View) current.getParent() : null;
+        }
+        return fallback;
     }
 
     private static void logMissingMessageTime(View item, View anchor,
@@ -648,10 +684,14 @@ final class ChatBubbleStyler {
 
     private static void removeMessageTime(View item) {
         TextView label = MESSAGE_TIME_LABELS.remove(item);
+        ViewGroup host = MESSAGE_TIME_HOSTS.remove(item);
         MESSAGE_TIME_SOURCES.remove(item);
-        if (label != null && item instanceof ViewGroup) {
+        if (host == null && item instanceof ViewGroup) {
+            host = (ViewGroup) item;
+        }
+        if (label != null && host != null) {
             try {
-                ((ViewGroup) item).getOverlay().remove(label);
+                host.getOverlay().remove(label);
             } catch (Throwable ignored) {
             }
         }
