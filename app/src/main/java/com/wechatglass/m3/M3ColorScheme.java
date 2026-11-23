@@ -125,6 +125,19 @@ public final class M3ColorScheme {
      * app stores it in "settings". Read whichever one actually has the keys.
      */
     private static android.content.SharedPreferences colorPrefs(Context context) {
+        // LSPosed's XSharedPreferences sees the GUI's settings even when
+        // WeChat was not running to receive the config broadcast. Prefer it,
+        // otherwise a stale/default green value in WeChat's prefs wins.
+        try {
+            de.robv.android.xposed.XSharedPreferences module =
+                    new de.robv.android.xposed.XSharedPreferences(
+                            "io.github.yingxingyswx_design.wechatglass", "settings");
+            module.reload();
+            if (module.contains("color_monet") || module.contains("color_seed")) {
+                return module;
+            }
+        } catch (Throwable ignored) {
+        }
         android.content.SharedPreferences hook =
                 context.getSharedPreferences("wechatglass", 0);
         if (hook.contains("color_monet") || hook.contains("color_seed")) {

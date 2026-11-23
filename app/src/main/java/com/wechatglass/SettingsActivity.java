@@ -639,10 +639,16 @@ public class SettingsActivity extends Activity {
     }
 
     private void forceStopWeChat() {
+        int user = android.os.Process.myUid() / 100000;
         try {
-            Process process = Runtime.getRuntime().exec(
-                    new String[]{"su", "-c", "am force-stop com.tencent.mm"});
-            process.waitFor();
+            Process process = new ProcessBuilder("su", "-c",
+                    "am force-stop --user " + user + " com.tencent.mm")
+                    .redirectErrorStream(true).start();
+            // Do not block the UI thread forever if the su prompt is denied.
+            process.waitFor(6, java.util.concurrent.TimeUnit.SECONDS);
+            if (process.isAlive()) {
+                process.destroy();
+            }
         } catch (Throwable throwable) {
             try {
                 android.app.ActivityManager manager = (android.app.ActivityManager)

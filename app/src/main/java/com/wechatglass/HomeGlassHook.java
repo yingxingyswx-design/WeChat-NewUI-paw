@@ -2130,8 +2130,9 @@ final class HomeGlassHook {
             if (switchW <= 0) {
                 switchW = Ui.dp(activity, 160f);
             }
-            switchW = Math.min(switchW, width / 2);
             int switchX = Ui.dp(activity, 20f);
+            int available = searchX - switchX - Ui.dp(activity, 8f);
+            switchW = Math.min(switchW, Math.max(Ui.dp(activity, 160f), available));
             FrameLayout.LayoutParams cp =
                     (FrameLayout.LayoutParams) categoryBar.getLayoutParams();
             if (cp == null) {

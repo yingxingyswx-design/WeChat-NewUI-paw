@@ -50,9 +50,6 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookPanelBgMethods(lpparam.classLoader);
         hookLogPanelBg(lpparam.classLoader);
         hookFreGriest(lpparam.classLoader);
-        hookNeatTextBackground(lpparam.classLoader);
-        hookNeatTextAttach(lpparam.classLoader);
-        hookDrawChild();
         hookShadowLoader();
         XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
                 Bundle.class, new XC_MethodHook() {
@@ -257,27 +254,6 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
     }
 
-    private static void hookDrawChild() {
-        try {
-            XposedHelpers.findAndHookMethod(android.view.ViewGroup.class,
-                    "drawChild", android.graphics.Canvas.class,
-                    android.view.View.class, long.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            try {
-                                if (!ChatBubbleStyler.isActive()) return;
-                                ChatBubbleDrawer.draw(
-                                        (android.graphics.Canvas) param.args[0],
-                                        (android.view.ViewGroup) param.thisObject,
-                                        (android.view.View) param.args[1]);
-                            } catch (Throwable ignored) {
-                            }
-                        }
-                    });
-        } catch (Throwable ignored) {
-        }
-    }
-
     private static boolean textSetLogged;
 
     private static void hookTextSet() {
@@ -300,8 +276,25 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 return;
                             }
                             textSetLogged = true;
+                            StringBuilder st = new StringBuilder();
+                            boolean home = false;
+                            for (StackTraceElement e : new Throwable().getStackTrace()) {
+                                if (e.getClassName().contains("com.tencent.mm")) {
+                                    st.append(e.getClassName()).append('#')
+                                            .append(e.getMethodName()).append(" <- ");
+                                }
+                                if (e.getClassName().contains("LauncherUI")
+                                        || e.getClassName().contains("WxViewPager")
+                                        || e.getClassName().contains("LayoutListenerView")) {
+                                    home = true;
+                                }
+                            }
+                            if (home) {
+                                return;
+                            }
                             android.util.Log.i("WeChatGlass", "CB setText " + s
-                                    + " class=" + param.thisObject.getClass().getName());
+                                    + " class=" + param.thisObject.getClass().getName()
+                                    + " stack=" + st);
                             View v = (View) param.thisObject;
                             for (int i = 0; i < 8 && v != null; i++) {
                                 android.util.Log.i("WeChatGlass", "CB set anc " + i
@@ -692,6 +685,28 @@ public class HookEntry implements IXposedHookLoadPackage {
                     });
         } catch (Throwable t) {
             android.util.Log.e("WeChatGlass", "CB loader hook fail", t);
+        }
+    }
+
+    private static void hookChatListDraw(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "com.tencent.mm.pluginsdk.ui.tools.ScrollControlRecyclerView",
+                    cl, "onDraw", android.graphics.Canvas.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            try {
+                                if (param.thisObject instanceof android.view.ViewGroup) {
+                                    ChatBubblePainter.draw(
+                                            (android.graphics.Canvas) param.args[0],
+                                            (android.view.ViewGroup) param.thisObject);
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable ignored) {
         }
     }
 
