@@ -64,6 +64,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> TIME_DIAGNOSTICS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, Integer> SETTLE_GENERATIONS =
+            new WeakHashMap<>();
     private static final int MAX_TIME_GRAPH_OBJECTS = 160;
     private static final int MAX_DIAGNOSTIC_ITEMS = 48;
     private static final int MAX_DIAGNOSTIC_VIEWS = 32;
@@ -88,6 +90,55 @@ final class ChatBubbleStyler {
         java.lang.reflect.Method removeChildAttachListener;
         java.util.Collection<?> childAttachListenerCollection;
         boolean enabled;
+    }
+
+    private static final class BindingSettleCheck implements Runnable {
+        final Session session;
+        final android.app.Activity activity;
+        final View item;
+        final int generation;
+        int lastSignature;
+        int remaining;
+
+        BindingSettleCheck(Session session, android.app.Activity activity,
+                           View item, int generation, int lastSignature,
+                           int remaining) {
+            this.session = session;
+            this.activity = activity;
+            this.item = item;
+            this.generation = generation;
+            this.lastSignature = lastSignature;
+            this.remaining = remaining;
+        }
+
+        @Override
+        public void run() {
+            Integer currentGeneration = SETTLE_GENERATIONS.get(item);
+            if (!session.enabled || session.list == null
+                    || !item.isAttachedToWindow()
+                    || !isDescendantOf(item, session.list)
+                    || currentGeneration == null || currentGeneration != generation) {
+                return;
+            }
+            int signature = visualBindingSignature(item);
+            if (signature != lastSignature) {
+                android.util.Log.d("WeChatGlass",
+                        "CB media row settled; reapplying "
+                                + item.getClass().getName());
+                if (item.getWidth() > 0 && item.getHeight() > 0) {
+                    styleItem(item, activity);
+                    lastSignature = visualBindingSignature(item);
+                } else {
+                    lastSignature = signature;
+                }
+            }
+            remaining--;
+            if (remaining > 0) {
+                item.postDelayed(this, 800L);
+            } else if (currentGeneration == generation) {
+                SETTLE_GENERATIONS.remove(item);
+            }
+        }
     }
 
     private static final class TimeSearch {
@@ -580,26 +631,46 @@ final class ChatBubbleStyler {
                 }
                 styleItem(item, activity);
                 if (settle) {
-                    final int styledSignature = visualBindingSignature(item);
-                    item.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (!session.enabled || session.list == null
-                                    || !item.isAttachedToWindow()
-                                    || !isDescendantOf(item, session.list)) {
-                                return;
-                            }
-                            if (visualBindingSignature(item) != styledSignature) {
-                                android.util.Log.d("WeChatGlass",
-                                        "CB row binding changed; restyle "
-                                                + item.getClass().getName());
-                                scheduleStyleItem(session, activity, item, 0, false);
-                            }
-                        }
-                    }, 650L);
+                    int generation = nextSettleGeneration(item);
+                    int retryCount = hasMediaRenderer(item, findAvatar(item), 0) ? 3 : 1;
+                    BindingSettleCheck check = new BindingSettleCheck(session,
+                            activity, item, generation, visualBindingSignature(item),
+                            retryCount);
+                    item.postDelayed(check, 650L);
                 }
             }
         });
+    }
+
+    private static int nextSettleGeneration(View item) {
+        Integer previous = SETTLE_GENERATIONS.get(item);
+        int next = previous == null ? 1 : previous + 1;
+        SETTLE_GENERATIONS.put(item, next);
+        return next;
+    }
+
+    private static boolean hasMediaRenderer(View view, View avatar, int depth) {
+        if (view == null || view == avatar || isDescendantOf(view, avatar)
+                || depth > 18) {
+            return false;
+        }
+        String name = view.getClass().getName();
+        if (view instanceof android.widget.ImageView
+                || view instanceof android.view.SurfaceView
+                || view instanceof android.view.TextureView
+                || name.contains("Emoji") || name.contains("Gif")
+                || name.contains("Video")) {
+            return true;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (hasMediaRenderer(group.getChildAt(i), avatar, depth + 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -715,6 +786,7 @@ final class ChatBubbleStyler {
         MESSAGE_TIME_CACHE.clear();
         MESSAGE_TIME_SOURCES.clear();
         TIME_DIAGNOSTICS.clear();
+        SETTLE_GENERATIONS.clear();
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
         STICKER_OUTLINES.clear();
@@ -1768,7 +1840,8 @@ final class ChatBubbleStyler {
         }
         boolean panelThumbnail = panelThumbnails
                 && isPanelStickerThumbnail(view, context);
-        if (isStickerView(view) || panelThumbnail) {
+        boolean messageSticker = isStickerView(view);
+        if (messageSticker || panelThumbnail) {
             final float radius = M3Theme.dpF(context, panelThumbnail ? 12f : 20f);
             boolean firstClip = ROUNDED_STICKERS.put(view, Boolean.TRUE) == null;
             android.view.ViewOutlineProvider stickerOutline = STICKER_OUTLINES.get(view);
@@ -1807,20 +1880,18 @@ final class ChatBubbleStyler {
                 android.graphics.drawable.Drawable drawable = image.getDrawable();
                 boolean alreadyRounded = drawable instanceof RoundedRectClipDrawable
                         && ((RoundedRectClipDrawable) drawable).hasRadius(radius);
-                // ImageView starts/stops animated drawables by interface. Leave
-                // GIFs in the loader's original ImageView path; the outline
-                // above already clips the view without replacing its drawable.
                 boolean animated = drawable instanceof android.graphics.drawable.Animatable;
-                if (panelThumbnail && drawable != null && !alreadyRounded && !animated) {
+                boolean wrapDrawable = messageSticker || panelThumbnail && !animated;
+                if (wrapDrawable && drawable != null && !alreadyRounded) {
                     if (drawable instanceof RoundedRectClipDrawable) {
                         drawable = ((RoundedRectClipDrawable) drawable).getWrappedDrawable();
                     }
                     remember(view);
                     image.setImageDrawable(new RoundedRectClipDrawable(drawable, radius));
                     android.util.Log.i("WeChatGlass", "CB sticker drawable clip "
-                            + (panelThumbnails ? "panel " : "message ")
+                            + (messageSticker ? "message " : "panel ")
                             + view.getClass().getName() + " " + view.getWidth()
-                            + "x" + view.getHeight());
+                            + "x" + view.getHeight() + " animated=" + animated);
                 }
             }
         }
@@ -2176,12 +2247,13 @@ final class ChatBubbleStyler {
         float tail = M3Theme.dpF(context, 7f);
         BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing);
         clearMediaVisualBackgrounds(media, media, avatar, context, 0);
+        remember(media);
+        applyMediaBubbleInsets(media, context);
         BubbleDrawable previous = APPLIED.get(media);
         if (previous != null && media.getBackground() == previous
                 && previous.matches(color, radius, tail, outgoing)) {
             return;
         }
-        remember(media);
         media.setBackground(shape);
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             media.setBackgroundTintList(null);
@@ -2197,7 +2269,43 @@ final class ChatBubbleStyler {
             remember(parent);
             parent.setClipChildren(false);
         }
+        media.requestLayout();
         logAppliedSurface("media", media);
+    }
+
+    private static void applyMediaBubbleInsets(View media, Context context) {
+        int inset = M3Theme.dp(context, 7f);
+        if (media instanceof ViewGroup
+                && media.getClass().getName().contains("StretchFrameLayout")) {
+            ViewGroup group = (ViewGroup) media;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View child = group.getChildAt(i);
+                boolean mediaContent = child instanceof android.widget.ImageView
+                        || child instanceof android.view.SurfaceView
+                        || child instanceof android.view.TextureView
+                        || isStickerView(child);
+                boolean fillsContainer = child.getWidth() >= media.getWidth() / 2
+                        && child.getHeight() >= media.getHeight() / 2;
+                if (mediaContent && fillsContainer) {
+                    remember(child);
+                    applyPaddingInset(child, inset);
+                }
+            }
+            return;
+        }
+        applyPaddingInset(media, inset);
+    }
+
+    private static void applyPaddingInset(View media, int inset) {
+        ViewState original = ORIGINAL.get(media);
+        int left = (original == null ? media.getPaddingLeft() : original.paddingLeft) + inset;
+        int top = (original == null ? media.getPaddingTop() : original.paddingTop) + inset;
+        int right = (original == null ? media.getPaddingRight() : original.paddingRight) + inset;
+        int bottom = (original == null ? media.getPaddingBottom() : original.paddingBottom) + inset;
+        if (media.getPaddingLeft() != left || media.getPaddingTop() != top
+                || media.getPaddingRight() != right || media.getPaddingBottom() != bottom) {
+            media.setPadding(left, top, right, bottom);
+        }
     }
 
     private static void clearMediaVisualBackgrounds(View view, View root,
@@ -2276,6 +2384,8 @@ final class ChatBubbleStyler {
                 + ",clip=" + view.getClipToOutline()
                 + ",attached=" + view.isAttachedToWindow()
                 + ",size=" + view.getWidth() + "x" + view.getHeight()
+                + ",padding=" + view.getPaddingLeft() + "/" + view.getPaddingTop()
+                + "/" + view.getPaddingRight() + "/" + view.getPaddingBottom()
                 + ",children=" + childState;
         if (signature.equals(APPLIED_DIAGNOSTICS.get(view))) {
             return;
