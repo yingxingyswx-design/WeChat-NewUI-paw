@@ -58,6 +58,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> MESSAGE_TIME_SOURCES =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, String> TIME_DIAGNOSTICS =
+            new WeakHashMap<>();
     private static final int MAX_TIME_GRAPH_OBJECTS = 160;
     private static final int MAX_DIAGNOSTIC_ITEMS = 48;
     private static final int MAX_DIAGNOSTIC_VIEWS = 32;
@@ -86,13 +88,20 @@ final class ChatBubbleStyler {
         int bestRank = Integer.MAX_VALUE;
         int objectsVisited;
         String bestPath = "-";
+        final ArrayList<String> modelPaths = new ArrayList<>();
+        final ArrayList<String> timeFields = new ArrayList<>();
 
         void consider(long value, int depth, String path) {
             long millis = normalizeTimestamp(value);
+            String lower = path.toLowerCase(Locale.ROOT);
+            if ((lower.contains("time") || lower.contains("date")
+                    || lower.contains("create") || lower.contains("send"))
+                    && timeFields.size() < 12) {
+                timeFields.add(path + (millis > 0 ? "=valid" : "=out-of-range"));
+            }
             if (millis <= 0) {
                 return;
             }
-            String lower = path.toLowerCase(java.util.Locale.ROOT);
             int hint = lower.contains("createtime") ? 5
                     : lower.contains("msgtime") || lower.contains("sendtime") ? 4
                     : lower.contains("timestamp") || lower.contains("date") ? 3
@@ -340,6 +349,7 @@ final class ChatBubbleStyler {
         }
         MESSAGE_TIME_LABELS.clear();
         MESSAGE_TIME_SOURCES.clear();
+        TIME_DIAGNOSTICS.clear();
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
         STICKER_OUTLINES.clear();
@@ -453,6 +463,7 @@ final class ChatBubbleStyler {
         BubbleDrawable previous = APPLIED.get(bubble);
         if (previous != null && bubble.getBackground() == previous
                 && previous.matches(color, radius, tail, outgoing)) {
+            updateMessageTime(item, bubble, avatar, context);
             return;
         }
         remember(bubble);
@@ -506,11 +517,14 @@ final class ChatBubbleStyler {
             return;
         }
         TimeSearch search = new TimeSearch();
+        collectMvvmViewModels(item, search, 0);
         collectMessageTime(item, search);
         if (search.bestMillis <= 0) {
+            logMissingMessageTime(item, anchor, search);
             removeMessageTime(item);
             return;
         }
+        TIME_DIAGNOSTICS.remove(item);
         ViewGroup row = (ViewGroup) item;
         TextView label = MESSAGE_TIME_LABELS.get(item);
         if (label == null) {
@@ -562,6 +576,60 @@ final class ChatBubbleStyler {
             android.util.Log.i("WeChatGlass", "CB time source=" + source
                     + " row=" + item.getClass().getName()
                     + " label=" + label.getWidth() + "x" + label.getHeight());
+        }
+    }
+
+    private static void logMissingMessageTime(View item, View anchor,
+                                              TimeSearch search) {
+        StringBuilder models = new StringBuilder();
+        for (int i = 0; i < search.modelPaths.size(); i++) {
+            if (i > 0) models.append('|');
+            models.append(search.modelPaths.get(i));
+        }
+        StringBuilder fields = new StringBuilder();
+        for (int i = 0; i < search.timeFields.size(); i++) {
+            if (i > 0) fields.append('|');
+            fields.append(search.timeFields.get(i));
+        }
+        String signature = "row=" + item.getClass().getName()
+                + ",anchor=" + (anchor == null ? "-" : anchor.getClass().getName())
+                + ",objects=" + search.objectsVisited
+                + ",models=" + models + ",timeFields=" + fields;
+        if (!signature.equals(TIME_DIAGNOSTICS.get(item))) {
+            TIME_DIAGNOSTICS.put(item, signature);
+            android.util.Log.i("WeChatGlass", "CB time missing " + signature);
+        }
+    }
+
+    private static void collectMvvmViewModels(View view, TimeSearch search, int depth) {
+        if (view == null || depth > 18
+                || search.objectsVisited >= MAX_TIME_GRAPH_OBJECTS) {
+            return;
+        }
+        Class<?> cursor = view.getClass();
+        boolean mvvmView = false;
+        while (cursor != null && cursor != Object.class) {
+            if ("com.tencent.mm.mvvm.MvvmView".equals(cursor.getName())) {
+                mvvmView = true;
+                break;
+            }
+            cursor = cursor.getSuperclass();
+        }
+        if (mvvmView) {
+            try {
+                Object model = view.getClass().getMethod("getViewModel").invoke(view);
+                if (model != null) {
+                    scanTimeObject(model, search, 0,
+                            "viewModel:" + view.getClass().getName(), true);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectMvvmViewModels(group.getChildAt(i), search, depth + 1);
+            }
         }
     }
 
@@ -681,6 +749,12 @@ final class ChatBubbleStyler {
                 || className.startsWith("androidx.recyclerview.widget.RecyclerView$");
         if (!supportedClass && !root) {
             return;
+        }
+        if (supportedClass && search.modelPaths.size() < 16) {
+            String modelPath = path + "<" + className + ">";
+            if (!search.modelPaths.contains(modelPath)) {
+                search.modelPaths.add(modelPath);
+            }
         }
         scanTimestampGetters(value, search, depth, path);
         Class<?> cursor = type;
@@ -1527,17 +1601,6 @@ final class ChatBubbleStyler {
             }
             shape.setBounds(0, 0, card.getWidth(), card.getHeight());
             APPLIED.put(card, shape);
-            ViewState original = ORIGINAL.get(card);
-            int inset = M3Theme.dp(context, 8f);
-            if (original != null && original.paddingRelative) {
-                card.setPaddingRelative(original.paddingStart + inset,
-                        original.paddingTop + inset, original.paddingEnd + inset,
-                        original.paddingBottom + inset);
-            } else if (original != null) {
-                card.setPadding(original.paddingLeft + inset,
-                        original.paddingTop + inset, original.paddingRight + inset,
-                        original.paddingBottom + inset);
-            }
             if (card instanceof ViewGroup) {
                 ((ViewGroup) card).setClipChildren(false);
             }
@@ -1546,7 +1609,6 @@ final class ChatBubbleStyler {
                 remember(parent);
                 parent.setClipChildren(false);
             }
-            card.requestLayout();
         }
         applyCardTheme(card, card, avatar, textTarget, color, textColor, 0);
         logAppliedSurface("card", card);
@@ -1582,17 +1644,6 @@ final class ChatBubbleStyler {
         shape.setBounds(0, 0, media.getWidth(), media.getHeight());
         media.invalidate();
         APPLIED.put(media, shape);
-        ViewState original = ORIGINAL.get(media);
-        int inset = M3Theme.dp(context, 8f);
-        if (original != null && original.paddingRelative) {
-            media.setPaddingRelative(original.paddingStart + inset,
-                    original.paddingTop + inset, original.paddingEnd + inset,
-                    original.paddingBottom + inset);
-        } else if (original != null) {
-            media.setPadding(original.paddingLeft + inset,
-                    original.paddingTop + inset, original.paddingRight + inset,
-                    original.paddingBottom + inset);
-        }
         if (media instanceof ViewGroup) {
             ((ViewGroup) media).setClipChildren(false);
         }
@@ -1601,7 +1652,6 @@ final class ChatBubbleStyler {
             remember(parent);
             parent.setClipChildren(false);
         }
-        media.requestLayout();
         logAppliedSurface("media", media);
     }
 
