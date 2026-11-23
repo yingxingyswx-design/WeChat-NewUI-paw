@@ -19,7 +19,6 @@ final class BubbleDrawable extends Drawable {
     private final int color;
     private final Path body = new Path();
     private final Path tail = new Path();
-    private final Path combined = new Path();
     private final RectF rect = new RectF();
     private final float[] radii = new float[8];
     private final float radius;
@@ -37,6 +36,10 @@ final class BubbleDrawable extends Drawable {
     boolean matches(int color, float radius, float tailSize, boolean outgoing) {
         return this.color == color && this.radius == radius
                 && this.tailSize == tailSize && this.outgoing == outgoing;
+    }
+
+    int fillColor() {
+        return color;
     }
 
     @Override
@@ -87,15 +90,10 @@ final class BubbleDrawable extends Drawable {
             tail.lineTo(rect.left, b.top + tailHeight);
         }
         tail.close();
-        // Prefer one path, but keep the bubble visible on renderers where path
-        // boolean operations fail for a rounded body joined to a triangle.
-        combined.reset();
-        if (combined.op(body, tail, Path.Op.UNION)) {
-            canvas.drawPath(combined, paint);
-        } else {
-            canvas.drawPath(tail, paint);
-            canvas.drawPath(body, paint);
-        }
+        // Draw the tail first and the body over its base. This avoids relying
+        // on Path.op(), which can return an empty path on vendor renderers.
+        canvas.drawPath(tail, paint);
+        canvas.drawPath(body, paint);
     }
 
     @Override

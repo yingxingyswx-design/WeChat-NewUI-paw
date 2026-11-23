@@ -36,6 +36,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> ROUNDED_STICKERS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, android.view.ViewOutlineProvider>
+            STICKER_OUTLINES = new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> AVATAR_CHAIN_LOGGED =
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> DIAGNOSTIC_SNAPSHOTS =
@@ -153,10 +155,13 @@ final class ChatBubbleStyler {
             }
             view.setOutlineProvider(outlineProvider);
             view.setClipToOutline(clipToOutline);
-            if (view instanceof android.widget.ImageView && imageDrawable != null) {
+            if (view instanceof android.widget.ImageView) {
                 android.widget.ImageView image = (android.widget.ImageView) view;
                 android.graphics.drawable.Drawable current = image.getDrawable();
-                if (current instanceof OvalClipDrawable
+                if (current instanceof RoundedRectClipDrawable) {
+                    image.setImageDrawable(
+                            ((RoundedRectClipDrawable) current).getWrappedDrawable());
+                } else if (imageDrawable != null && current instanceof OvalClipDrawable
                         && ((OvalClipDrawable) current).wraps(imageDrawable)) {
                     image.setImageDrawable(imageDrawable);
                 }
@@ -284,6 +289,7 @@ final class ChatBubbleStyler {
         ORIGINAL.clear();
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
+        STICKER_OUTLINES.clear();
         DIAGNOSTIC_SNAPSHOTS.clear();
         APPLIED_DIAGNOSTICS.clear();
         diagnosticItemsLogged = 0;
@@ -396,6 +402,7 @@ final class ChatBubbleStyler {
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             bubble.setBackgroundTintList(null);
         }
+        bubble.invalidate();
         APPLIED.put(bubble, shape);
         bubble.setPadding(M3Theme.dp(context, 14f), M3Theme.dp(context, 10f),
                 M3Theme.dp(context, 14f), M3Theme.dp(context, 10f));
@@ -785,23 +792,57 @@ final class ChatBubbleStyler {
         }
         boolean panelThumbnail = panelThumbnails
                 && isPanelStickerThumbnail(view, context);
-        if ((isStickerView(view) || panelThumbnail)
-                && ROUNDED_STICKERS.put(view, Boolean.TRUE) == null) {
+        if (isStickerView(view) || panelThumbnail) {
             final float radius = M3Theme.dpF(context, panelThumbnail ? 12f : 20f);
-            remember(view);
-            view.setClipToOutline(true);
-            view.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                @Override
-                public void getOutline(View target, android.graphics.Outline outline) {
-                    outline.setRoundRect(0, 0, target.getWidth(), target.getHeight(), radius);
+            boolean firstClip = ROUNDED_STICKERS.put(view, Boolean.TRUE) == null;
+            android.view.ViewOutlineProvider stickerOutline = STICKER_OUTLINES.get(view);
+            if (stickerOutline == null) {
+                stickerOutline = new android.view.ViewOutlineProvider() {
+                    @Override
+                    public void getOutline(View target, android.graphics.Outline outline) {
+                        outline.setRoundRect(0, 0, target.getWidth(), target.getHeight(), radius);
+                    }
+                };
+                STICKER_OUTLINES.put(view, stickerOutline);
+            }
+            boolean outlineChanged = false;
+            if (view.getOutlineProvider() != stickerOutline) {
+                remember(view);
+                view.setOutlineProvider(stickerOutline);
+                outlineChanged = true;
+            }
+            if (!view.getClipToOutline()) {
+                remember(view);
+                view.setClipToOutline(true);
+                outlineChanged = true;
+            }
+            if (outlineChanged) {
+                view.invalidateOutline();
+                view.invalidate();
+            }
+            if (firstClip) {
+                android.util.Log.i("WeChatGlass", "CB rounded sticker "
+                        + (panelThumbnails ? "panel " : "message ")
+                        + view.getClass().getName() + " " + view.getWidth()
+                        + "x" + view.getHeight() + " clip=" + view.getClipToOutline());
+            }
+            if (view instanceof android.widget.ImageView) {
+                android.widget.ImageView image = (android.widget.ImageView) view;
+                android.graphics.drawable.Drawable drawable = image.getDrawable();
+                boolean alreadyRounded = drawable instanceof RoundedRectClipDrawable
+                        && ((RoundedRectClipDrawable) drawable).hasRadius(radius);
+                if (drawable != null && !alreadyRounded) {
+                    if (drawable instanceof RoundedRectClipDrawable) {
+                        drawable = ((RoundedRectClipDrawable) drawable).getWrappedDrawable();
+                    }
+                    remember(view);
+                    image.setImageDrawable(new RoundedRectClipDrawable(drawable, radius));
+                    android.util.Log.i("WeChatGlass", "CB sticker drawable clip "
+                            + (panelThumbnails ? "panel " : "message ")
+                            + view.getClass().getName() + " " + view.getWidth()
+                            + "x" + view.getHeight());
                 }
-            });
-            view.invalidateOutline();
-            view.invalidate();
-            android.util.Log.i("WeChatGlass", "CB rounded sticker "
-                    + (panelThumbnails ? "panel " : "message ")
-                    + view.getClass().getName() + " " + view.getWidth()
-                    + "x" + view.getHeight() + " clip=" + view.getClipToOutline());
+            }
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
@@ -1140,6 +1181,7 @@ final class ChatBubbleStyler {
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             media.setBackgroundTintList(null);
         }
+        media.invalidate();
         APPLIED.put(media, shape);
         ViewState original = ORIGINAL.get(media);
         int inset = M3Theme.dp(context, 8f);
@@ -1171,16 +1213,36 @@ final class ChatBubbleStyler {
         android.graphics.drawable.Drawable background = view.getBackground();
         android.graphics.drawable.Drawable foreground = android.os.Build.VERSION.SDK_INT < 23
                 ? null : view.getForeground();
+        String childState = "-";
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            StringBuilder children = new StringBuilder();
+            for (int i = 0; i < group.getChildCount() && i < 8; i++) {
+                View child = group.getChildAt(i);
+                if (i > 0) children.append('|');
+                android.graphics.drawable.Drawable childBg = child.getBackground();
+                children.append(child.getClass().getSimpleName())
+                        .append('@').append(child.getWidth()).append('x')
+                        .append(child.getHeight()).append("/bg=")
+                        .append(childBg == null ? "-" : childBg.getClass().getSimpleName())
+                        .append("/vis=").append(child.getVisibility());
+            }
+            childState = children.toString();
+        }
         String signature = kind + ":bg="
                 + (background == null ? "-" : background.getClass().getSimpleName()
                 + "@" + Integer.toHexString(System.identityHashCode(background)))
+                + ",color=" + (background instanceof BubbleDrawable
+                ? "#" + Integer.toHexString(((BubbleDrawable) background).fillColor()) : "-")
+                + ",bounds=" + (background == null ? "-" : background.getBounds().toShortString())
                 + ",fg=" + (foreground == null ? "-"
                 : foreground.getClass().getSimpleName())
                 + ",tint=" + (android.os.Build.VERSION.SDK_INT < 21
                 || view.getBackgroundTintList() == null ? "-" : "set")
                 + ",clip=" + view.getClipToOutline()
                 + ",attached=" + view.isAttachedToWindow()
-                + ",size=" + view.getWidth() + "x" + view.getHeight();
+                + ",size=" + view.getWidth() + "x" + view.getHeight()
+                + ",children=" + childState;
         if (signature.equals(APPLIED_DIAGNOSTICS.get(view))) {
             return;
         }
