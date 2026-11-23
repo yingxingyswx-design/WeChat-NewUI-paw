@@ -56,8 +56,6 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, ViewGroup> MESSAGE_TIME_HOSTS =
             new WeakHashMap<>();
-    private static final WeakHashMap<View, MessageTimePadding> MESSAGE_TIME_PADDING =
-            new WeakHashMap<>();
     private static final WeakHashMap<View, CachedMessageTime> MESSAGE_TIME_CACHE =
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> MESSAGE_TIME_SOURCES =
@@ -116,21 +114,6 @@ final class ChatBubbleStyler {
                 bestRank = rank;
                 bestPath = path;
             }
-        }
-    }
-
-    private static final class MessageTimePadding {
-        final int left;
-        final int top;
-        final int right;
-        final int bottom;
-        int extraTop;
-
-        MessageTimePadding(View view) {
-            left = view.getPaddingLeft();
-            top = view.getPaddingTop();
-            right = view.getPaddingRight();
-            bottom = view.getPaddingBottom();
         }
     }
 
@@ -382,7 +365,6 @@ final class ChatBubbleStyler {
         }
         MESSAGE_TIME_LABELS.clear();
         MESSAGE_TIME_HOSTS.clear();
-        MESSAGE_TIME_PADDING.clear();
         MESSAGE_TIME_CACHE.clear();
         MESSAGE_TIME_SOURCES.clear();
         TIME_DIAGNOSTICS.clear();
@@ -648,35 +630,6 @@ final class ChatBubbleStyler {
                 0, 0, anchor.getWidth(), anchor.getHeight());
         overlayHost.offsetDescendantRectToMyCoords(anchor, anchorBounds);
         int gap = M3Theme.dp(context, 2f);
-        MessageTimePadding padding = MESSAGE_TIME_PADDING.get(item);
-        if (padding == null) {
-            padding = new MessageTimePadding(item);
-            MESSAGE_TIME_PADDING.put(item, padding);
-        }
-        // Reserve only the missing space above this bubble. The label can then
-        // stay inside the row overlay and move with the row during scrolling.
-        int baseAnchorTop = Math.max(0, anchorBounds.top - padding.extraTop);
-        int neededTop = Math.max(0, labelHeight + gap - baseAnchorTop);
-        // Keep the row's reserved time slot stable if RecyclerView reuses this
-        // item view for another message with a different internal layout.
-        int extraTop = Math.max(padding.extraTop, neededTop);
-        if (extraTop != padding.extraTop) {
-            remember(item);
-            padding.extraTop = extraTop;
-            item.setPadding(padding.left, padding.top + extraTop,
-                    padding.right, padding.bottom);
-            item.requestLayout();
-            final View timeAnchor = anchor;
-            final View timeAvatar = avatar;
-            item.post(new Runnable() {
-                @Override
-                public void run() {
-                    if (item.isAttachedToWindow()) {
-                        updateMessageTime(item, timeAnchor, timeAvatar, context);
-                    }
-                }
-            });
-        }
         boolean outgoing = avatar != null
                 ? isOutgoingByAvatar(avatar, context.getResources().getDisplayMetrics().widthPixels)
                 : anchorBounds.centerX()
@@ -684,8 +637,20 @@ final class ChatBubbleStyler {
         int x = outgoing
                 ? anchorBounds.right - labelWidth : anchorBounds.left;
         int y = anchorBounds.top - labelHeight - gap;
+        float scaleY = 1f;
+        if (y < 0) {
+            int availableHeight = Math.max(1, anchorBounds.top - gap);
+            scaleY = Math.min(1f, availableHeight / (float) Math.max(1, labelHeight));
+            y = 0;
+        }
         x = Math.max(0, Math.min(x, Math.max(0, overlayHost.getWidth() - labelWidth)));
         y = Math.max(0, Math.min(y, Math.max(0, overlayHost.getHeight() - labelHeight)));
+        if (label.getPivotY() != 0f) {
+            label.setPivotY(0f);
+        }
+        if (Math.abs(label.getScaleY() - scaleY) > 0.01f) {
+            label.setScaleY(scaleY);
+        }
         if (label.getLeft() != x || label.getTop() != y
                 || label.getRight() != x + labelWidth
                 || label.getBottom() != y + labelHeight) {
@@ -696,8 +661,7 @@ final class ChatBubbleStyler {
         String source = item.getClass().getName() + ":" + cached.path
                 + ":anchor=" + anchor.getClass().getName()
                 + ":host=" + overlayHost.getClass().getName()
-                + ":binding=" + bindingSignature
-                + ":extraTop=" + extraTop;
+                + ":binding=" + bindingSignature;
         if (!source.equals(MESSAGE_TIME_SOURCES.get(item))) {
             MESSAGE_TIME_SOURCES.put(item, source);
             android.util.Log.i("WeChatGlass", "CB time source=" + source
