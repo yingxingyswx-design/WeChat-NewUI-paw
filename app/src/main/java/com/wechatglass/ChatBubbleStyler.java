@@ -18,6 +18,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.IdentityHashMap;
 import java.util.Locale;
@@ -91,9 +93,11 @@ final class ChatBubbleStyler {
                 return;
             }
             String lower = path.toLowerCase(java.util.Locale.ROOT);
-            boolean hinted = lower.contains("time") || lower.contains("date")
-                    || lower.contains("create") || lower.contains("send");
-            int rank = depth * 2 - (hinted ? 1 : 0);
+            int hint = lower.contains("createtime") ? 5
+                    : lower.contains("msgtime") || lower.contains("sendtime") ? 4
+                    : lower.contains("timestamp") || lower.contains("date") ? 3
+                    : lower.contains("time") ? 2 : 0;
+            int rank = depth * 10 - hint;
             if (rank < bestRank) {
                 bestMillis = millis;
                 bestRank = rank;
@@ -673,19 +677,18 @@ final class ChatBubbleStyler {
             return;
         }
         String className = type.getName();
-        boolean supportedClass = className.startsWith("com.tencent.mm.")
-                || className.startsWith("com.tencent.wework.")
+        boolean supportedClass = isApplicationModelClass(className)
                 || className.startsWith("androidx.recyclerview.widget.RecyclerView$");
         if (!supportedClass && !root) {
             return;
         }
+        scanTimestampGetters(value, search, depth, path);
         Class<?> cursor = type;
         int fieldCount = 0;
         while (cursor != null && cursor != Object.class && fieldCount < 48
                 && search.objectsVisited < MAX_TIME_GRAPH_OBJECTS) {
             String ownerName = cursor.getName();
-            if (!(ownerName.startsWith("com.tencent.mm.")
-                    || ownerName.startsWith("com.tencent.wework.")
+            if (!(isApplicationModelClass(ownerName)
                     || ownerName.startsWith("androidx.recyclerview.widget.RecyclerView$"))) {
                 break;
             }
@@ -695,7 +698,15 @@ final class ChatBubbleStyler {
             } catch (Throwable ignored) {
                 break;
             }
-            for (Field field : fields) {
+            ArrayList<Field> orderedFields = new ArrayList<>();
+            Collections.addAll(orderedFields, fields);
+            Collections.sort(orderedFields, new Comparator<Field>() {
+                @Override
+                public int compare(Field left, Field right) {
+                    return fieldScanPriority(right) - fieldScanPriority(left);
+                }
+            });
+            for (Field field : orderedFields) {
                 if (fieldCount++ >= 48 || Modifier.isStatic(field.getModifiers())) continue;
                 try {
                     field.setAccessible(true);
@@ -714,6 +725,53 @@ final class ChatBubbleStyler {
                 }
             }
             cursor = cursor.getSuperclass();
+        }
+    }
+
+    private static boolean isApplicationModelClass(String name) {
+        return name != null && !name.startsWith("java.")
+                && !name.startsWith("javax.") && !name.startsWith("android.")
+                && !name.startsWith("androidx.") && !name.startsWith("kotlin.")
+                && !name.startsWith("kotlinx.") && !name.startsWith("dalvik.")
+                && !name.startsWith("sun.") && !name.startsWith("org.");
+    }
+
+    private static int fieldScanPriority(Field field) {
+        String name = field.getName().toLowerCase(Locale.ROOT);
+        String type = field.getType().getName().toLowerCase(Locale.ROOT);
+        int score = 0;
+        if (name.contains("create") || name.contains("send") || name.contains("time")) score += 12;
+        if (name.contains("msg") || name.contains("message") || name.contains("item")
+                || name.contains("data") || name.contains("model") || name.contains("info")
+                || name.contains("param") || name.contains("record")) score += 5;
+        if (type.contains("storage.e9") || type.contains("msginfo")
+                || type.contains("ym5.") || type.contains("fo5.")) score += 12;
+        if (type.contains("context") || type.contains("activity")
+                || type.contains("manager") || type.contains("controller")) score -= 12;
+        return score;
+    }
+
+    private static void scanTimestampGetters(Object value, TimeSearch search,
+                                             int depth, String path) {
+        String[] names = {"getCreateTime", "getMsgTime", "getSendTime", "getTimestamp"};
+        for (String name : names) {
+            try {
+                java.lang.reflect.Method method = value.getClass().getMethod(name);
+                if (method.getParameterTypes().length != 0) continue;
+                Class<?> resultType = method.getReturnType();
+                if (resultType != long.class && resultType != Long.class
+                        && resultType != int.class && resultType != Integer.class
+                        && !Date.class.isAssignableFrom(resultType)) continue;
+                Object result = method.invoke(value);
+                if (result instanceof Number) {
+                    search.consider(((Number) result).longValue(), depth + 1,
+                            path + "." + name + "()");
+                } else if (result instanceof Date) {
+                    search.consider(((Date) result).getTime(), depth + 1,
+                            path + "." + name + "()");
+                }
+            } catch (Throwable ignored) {
+            }
         }
     }
 
