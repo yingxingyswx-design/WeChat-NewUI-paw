@@ -32,6 +32,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<ViewGroup, Boolean> DECORATED =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, Boolean> ROUNDED_STICKERS =
+            new WeakHashMap<>();
     private static volatile boolean active;
     private static int diag;
     // One structural trace per direction is enough to identify whether the
@@ -98,6 +100,9 @@ final class ChatBubbleStyler {
         if (item == null) {
             return;
         }
+        // Sticker messages do not necessarily contain text, so apply their
+        // visual treatment before looking for a text-bubble target.
+        roundStickers(item, context, 0);
         View target = findBubbleTarget(item, null, 0);
         if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0
                 || target.getVisibility() != View.VISIBLE) {
@@ -276,6 +281,50 @@ final class ChatBubbleStyler {
             }
         });
         avatar.invalidate();
+    }
+
+    /**
+     * WeChat renders custom stickers with MMAnimateView.  Constrain matching
+     * views to a real chat item so the emoji picker, avatars and other WeChat
+     * surfaces keep their native geometry.
+     */
+    private static void roundStickers(View view, Context context, int depth) {
+        if (view == null || depth > 8) {
+            return;
+        }
+        if (isStickerView(view) && ROUNDED_STICKERS.put(view, Boolean.TRUE) == null) {
+            final float radius = M3Theme.dpF(context, 20f);
+            view.setClipToOutline(true);
+            view.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View target, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, target.getWidth(), target.getHeight(), radius);
+                }
+            });
+            view.invalidateOutline();
+            view.invalidate();
+            android.util.Log.i("WeChatGlass", "CB rounded sticker "
+                    + view.getClass().getName() + " " + view.getWidth()
+                    + "x" + view.getHeight());
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                roundStickers(group.getChildAt(i), context, depth + 1);
+            }
+        }
+    }
+
+    private static boolean isStickerView(View view) {
+        if (view.getVisibility() != View.VISIBLE || view.getWidth() < dp(32)
+                || view.getHeight() < dp(32)) {
+            return false;
+        }
+        String name = view.getClass().getName();
+        return name.contains("MMAnimateView")
+                || name.contains("EmojiImageView")
+                || name.contains("EmojiView")
+                || name.contains("GifImageView");
     }
 
     private static boolean hasAvatar(View item) {
