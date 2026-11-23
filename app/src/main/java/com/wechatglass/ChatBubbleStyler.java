@@ -26,9 +26,58 @@ final class ChatBubbleStyler {
 
 
     private static volatile boolean active;
+    private static final WeakHashMap<TextView, Boolean> MESSAGES = new WeakHashMap<>();
 
     static boolean isActive() {
         return active;
+    }
+
+    private static boolean inChatList(View v) {
+        for (int i = 0; i < 10 && v != null; i++) {
+            if (v.getClass().getName().contains("ScrollControlRecyclerView")) {
+                return true;
+            }
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return false;
+    }
+
+    static void mark(final TextView text) {
+        if (text == null) {
+            return;
+        }
+        MESSAGES.put(text, Boolean.TRUE);
+        text.postDelayed(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (text.getWidth() > 0 && text.getHeight() > 0
+                            && inChatList(text)) {
+                        View p = text.getParent() instanceof View
+                                ? (View) text.getParent() : null;
+                        android.util.Log.i("WeChatGlass", "CB marked txt="
+                                + shorten(String.valueOf(text.getText()))
+                                + " " + text.getWidth() + "x" + text.getHeight()
+                                + " parent=" + (p == null ? "null"
+                                : p.getClass().getSimpleName() + " "
+                                + p.getWidth() + "x" + p.getHeight()));
+                        styleX2C(text, text.getContext());
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }, 180L);
+    }
+
+    static void styleMarked(Context context) {
+        for (TextView text : MESSAGES.keySet().toArray(new TextView[0])) {
+            if (text == null || text.getWidth() <= 0 || text.getHeight() <= 0) {
+                continue;
+            }
+            try {
+                styleX2C(text, context);
+            } catch (Throwable ignored) {
+            }
+        }
     }
     private static final WeakHashMap<android.app.Activity, Boolean> STARTED =
             new WeakHashMap<>();
@@ -61,7 +110,6 @@ final class ChatBubbleStyler {
                     if (list instanceof ViewGroup) {
                         styleVisible((ViewGroup) list, activity);
                     }
-                    styleDecor(decor, activity);
                 } catch (Throwable ignored) {
                 }
                 handler.postDelayed(this, 600L);
@@ -94,16 +142,8 @@ final class ChatBubbleStyler {
 
     private static void styleDecor(View view, Context context) {
         if (view == null) return;
-        if (view.getClass().getName().contains("X2CTextView")
-                && view instanceof TextView) {
-            TextView tv = (TextView) view;
-            CharSequence cs = tv.getText();
-            if (cs != null && cs.length() > 0 && !isChromeText(cs.toString())) {
-                styleX2C(tv, context);
-            }
-        }
         if (!ancestorLogged && view instanceof TextView
-                && "干嘛".contentEquals(((TextView) view).getText())) {
+                && String.valueOf(((TextView) view).getText()).contains("干嘛")) {
             ancestorLogged = true;
             View cur = view;
             for (int i = 0; i < 8 && cur != null; i++) {
@@ -129,7 +169,7 @@ final class ChatBubbleStyler {
         }
     }
 
-    private static boolean isChromeText(String s) {
+    static boolean isChromeText(String s) {
         return s.matches("\\d{1,2}:\\d{2}") || s.contains("昨日")
                 || s.contains("昨日") || s.contains("星期")
                 || s.matches("\\d{1,2}/\\d{1,2}");
@@ -138,7 +178,11 @@ final class ChatBubbleStyler {
     private static void styleX2C(TextView text, Context context) {
         View bubble = text;
         View parent = text.getParent() instanceof View ? (View) text.getParent() : null;
-        if (parent != null && parent.getClass().getName().contains("X2CLinearLayout")) {
+        int screen0 = context.getResources().getDisplayMetrics().widthPixels;
+        if (parent instanceof ViewGroup
+                && parent.getWidth() > 0 && parent.getHeight() > 0
+                && parent.getWidth() <= screen0 * 86 / 100
+                && parent.getHeight() <= text.getHeight() + M3Theme.dp(context, 48f)) {
             bubble = parent;
         }
         int[] loc = new int[2];
@@ -149,6 +193,13 @@ final class ChatBubbleStyler {
         int color = outgoing
                 ? M3ColorScheme.mix(scheme.surface, scheme.primary, 0.18f)
                 : scheme.surfaceContainerHighest;
+        View cur = text;
+        for (int i = 0; i < 6 && cur != null && cur != bubble; i++) {
+            if (cur.getBackground() != null) {
+                cur.setBackground(null);
+            }
+            cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
+        }
         android.graphics.drawable.GradientDrawable shape =
                 M3Drawable.fill(context, color, M3Shape.LARGE_INCREASED);
         bubble.setBackground(shape);
@@ -251,7 +302,20 @@ final class ChatBubbleStyler {
                 ? M3ColorScheme.mix(scheme.surface, scheme.primary, 0.18f)
                 : scheme.surfaceContainerHighest;
 
-        View bubble = bkj != null ? bkj : best;
+        View bubble = bkj;
+        if (bubble == null) {
+            View parent = best.getParent() instanceof View
+                    ? (View) best.getParent() : null;
+            int sw = context.getResources().getDisplayMetrics().widthPixels;
+            if (parent instanceof ViewGroup
+                    && parent.getWidth() > 0 && parent.getHeight() > 0
+                    && parent.getWidth() <= sw * 86 / 100
+                    && parent.getHeight() <= best.getHeight() + M3Theme.dp(context, 48f)) {
+                bubble = parent;
+            } else {
+                bubble = best;
+            }
+        }
         android.graphics.drawable.GradientDrawable shape =
                 M3Drawable.fill(context, color, M3Shape.LARGE_INCREASED);
         bubble.setBackground(shape);

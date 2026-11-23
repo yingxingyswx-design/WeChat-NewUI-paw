@@ -52,6 +52,8 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookFreGriest(lpparam.classLoader);
         hookNeatTextBackground(lpparam.classLoader);
         hookNeatTextAttach(lpparam.classLoader);
+        hookCanvasText();
+        hookDrawChild();
         hookShadowLoader();
         XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
                 Bundle.class, new XC_MethodHook() {
@@ -237,6 +239,101 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 ChatBubbleStyler.attachText(
                                         (android.widget.TextView) param.thisObject);
                             }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void hookDrawChild() {
+        try {
+            XposedHelpers.findAndHookMethod(android.view.ViewGroup.class,
+                    "drawChild", android.graphics.Canvas.class,
+                    android.view.View.class, long.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            try {
+                                ChatBubbleDrawer.draw(
+                                        (android.graphics.Canvas) param.args[0],
+                                        (android.view.ViewGroup) param.thisObject,
+                                        (android.view.View) param.args[1]);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean textSetLogged;
+
+    private static void hookTextSet() {
+        try {
+            XposedHelpers.findAndHookMethod(android.widget.TextView.class,
+                    "setText", CharSequence.class,
+                    android.widget.TextView.BufferType.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String s = String.valueOf(param.args[0]);
+                            if (ChatBubbleStyler.isActive() && s.length() > 0
+                                    && !ChatBubbleStyler.isChromeText(s)
+                                    && param.thisObject instanceof android.widget.TextView) {
+                                ChatBubbleStyler.mark(
+                                        (android.widget.TextView) param.thisObject);
+                            }
+                            if (textSetLogged) return;
+                            if (!s.contains("干嘛") && !s.contains("我在打游戏")
+                                    && !s.contains("不要") && !s.contains("无聊")) {
+                                return;
+                            }
+                            textSetLogged = true;
+                            android.util.Log.i("WeChatGlass", "CB setText " + s
+                                    + " class=" + param.thisObject.getClass().getName());
+                            View v = (View) param.thisObject;
+                            for (int i = 0; i < 8 && v != null; i++) {
+                                android.util.Log.i("WeChatGlass", "CB set anc " + i
+                                        + " " + v.getClass().getSimpleName()
+                                        + " id=0x" + Integer.toHexString(v.getId())
+                                        + " " + v.getWidth() + "x" + v.getHeight());
+                                v = v.getParent() instanceof View
+                                        ? (View) v.getParent() : null;
+                            }
+                        }
+                    });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean canvasTextLogged;
+
+    private static void hookCanvasText() {
+        try {
+            XposedHelpers.findAndHookMethod(android.graphics.Canvas.class,
+                    "drawText", String.class, float.class, float.class,
+                    android.graphics.Paint.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (canvasTextLogged) return;
+                            Object s = param.args[0];
+                            if (!(s instanceof String)) return;
+                            String text = (String) s;
+                            if (!text.contains("干嘛") && !text.contains("我在打游戏")
+                                    && !text.contains("不要") && !text.contains("无聊")) {
+                                return;
+                            }
+                            canvasTextLogged = true;
+                            StringBuilder sb = new StringBuilder();
+                            for (StackTraceElement e : new Throwable().getStackTrace()) {
+                                String n = e.getClassName();
+                                if (n.contains("com.tencent.mm")
+                                        || n.contains("X2C")
+                                        || n.contains("Chatting")) {
+                                    sb.append(n).append('#').append(e.getMethodName())
+                                            .append(" <- ");
+                                }
+                            }
+                            android.util.Log.i("WeChatGlass", "CB canvas text="
+                                    + text + " stack=" + sb);
                         }
                     });
         } catch (Throwable ignored) {
