@@ -46,6 +46,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, android.view.ViewOutlineProvider>
             STICKER_OUTLINES = new WeakHashMap<>();
+    private static final WeakHashMap<View, Float> STICKER_OUTLINE_RADII =
+            new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> AVATAR_CHAIN_LOGGED =
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> DIAGNOSTIC_SNAPSHOTS =
@@ -215,6 +217,10 @@ final class ChatBubbleStyler {
         final boolean clipToOutline;
         final android.view.ViewOutlineProvider outlineProvider;
         final boolean clipChildren;
+        final float scaleX;
+        final float scaleY;
+        final float pivotX;
+        final float pivotY;
         final android.graphics.drawable.Drawable imageDrawable;
         final android.content.res.ColorStateList textColors;
         final float textSize;
@@ -245,6 +251,10 @@ final class ChatBubbleStyler {
             outlineProvider = view.getOutlineProvider();
             clipChildren = view instanceof ViewGroup
                     && ((ViewGroup) view).getClipChildren();
+            scaleX = view.getScaleX();
+            scaleY = view.getScaleY();
+            pivotX = view.getPivotX();
+            pivotY = view.getPivotY();
             imageDrawable = view instanceof android.widget.ImageView
                     ? ((android.widget.ImageView) view).getDrawable() : null;
             if (view instanceof TextView) {
@@ -289,6 +299,10 @@ final class ChatBubbleStyler {
             }
             view.setOutlineProvider(outlineProvider);
             view.setClipToOutline(clipToOutline);
+            view.setPivotX(pivotX);
+            view.setPivotY(pivotY);
+            view.setScaleX(scaleX);
+            view.setScaleY(scaleY);
             if (view instanceof android.widget.ImageView) {
                 android.widget.ImageView image = (android.widget.ImageView) view;
                 android.graphics.drawable.Drawable current = image.getDrawable();
@@ -790,6 +804,7 @@ final class ChatBubbleStyler {
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
         STICKER_OUTLINES.clear();
+        STICKER_OUTLINE_RADII.clear();
         DIAGNOSTIC_SNAPSHOTS.clear();
         APPLIED_DIAGNOSTICS.clear();
         diagnosticItemsLogged = 0;
@@ -1661,12 +1676,7 @@ final class ChatBubbleStyler {
         View current = visual.getParent() instanceof View
                 ? (View) visual.getParent() : null;
         while (current != null && current != item) {
-            boolean mirrorsVisual = current instanceof ViewGroup
-                    && ((ViewGroup) current).getChildCount() == 1
-                    && ((ViewGroup) current).getChildAt(0) == visual
-                    && current.getWidth() == visual.getWidth()
-                    && current.getHeight() == visual.getHeight();
-            if (!mirrorsVisual && current instanceof ViewGroup && current != avatar
+            if (current instanceof ViewGroup && current != avatar
                     && !isDescendantOf(avatar, current)
                     && current.getWidth() >= visual.getWidth()
                     && current.getHeight() >= visual.getHeight()
@@ -1845,7 +1855,9 @@ final class ChatBubbleStyler {
             final float radius = M3Theme.dpF(context, panelThumbnail ? 12f : 20f);
             boolean firstClip = ROUNDED_STICKERS.put(view, Boolean.TRUE) == null;
             android.view.ViewOutlineProvider stickerOutline = STICKER_OUTLINES.get(view);
-            if (stickerOutline == null) {
+            Float previousRadius = STICKER_OUTLINE_RADII.get(view);
+            if (stickerOutline == null || previousRadius == null
+                    || Float.compare(previousRadius, radius) != 0) {
                 stickerOutline = new android.view.ViewOutlineProvider() {
                     @Override
                     public void getOutline(View target, android.graphics.Outline outline) {
@@ -1853,6 +1865,7 @@ final class ChatBubbleStyler {
                     }
                 };
                 STICKER_OUTLINES.put(view, stickerOutline);
+                STICKER_OUTLINE_RADII.put(view, radius);
             }
             boolean outlineChanged = false;
             if (view.getOutlineProvider() != stickerOutline) {
@@ -1881,7 +1894,10 @@ final class ChatBubbleStyler {
                 boolean alreadyRounded = drawable instanceof RoundedRectClipDrawable
                         && ((RoundedRectClipDrawable) drawable).hasRadius(radius);
                 boolean animated = drawable instanceof android.graphics.drawable.Animatable;
-                boolean wrapDrawable = messageSticker || panelThumbnail && !animated;
+                // Keep WeChat's animated drawable object intact. The view's
+                // outline handles animated content; wrapping it breaks some
+                // MMGIF loaders even when Animatable is forwarded.
+                boolean wrapDrawable = (messageSticker || panelThumbnail) && !animated;
                 if (wrapDrawable && drawable != null && !alreadyRounded) {
                     if (drawable instanceof RoundedRectClipDrawable) {
                         drawable = ((RoundedRectClipDrawable) drawable).getWrappedDrawable();
@@ -1906,11 +1922,10 @@ final class ChatBubbleStyler {
 
     private static boolean isPanelStickerThumbnail(View view, Context context) {
         if (!(view instanceof android.widget.ImageView)
-                || view.getVisibility() != View.VISIBLE
-                || ((android.widget.ImageView) view).getDrawable() == null) {
+                || view.getVisibility() != View.VISIBLE) {
             return false;
         }
-        int minSide = M3Theme.dp(context, 44f);
+        int minSide = M3Theme.dp(context, 28f);
         if (view.getWidth() < minSide || view.getHeight() < minSide) {
             return false;
         }
@@ -2245,13 +2260,19 @@ final class ChatBubbleStyler {
         int color = scheme.primary;
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
         float tail = M3Theme.dpF(context, 7f);
-        BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing);
         clearMediaVisualBackgrounds(media, media, avatar, context, 0);
+        View[] visual = {null};
+        long[] visualArea = {0L};
+        findLargestMediaVisual(media, avatar, context, 0, visual, visualArea);
+        applyMediaVisualScale(media, avatar, context, visualArea[0], 0);
+        android.graphics.RectF contentBounds = mediaBubbleContentBounds(
+                media, visual[0], context);
+        BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing,
+                contentBounds);
         remember(media);
-        applyMediaBubbleInsets(media, context);
         BubbleDrawable previous = APPLIED.get(media);
         if (previous != null && media.getBackground() == previous
-                && previous.matches(color, radius, tail, outgoing)) {
+                && previous.matches(color, radius, tail, outgoing, contentBounds)) {
             return;
         }
         media.setBackground(shape);
@@ -2269,43 +2290,62 @@ final class ChatBubbleStyler {
             remember(parent);
             parent.setClipChildren(false);
         }
-        media.requestLayout();
+        media.invalidate();
         logAppliedSurface("media", media);
     }
 
-    private static void applyMediaBubbleInsets(View media, Context context) {
-        int inset = M3Theme.dp(context, 7f);
-        if (media instanceof ViewGroup
-                && media.getClass().getName().contains("StretchFrameLayout")) {
-            ViewGroup group = (ViewGroup) media;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                View child = group.getChildAt(i);
-                boolean mediaContent = child instanceof android.widget.ImageView
-                        || child instanceof android.view.SurfaceView
-                        || child instanceof android.view.TextureView
-                        || isStickerView(child);
-                boolean fillsContainer = child.getWidth() >= media.getWidth() / 2
-                        && child.getHeight() >= media.getHeight() / 2;
-                if (mediaContent && fillsContainer) {
-                    remember(child);
-                    applyPaddingInset(child, inset);
-                }
-            }
+    private static void applyMediaVisualScale(View view, View avatar,
+                                              Context context, long largestArea,
+                                              int depth) {
+        if (view == null || view == avatar || isDescendantOf(view, avatar)
+                || depth > 18 || view.getVisibility() != View.VISIBLE
+                || view.getAlpha() <= 0f) {
             return;
         }
-        applyPaddingInset(media, inset);
+        if (isMediaVisual(view, context)) {
+            long area = (long) view.getWidth() * view.getHeight();
+            if (largestArea <= 0L || area * 100L >= largestArea * 70L) {
+                int inset = M3Theme.dp(context, 4f);
+                float scaleX = Math.max(0.84f,
+                        (view.getWidth() - inset * 2f) / view.getWidth());
+                float scaleY = Math.max(0.84f,
+                        (view.getHeight() - inset * 2f) / view.getHeight());
+                remember(view);
+                ViewState original = ORIGINAL.get(view);
+                view.setPivotX(view.getWidth() / 2f);
+                view.setPivotY(view.getHeight() / 2f);
+                view.setScaleX(original.scaleX * scaleX);
+                view.setScaleY(original.scaleY * scaleY);
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                applyMediaVisualScale(group.getChildAt(i), avatar, context,
+                        largestArea, depth + 1);
+            }
+        }
     }
 
-    private static void applyPaddingInset(View media, int inset) {
-        ViewState original = ORIGINAL.get(media);
-        int left = (original == null ? media.getPaddingLeft() : original.paddingLeft) + inset;
-        int top = (original == null ? media.getPaddingTop() : original.paddingTop) + inset;
-        int right = (original == null ? media.getPaddingRight() : original.paddingRight) + inset;
-        int bottom = (original == null ? media.getPaddingBottom() : original.paddingBottom) + inset;
-        if (media.getPaddingLeft() != left || media.getPaddingTop() != top
-                || media.getPaddingRight() != right || media.getPaddingBottom() != bottom) {
-            media.setPadding(left, top, right, bottom);
+    private static android.graphics.RectF mediaBubbleContentBounds(View media,
+                                                                   View visual,
+                                                                   Context context) {
+        if (media == null || visual == null || visual == media) {
+            return null;
         }
+        int[] mediaLocation = new int[2];
+        int[] visualLocation = new int[2];
+        media.getLocationOnScreen(mediaLocation);
+        visual.getLocationOnScreen(visualLocation);
+        float inset = M3Theme.dpF(context, 4f);
+        float left = visualLocation[0] - mediaLocation[0] - inset;
+        float top = visualLocation[1] - mediaLocation[1] - inset;
+        float width = visual.getWidth() * Math.abs(visual.getScaleX());
+        float height = visual.getHeight() * Math.abs(visual.getScaleY());
+        float right = left + width + inset * 2f;
+        float bottom = top + height + inset * 2f;
+        return new android.graphics.RectF(Math.max(0f, left), Math.max(0f, top),
+                Math.min(media.getWidth(), right), Math.min(media.getHeight(), bottom));
     }
 
     private static void clearMediaVisualBackgrounds(View view, View root,
@@ -2384,8 +2424,7 @@ final class ChatBubbleStyler {
                 + ",clip=" + view.getClipToOutline()
                 + ",attached=" + view.isAttachedToWindow()
                 + ",size=" + view.getWidth() + "x" + view.getHeight()
-                + ",padding=" + view.getPaddingLeft() + "/" + view.getPaddingTop()
-                + "/" + view.getPaddingRight() + "/" + view.getPaddingBottom()
+                + ",scale=" + view.getScaleX() + "x" + view.getScaleY()
                 + ",children=" + childState;
         if (signature.equals(APPLIED_DIAGNOSTICS.get(view))) {
             return;
