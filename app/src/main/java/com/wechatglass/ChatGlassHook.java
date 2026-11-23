@@ -1853,6 +1853,7 @@ final class ChatGlassHook {
         View emojiGrid = Ui.findByClassContains(panel, "EmojiPanelGroupView");
         if (emojiGrid != null) {
             emojiGrid.setBackground(null);
+            ChatBubbleStyler.roundStickerPanel(emojiGrid, activity);
         }
     }
 

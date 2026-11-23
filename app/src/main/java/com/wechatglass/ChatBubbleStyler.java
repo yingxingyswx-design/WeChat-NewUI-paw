@@ -298,34 +298,34 @@ final class ChatBubbleStyler {
         View target = findBubbleTarget(item, null, 0);
         if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0
                 || target.getVisibility() != View.VISIBLE) {
-            View card = findRichCardObject(item, avatar, null, context);
-            View media = card == null
-                    ? findMediaBubbleContainer(item, avatar, context) : null;
+            View media = findMediaBubbleContainer(item, avatar, context);
+            View card = media == null
+                    ? findRichCardObject(item, avatar, null, context) : null;
             View selected = card == null ? media : card;
             String branch = card != null ? "rich-hit:no-text-target"
                     : media != null ? "media-hit:no-text-target" : "miss:no-text-target";
             logRuntimeDetection(item, avatar, target, null, selected,
                     branch, context, selected == null);
-            if (card != null) {
-                styleRichCard(card, item, null, avatar, context);
-            } else if (media != null) {
+            if (media != null) {
                 styleMediaBubble(media, item, avatar, context);
+            } else if (card != null) {
+                styleRichCard(card, item, null, avatar, context);
             }
             return;
         }
         if (containsDiagnosticMedia(item, avatar, 0)) {
-            View richCard = findRichCardObject(item, avatar, target, context);
-            if (richCard != null) {
-                logRuntimeDetection(item, avatar, target, null, richCard,
-                        "rich-hit", context, false);
-                styleRichCard(richCard, item, target, avatar, context);
-                return;
-            }
             View media = findMediaBubbleContainer(item, avatar, context);
             if (media != null) {
                 logRuntimeDetection(item, avatar, target, null, media,
                         "media-hit", context, false);
                 styleMediaBubble(media, item, avatar, context);
+                return;
+            }
+            View richCard = findRichCardObject(item, avatar, target, context);
+            if (richCard != null) {
+                logRuntimeDetection(item, avatar, target, null, richCard,
+                        "rich-hit", context, false);
+                styleRichCard(richCard, item, target, avatar, context);
                 return;
             }
         }
@@ -624,7 +624,7 @@ final class ChatBubbleStyler {
             current = current.getParent() instanceof View
                     ? (View) current.getParent() : null;
         }
-        return best;
+        return best != null ? best : visual;
     }
 
     private static void findLargestMediaVisual(View view, View avatar,
@@ -762,17 +762,25 @@ final class ChatBubbleStyler {
         return Math.round(density * value);
     }
 
-    /**
-     * WeChat renders custom stickers with MMAnimateView.  Constrain matching
-     * views to a real chat item so the emoji picker, avatars and other WeChat
-     * surfaces keep their native geometry.
-     */
+    /** Round rendered stickers in a visible message or sticker grid. */
+    static void roundStickerPanel(View view, Context context) {
+        roundStickers(view, context, 0, true);
+    }
+
     private static void roundStickers(View view, Context context, int depth) {
-        if (view == null || depth > 8) {
+        roundStickers(view, context, depth, false);
+    }
+
+    private static void roundStickers(View view, Context context, int depth,
+                                      boolean panelThumbnails) {
+        if (view == null || depth > 16) {
             return;
         }
-        if (isStickerView(view) && ROUNDED_STICKERS.put(view, Boolean.TRUE) == null) {
-            final float radius = M3Theme.dpF(context, 20f);
+        boolean panelThumbnail = panelThumbnails
+                && isPanelStickerThumbnail(view, context);
+        if ((isStickerView(view) || panelThumbnail)
+                && ROUNDED_STICKERS.put(view, Boolean.TRUE) == null) {
+            final float radius = M3Theme.dpF(context, panelThumbnail ? 12f : 20f);
             remember(view);
             view.setClipToOutline(true);
             view.setOutlineProvider(new android.view.ViewOutlineProvider() {
@@ -784,15 +792,31 @@ final class ChatBubbleStyler {
             view.invalidateOutline();
             view.invalidate();
             android.util.Log.i("WeChatGlass", "CB rounded sticker "
+                    + (panelThumbnails ? "panel " : "message ")
                     + view.getClass().getName() + " " + view.getWidth()
                     + "x" + view.getHeight());
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                roundStickers(group.getChildAt(i), context, depth + 1);
+                roundStickers(group.getChildAt(i), context, depth + 1,
+                        panelThumbnails);
             }
         }
+    }
+
+    private static boolean isPanelStickerThumbnail(View view, Context context) {
+        if (!(view instanceof android.widget.ImageView)
+                || view.getVisibility() != View.VISIBLE
+                || ((android.widget.ImageView) view).getDrawable() == null) {
+            return false;
+        }
+        int minSide = M3Theme.dp(context, 44f);
+        if (view.getWidth() < minSide || view.getHeight() < minSide) {
+            return false;
+        }
+        float aspect = view.getWidth() / (float) view.getHeight();
+        return aspect >= 0.62f && aspect <= 1.62f;
     }
 
     private static boolean isStickerView(View view) {
@@ -962,8 +986,7 @@ final class ChatBubbleStyler {
                 ? (View) bubble.getParent() : null;
         int depth = 0;
         while (ancestor != null && ancestor != item && depth++ < 8) {
-            if (ancestor.isClickable() || ancestor.isLongClickable()
-                    || countVisibleTextObjects(ancestor, target, 0) > 2
+            if (countVisibleTextObjects(ancestor, target, 0) > 2
                     || countVisibleContentImages(ancestor, avatar, 0) > 1) {
                 return "ancestor-has-rich-content";
             }
