@@ -87,10 +87,15 @@ final class BubbleDrawable extends Drawable {
             tail.lineTo(rect.left, b.top + tailHeight);
         }
         tail.close();
-        // One filled path, so the tail and body never show an anti-aliased seam.
+        // Prefer one path, but keep the bubble visible on renderers where path
+        // boolean operations fail for a rounded body joined to a triangle.
         combined.reset();
-        combined.op(body, tail, Path.Op.UNION);
-        canvas.drawPath(combined, paint);
+        if (combined.op(body, tail, Path.Op.UNION)) {
+            canvas.drawPath(combined, paint);
+        } else {
+            canvas.drawPath(tail, paint);
+            canvas.drawPath(body, paint);
+        }
     }
 
     @Override

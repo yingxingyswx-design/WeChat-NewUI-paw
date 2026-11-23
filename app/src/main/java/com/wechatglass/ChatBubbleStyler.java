@@ -574,7 +574,7 @@ final class ChatBubbleStyler {
     }
 
     private static boolean containsDiagnosticMedia(View view, View avatar, int depth) {
-        if (view == null || view == avatar || isDescendantOf(avatar, view) || depth > 18
+        if (view == null || view == avatar || isDescendantOf(view, avatar) || depth > 18
                 || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
             return false;
         }
@@ -637,7 +637,7 @@ final class ChatBubbleStyler {
     private static void findLargestMediaVisual(View view, View avatar,
                                                Context context, int depth,
                                                View[] best, long[] bestArea) {
-        if (view == null || view == avatar || isDescendantOf(avatar, view) || depth > 20
+        if (view == null || view == avatar || isDescendantOf(view, avatar) || depth > 20
                 || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
             return;
         }
@@ -1267,7 +1267,7 @@ final class ChatBubbleStyler {
     }
 
     private static int countVisibleContentImages(View view, View avatar, int depth) {
-        if (view == null || view == avatar || isDescendantOf(avatar, view) || depth > 16
+        if (view == null || view == avatar || isDescendantOf(view, avatar) || depth > 16
                 || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
             return 0;
         }
