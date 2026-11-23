@@ -304,7 +304,7 @@ final class ChatBubbleStyler {
         roundStickers(item, context, 0);
         View avatar = findAvatar(item);
         roundChatAvatars(item, avatar);
-        View target = findBubbleTarget(item, null, 0);
+        View target = findBubbleTarget(item, item, avatar, context, null, 0);
         if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0
                 || target.getVisibility() != View.VISIBLE) {
             View media = findMediaBubbleContainer(item, avatar, context);
@@ -402,6 +402,7 @@ final class ChatBubbleStyler {
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             bubble.setBackgroundTintList(null);
         }
+        shape.setBounds(0, 0, bubble.getWidth(), bubble.getHeight());
         bubble.invalidate();
         APPLIED.put(bubble, shape);
         bubble.setPadding(M3Theme.dp(context, 14f), M3Theme.dp(context, 10f),
@@ -618,7 +619,12 @@ final class ChatBubbleStyler {
         View current = visual.getParent() instanceof View
                 ? (View) visual.getParent() : null;
         while (current != null && current != item) {
-            if (current instanceof ViewGroup && current != avatar
+            boolean mirrorsVisual = current instanceof ViewGroup
+                    && ((ViewGroup) current).getChildCount() == 1
+                    && ((ViewGroup) current).getChildAt(0) == visual
+                    && current.getWidth() == visual.getWidth()
+                    && current.getHeight() == visual.getHeight();
+            if (!mirrorsVisual && current instanceof ViewGroup && current != avatar
                     && !isDescendantOf(avatar, current)
                     && current.getWidth() >= visual.getWidth()
                     && current.getHeight() >= visual.getHeight()
@@ -948,7 +954,8 @@ final class ChatBubbleStyler {
         }
     }
 
-    private static View findBubbleTarget(View view, View best, int bestScore) {
+    private static View findBubbleTarget(View view, View item, View avatar,
+                                        Context context, View best, int bestScore) {
         if (view == null) {
             return best;
         }
@@ -956,8 +963,8 @@ final class ChatBubbleStyler {
                 || view.getClass().getName().contains("NeatTextView");
         if (neat && view.getVisibility() == View.VISIBLE
                 && view.getWidth() > 0 && view.getHeight() > 0
-                && !view.isClickable() && !view.isLongClickable()) {
-            int score = view.getWidth() * view.getHeight() * 2;
+                && isCompactMessageText(view, item, avatar, context)) {
+            int score = bubbleTargetScore(view);
             if (score > bestScore) {
                 best = view;
                 bestScore = score;
@@ -969,9 +976,9 @@ final class ChatBubbleStyler {
             if (cs != null && cs.length() > 0
                     && tv.getVisibility() == View.VISIBLE
                     && tv.getWidth() > 0 && tv.getHeight() > 0
-                    && !tv.isClickable() && !tv.isLongClickable()
+                    && isCompactMessageText(tv, item, avatar, context)
                     && !isChromeText(cs.toString())) {
-                int score = tv.getWidth() * Math.max(1, cs.length());
+                int score = bubbleTargetScore(tv);
                 if (score > bestScore) {
                     best = tv;
                     bestScore = score;
@@ -981,7 +988,8 @@ final class ChatBubbleStyler {
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                View found = findBubbleTarget(group.getChildAt(i), best, bestScore);
+                View found = findBubbleTarget(group.getChildAt(i), item, avatar,
+                        context, best, bestScore);
                 if (found != null) {
                     best = found;
                     bestScore = bubbleTargetScore(found);
@@ -991,19 +999,52 @@ final class ChatBubbleStyler {
         return best;
     }
 
+    private static boolean isCompactMessageText(View candidate, View item,
+                                                View avatar, Context context) {
+        if (candidate == item || candidate == avatar
+                || isDescendantOf(candidate, avatar)) {
+            return false;
+        }
+        int candidateWidth = candidate.getWidth();
+        int candidateHeight = candidate.getHeight();
+        View parent = candidate.getParent() instanceof View
+                ? (View) candidate.getParent() : null;
+        int depth = 0;
+        while (parent != null && parent != item && depth++ < 10) {
+            if (parent instanceof ViewGroup && parent != avatar
+                    && !isDescendantOf(avatar, parent)
+                    && parent.getWidth() >= candidateWidth
+                    && parent.getHeight() >= candidateHeight
+                    && parent.getWidth() < item.getWidth() * 92 / 100
+                    && parent.getHeight() < item.getHeight() * 98 / 100
+                    && parent.getWidth() - candidateWidth
+                    <= M3Theme.dp(context, 160f)
+                    && parent.getHeight() - candidateHeight
+                    <= M3Theme.dp(context, 96f)) {
+                return true;
+            }
+            parent = parent.getParent() instanceof View
+                    ? (View) parent.getParent() : null;
+        }
+        return false;
+    }
+
     private static int bubbleTargetScore(View view) {
         if (view == null) {
             return 0;
         }
         String name = view.getClass().getName();
         if (name.contains("MMNeat7extView") || name.contains("NeatTextView")) {
-            return view.getWidth() * view.getHeight() * 2;
+            int score = view.getWidth() * view.getHeight() * 2;
+            return view.isClickable() || view.isLongClickable() ? score / 4 : score;
         }
         if (view instanceof TextView) {
             CharSequence text = ((TextView) view).getText();
-            return view.getWidth() * Math.max(1, text == null ? 1 : text.length());
+            int score = view.getWidth() * Math.max(1, text == null ? 1 : text.length());
+            return view.isClickable() || view.isLongClickable() ? score / 4 : score;
         }
-        return view.getWidth() * view.getHeight();
+        int score = view.getWidth() * view.getHeight() * 2;
+        return view.isClickable() || view.isLongClickable() ? score / 4 : score;
     }
 
     /**
@@ -1129,6 +1170,7 @@ final class ChatBubbleStyler {
             if (android.os.Build.VERSION.SDK_INT >= 21) {
                 card.setBackgroundTintList(null);
             }
+            shape.setBounds(0, 0, card.getWidth(), card.getHeight());
             APPLIED.put(card, shape);
             ViewState original = ORIGINAL.get(card);
             int inset = M3Theme.dp(context, 8f);
@@ -1171,6 +1213,7 @@ final class ChatBubbleStyler {
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
         float tail = M3Theme.dpF(context, 7f);
         BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing);
+        clearMediaVisualBackgrounds(media, media, avatar, context, 0);
         BubbleDrawable previous = APPLIED.get(media);
         if (previous != null && media.getBackground() == previous
                 && previous.matches(color, radius, tail, outgoing)) {
@@ -1181,6 +1224,7 @@ final class ChatBubbleStyler {
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             media.setBackgroundTintList(null);
         }
+        shape.setBounds(0, 0, media.getWidth(), media.getHeight());
         media.invalidate();
         APPLIED.put(media, shape);
         ViewState original = ORIGINAL.get(media);
@@ -1204,6 +1248,46 @@ final class ChatBubbleStyler {
         }
         media.requestLayout();
         logAppliedSurface("media", media);
+    }
+
+    private static void clearMediaVisualBackgrounds(View view, View root,
+                                                     View avatar, Context context,
+                                                     int depth) {
+        if (view == null || view == avatar || isDescendantOf(view, avatar)
+                || depth > 18 || view.getVisibility() != View.VISIBLE
+                || view.getAlpha() <= 0f) {
+            return;
+        }
+        if (view != root && isMediaVisual(view, context)
+                && view.getBackground() != null) {
+            remember(view);
+            view.setBackground(null);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                clearMediaVisualBackgrounds(group.getChildAt(i), root, avatar,
+                        context, depth + 1);
+            }
+        }
+    }
+
+    private static boolean isMediaVisual(View view, Context context) {
+        int width = view.getWidth();
+        int height = view.getHeight();
+        if (width <= 0 || height <= 0) {
+            return false;
+        }
+        return view instanceof android.widget.ImageView
+                && width >= M3Theme.dp(context, 72f)
+                && height >= M3Theme.dp(context, 56f)
+                || view instanceof android.view.SurfaceView
+                && width >= M3Theme.dp(context, 72f)
+                && height >= M3Theme.dp(context, 56f)
+                || view instanceof android.view.TextureView
+                && width >= M3Theme.dp(context, 72f)
+                && height >= M3Theme.dp(context, 56f)
+                || isStickerView(view);
     }
 
     private static void logAppliedSurface(String kind, View view) {

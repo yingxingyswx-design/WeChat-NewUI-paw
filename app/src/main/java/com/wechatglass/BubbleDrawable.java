@@ -24,6 +24,7 @@ final class BubbleDrawable extends Drawable {
     private final float radius;
     private final float tailSize;
     private final boolean outgoing;
+    private boolean drawLogged;
 
     BubbleDrawable(int color, float radius, float tailSize, boolean outgoing) {
         this.color = color;
@@ -46,8 +47,10 @@ final class BubbleDrawable extends Drawable {
     public void draw(Canvas canvas) {
         Rect b = getBounds();
         if (b.isEmpty()) {
+            logFirstDraw(b);
             return;
         }
+        logFirstDraw(b);
 
         float tailHeight = tailSize;
         float top = b.top;
@@ -94,6 +97,16 @@ final class BubbleDrawable extends Drawable {
         // on Path.op(), which can return an empty path on vendor renderers.
         canvas.drawPath(tail, paint);
         canvas.drawPath(body, paint);
+    }
+
+    private void logFirstDraw(Rect bounds) {
+        if (drawLogged) {
+            return;
+        }
+        drawLogged = true;
+        android.util.Log.i("WeChatGlass", "CB drawable draw bounds="
+                + bounds.toShortString() + " color=#"
+                + Integer.toHexString(color));
     }
 
     @Override
