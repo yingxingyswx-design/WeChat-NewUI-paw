@@ -35,12 +35,17 @@ final class ConversationIndex {
     private static final List<Entry> GROUPS = new ArrayList<>();
     private static final List<Entry> SYSTEM = new ArrayList<>();
     private static volatile boolean loaded;
+    private static volatile int version;
 
     private ConversationIndex() {
     }
 
     static boolean loaded() {
         return loaded;
+    }
+
+    static int version() {
+        return version;
     }
 
     static synchronized void load(ClassLoader cl) {
@@ -133,6 +138,7 @@ final class ConversationIndex {
                 e.pinned = conv.pinned;
                 SYSTEM.add(e);
             }
+            version++;
             loaded = true;
             android.util.Log.i("WeChatGlass", "HL index friends=" + FRIENDS.size()
                     + " (with conv=" + countWithConversation(FRIENDS) + ")"

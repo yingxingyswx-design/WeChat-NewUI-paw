@@ -116,9 +116,16 @@ final class HomeGlassHook {
                 // cheap identity check, not a re-wrap.
                 HomeConversationFilter.attach(homeListView);
             }
-            if (!categoryPageFilled && ConversationIndex.loaded() && categoryPage != null) {
-                categoryPageFilled = true;
-                categoryPage.show(HomeConversationFilter.mode());
+            if (categoryPage != null && ConversationIndex.loaded()) {
+                // The index loads on a background thread; the first show() can
+                // happen before it has any conversations. Show once per index
+                // version (and after every explicit reload).
+                int version = ConversationIndex.version();
+                if (!categoryPageFilled || version != lastIndexVersion) {
+                    categoryPageFilled = true;
+                    lastIndexVersion = version;
+                    categoryPage.show(HomeConversationFilter.mode());
+                }
             }
             scanNativeRows();
             long now = android.os.SystemClock.uptimeMillis();
@@ -1318,6 +1325,7 @@ final class HomeGlassHook {
     }
 
     private boolean categoryPageFilled;
+    private int lastIndexVersion = -1;
 
     /**
      * Places our own conversation list on top of WeChat's list, at the same
@@ -1364,25 +1372,33 @@ final class HomeGlassHook {
 
     /** Opens the WeChat page behind one of the top entry rows. */
     private void openEntry(String action) {
-        if ("device".equals(action) && nativeDeviceRow != null) {
-            nativeDeviceRow.performClick();
-            return;
-        }
-        if ("note".equals(action) && nativeNoteRow != null) {
-            nativeNoteRow.performClick();
+        if ("note".equals(action)) {
+            if (nativeNoteRow != null) {
+                Log.i(TAG, "HL note click row=" + nativeNoteRow.getClass().getName()
+                        + " clickable=" + nativeNoteRow.isClickable());
+                boolean handled = nativeNoteRow.callOnClick();
+                if (!handled) {
+                    nativeNoteRow.performClick();
+                }
+            } else {
+                Log.i(TAG, "HL note row not resolved; native note entry unavailable");
+            }
             return;
         }
         String className;
         if ("weapp".equals(action)) {
             className = "com.tencent.mm.plugin.appbrand.ui.AppBrandLauncherUI";
-        } else if ("device".equals(action)) {
-            className = "com.tencent.mm.plugin.webwx.ui.LoginDeviceListUI";
         } else {
-            className = "com.tencent.mm.plugin.wenote.ui.nativenote.NoteEditorUI";
+            className = "com.tencent.mm.plugin.webwx.ui.WebWXLogoutUI";
         }
         try {
             android.content.Intent intent = new android.content.Intent();
             intent.setClassName(activity, className);
+            if ("weapp".equals(action)) {
+                // Same scene the app itself uses when opening the launcher.
+                intent.putExtra("extra_enter_scene", 11);
+            }
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             activity.startActivity(intent);
         } catch (Throwable throwable) {
             Log.e(TAG, "open entry failed: " + action, throwable);
@@ -1417,11 +1433,29 @@ final class HomeGlassHook {
             }
         }
         View note = findXq4Note(decor);
+        if (note == null) {
+            note = findClickableByDesc(decor, "メモ", "ノート", "笔记");
+        }
+        if (note == null) {
+            note = findClickableByText(decor, "置顶笔记");
+        }
         if (note != null) {
             nativeNoteRow = note;
             String text = firstText(note);
-            if (text != null && text.length() > 0) {
+            if (text != null && text.length() > 0 && !"置顶笔记".equals(text)) {
                 nativeNoteText = text;
+            }
+            // The note row exposes "メモ,<first line>" as its content
+            // description; prefer that so the row shows the actual note.
+            CharSequence desc = note.getContentDescription();
+            if (desc != null) {
+                String d = desc.toString();
+                int comma = d.indexOf(',');
+                if (comma >= 0 && comma + 1 < d.length()) {
+                    nativeNoteText = d.substring(comma + 1).trim();
+                } else if (d.length() > 2 && !d.contains("ピン留め")) {
+                    nativeNoteText = d;
+                }
             }
         }
         android.util.Log.i("WeChatGlass", "HL native rows device=" + nativeDeviceText
@@ -1502,6 +1536,80 @@ final class HomeGlassHook {
             ViewGroup group = (ViewGroup) root;
             for (int i = 0; i < group.getChildCount(); i++) {
                 View found = findXq4Note(group.getChildAt(i));
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Finds the clickable row whose content description names a note. */
+    private View findClickableByDesc(View root, String... needles) {
+        if (root == null || root == categoryPage) {
+            return null;
+        }
+        CharSequence desc = root.getContentDescription();
+        if (desc != null) {
+            String d = desc.toString();
+            for (String needle : needles) {
+                if (d.contains(needle)) {
+                    View cur = root;
+                    for (int i = 0; i < 5 && cur != null; i++) {
+                        if (cur.isClickable()) {
+                            return cur;
+                        }
+                        cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
+                    }
+                    return root;
+                }
+            }
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findClickableByDesc(group.getChildAt(i), needles);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Finds the clickable row around a label, skipping our own overlay page. */
+    private View findClickableByText(View root, String needle) {
+        if (root == null || root == categoryPage) {
+            return null;
+        }
+        if (root instanceof android.widget.TextView) {
+            CharSequence text = ((android.widget.TextView) root).getText();
+            if (text != null && text.toString().contains(needle)) {
+                View cur = root;
+                for (int i = 0; i < 5 && cur != null; i++) {
+                    if (cur.isClickable()) {
+                        return cur;
+                    }
+                    cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
+                }
+                return root;
+            }
+        }
+        CharSequence desc = root.getContentDescription();
+        if (desc != null && desc.toString().contains(needle)) {
+            View cur = root;
+            for (int i = 0; i < 5 && cur != null; i++) {
+                if (cur.isClickable()) {
+                    return cur;
+                }
+                cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
+            }
+            return root;
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findClickableByText(group.getChildAt(i), needle);
                 if (found != null) {
                     return found;
                 }

@@ -210,8 +210,7 @@ final class HomeCategoryPage extends FrameLayout {
 
         List<Row> rows = new ArrayList<>();
         rows.add(new Row("小程序", "weapp"));
-        rows.add(new Row(deviceText != null && !deviceText.isEmpty()
-                ? deviceText : "已登入设备", "device"));
+        rows.add(new Row("已登入设备", "device"));
         rows.add(new Row(noteText != null && !noteText.isEmpty()
                 ? noteText : "置顶笔记", "note"));
         if (!pinned.isEmpty()) {
