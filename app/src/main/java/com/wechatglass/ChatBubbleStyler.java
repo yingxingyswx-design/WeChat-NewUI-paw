@@ -34,6 +34,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> ROUNDED_STICKERS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, Boolean> ROUNDED_AVATARS =
+            new WeakHashMap<>();
     private static volatile boolean active;
     private static int diag;
     // One structural trace per direction is enough to identify whether the
@@ -103,6 +105,7 @@ final class ChatBubbleStyler {
         // Sticker messages do not necessarily contain text, so apply their
         // visual treatment before looking for a text-bubble target.
         roundStickers(item, context, 0);
+        roundChatAvatars(item, 0);
         View target = findBubbleTarget(item, null, 0);
         if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0
                 || target.getVisibility() != View.VISIBLE) {
@@ -117,7 +120,6 @@ final class ChatBubbleStyler {
         if (bubble == null || bubble == item) {
             return;
         }
-        roundAvatar(findAvatar(item));
         if (diag < 30) {
             diag++;
             View avatar = findAvatar(item);
@@ -273,6 +275,9 @@ final class ChatBubbleStyler {
         if (avatar == null || avatar.getWidth() <= 0 || avatar.getHeight() <= 0) {
             return;
         }
+        if (ROUNDED_AVATARS.put(avatar, Boolean.TRUE) != null) {
+            return;
+        }
         avatar.setClipToOutline(true);
         avatar.setOutlineProvider(new android.view.ViewOutlineProvider() {
             @Override
@@ -281,6 +286,45 @@ final class ChatBubbleStyler {
             }
         });
         avatar.invalidate();
+    }
+
+    /** Round both the avatar bitmap and WeChat's overlay/mask container. */
+    private static void roundChatAvatars(View view, int depth) {
+        if (view == null || depth > 7) {
+            return;
+        }
+        String name = view.getClass().getName();
+        boolean directAvatar = name.contains("ChattingAvatarImageView");
+        boolean avatarMask = name.contains("MaskLayout")
+                && hasChatAvatarDescendant(view, 0);
+        if ((directAvatar || avatarMask) && view.getVisibility() == View.VISIBLE
+                && view.getWidth() > 0 && view.getHeight() > 0) {
+            roundAvatar(view);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                roundChatAvatars(group.getChildAt(i), depth + 1);
+            }
+        }
+    }
+
+    private static boolean hasChatAvatarDescendant(View view, int depth) {
+        if (view == null || depth > 3) {
+            return false;
+        }
+        if (view.getClass().getName().contains("ChattingAvatarImageView")) {
+            return true;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (hasChatAvatarDescendant(group.getChildAt(i), depth + 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
