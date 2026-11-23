@@ -2270,7 +2270,7 @@ final class ChatBubbleStyler {
         View[] visual = {null};
         long[] visualArea = {0L};
         findLargestMediaVisual(media, avatar, context, 0, visual, visualArea);
-        applyMediaVisualScale(media, avatar, context, visualArea[0], 0);
+        applyMediaContentInset(media, avatar, context, visualArea[0], 0);
         android.graphics.RectF contentBounds = mediaBubbleContentBounds(
                 media, visual[0], context);
         BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing,
@@ -2300,37 +2300,65 @@ final class ChatBubbleStyler {
         logAppliedSurface("media", media);
     }
 
-    private static void applyMediaVisualScale(View view, View avatar,
-                                              Context context, long largestArea,
-                                              int depth) {
+    private static void applyMediaContentInset(View view, View avatar,
+                                               Context context, long largestArea,
+                                               int depth) {
         if (view == null || view == avatar || isDescendantOf(view, avatar)
                 || depth > 18 || view.getVisibility() != View.VISIBLE
                 || view.getAlpha() <= 0f) {
             return;
         }
-        if (isMediaVisual(view, context)) {
+        if (view instanceof android.widget.ImageView && isMediaVisual(view, context)) {
             long area = (long) view.getWidth() * view.getHeight();
             if (largestArea <= 0L || area * 100L >= largestArea * 70L) {
-                int inset = M3Theme.dp(context, 4f);
-                float scaleX = Math.max(0.84f,
-                        (view.getWidth() - inset * 2f) / view.getWidth());
-                float scaleY = Math.max(0.84f,
-                        (view.getHeight() - inset * 2f) / view.getHeight());
-                remember(view);
-                ViewState original = ORIGINAL.get(view);
-                view.setPivotX(view.getWidth() / 2f);
-                view.setPivotY(view.getHeight() / 2f);
-                view.setScaleX(original.scaleX * scaleX);
-                view.setScaleY(original.scaleY * scaleY);
+                android.widget.ImageView image = (android.widget.ImageView) view;
+                android.graphics.drawable.Drawable drawable = image.getDrawable();
+                int inset = M3Theme.dp(context, 6f);
+                float radius = isStickerRenderView(view)
+                        ? M3Theme.dpF(context, 20f) : 0f;
+                boolean alreadyInset = drawable instanceof RoundedRectClipDrawable
+                        && ((RoundedRectClipDrawable) drawable)
+                        .hasRadiusAndInset(radius, inset);
+                android.graphics.drawable.Drawable contentDrawable = drawable;
+                while (contentDrawable instanceof RoundedRectClipDrawable) {
+                    contentDrawable = ((RoundedRectClipDrawable) contentDrawable)
+                            .getWrappedDrawable();
+                }
+                if (contentDrawable instanceof android.graphics.drawable.Animatable) {
+                    // Preserve WeChat's animated drawable and only shrink the
+                    // sticker view around its center to reveal the bubble.
+                    if (isStickerRenderView(view)) {
+                        applyAnimatedStickerInset(view, context);
+                    }
+                } else if (contentDrawable != null && !alreadyInset) {
+                    remember(view);
+                    image.setImageDrawable(new RoundedRectClipDrawable(
+                            contentDrawable, radius, inset));
+                }
             }
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                applyMediaVisualScale(group.getChildAt(i), avatar, context,
+                applyMediaContentInset(group.getChildAt(i), avatar, context,
                         largestArea, depth + 1);
             }
         }
+    }
+
+    private static void applyAnimatedStickerInset(View view, Context context) {
+        int inset = M3Theme.dp(context, 4f);
+        if (view.getWidth() <= inset * 2 || view.getHeight() <= inset * 2) {
+            return;
+        }
+        remember(view);
+        ViewState original = ORIGINAL.get(view);
+        view.setPivotX(view.getWidth() / 2f);
+        view.setPivotY(view.getHeight() / 2f);
+        view.setScaleX(original.scaleX * (view.getWidth() - inset * 2f)
+                / view.getWidth());
+        view.setScaleY(original.scaleY * (view.getHeight() - inset * 2f)
+                / view.getHeight());
     }
 
     private static android.graphics.RectF mediaBubbleContentBounds(View media,

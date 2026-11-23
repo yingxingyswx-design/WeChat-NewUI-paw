@@ -14,12 +14,19 @@ final class RoundedRectClipDrawable extends Drawable
 
     private final Drawable wrapped;
     private final float radius;
+    private final int inset;
     private final Path clipPath = new Path();
     private final RectF clipRect = new RectF();
+    private final Rect contentBounds = new Rect();
 
     RoundedRectClipDrawable(Drawable wrapped, float radius) {
+        this(wrapped, radius, 0);
+    }
+
+    RoundedRectClipDrawable(Drawable wrapped, float radius, int inset) {
         this.wrapped = wrapped;
         this.radius = radius;
+        this.inset = Math.max(0, inset);
         wrapped.setCallback(this);
     }
 
@@ -31,18 +38,36 @@ final class RoundedRectClipDrawable extends Drawable
         return Float.compare(radius, value) == 0;
     }
 
+    boolean hasRadiusAndInset(float value, int expectedInset) {
+        return Float.compare(radius, value) == 0 && inset == expectedInset;
+    }
+
+    int getInset() {
+        return inset;
+    }
+
+    private Rect innerBounds(Rect bounds) {
+        contentBounds.set(bounds);
+        contentBounds.inset(inset, inset);
+        return contentBounds;
+    }
+
     @Override
     public void draw(Canvas canvas) {
         Rect bounds = getBounds();
         if (bounds.isEmpty()) {
             return;
         }
+        Rect inner = innerBounds(bounds);
+        if (inner.isEmpty()) {
+            return;
+        }
         int save = canvas.save();
-        clipRect.set(bounds);
+        clipRect.set(inner);
         clipPath.reset();
         clipPath.addRoundRect(clipRect, radius, radius, Path.Direction.CW);
         canvas.clipPath(clipPath);
-        wrapped.setBounds(bounds);
+        wrapped.setBounds(inner);
         wrapped.draw(canvas);
         canvas.restoreToCount(save);
     }
@@ -64,7 +89,7 @@ final class RoundedRectClipDrawable extends Drawable
 
     @Override
     protected void onBoundsChange(Rect bounds) {
-        wrapped.setBounds(bounds);
+        wrapped.setBounds(innerBounds(bounds));
     }
 
     @Override
