@@ -34,21 +34,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> ROUNDED_STICKERS =
             new WeakHashMap<>();
-    // Track the actual avatar view objects found inside visible message rows.
-    // The drawChild hook clips these objects at draw time, even if WeChat's
-    // custom view resets or ignores its View outline settings.
-    private static final WeakHashMap<View, Boolean> CHAT_AVATAR_OBJECTS =
-            new WeakHashMap<>();
-    private static final WeakHashMap<View, android.graphics.Path> AVATAR_CLIP_PATHS =
-            new WeakHashMap<>();
-    private static final WeakHashMap<View, Boolean> AVATAR_CLIP_LOGGED =
-            new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> AVATAR_CHAIN_LOGGED =
             new WeakHashMap<>();
-    private static final String AVATAR_CLIP_SAVE = "wechatglass.avatar.clip.save";
-    private static volatile boolean avatarDrawChildHookInstalled;
-    private static volatile boolean avatarDrawableHookInstalled;
-    private static int avatarClipDrawDiag;
     private static int avatarChainDiag;
     private static final android.view.ViewOutlineProvider CIRCLE_OUTLINE =
             new android.view.ViewOutlineProvider() {
@@ -66,100 +53,6 @@ final class ChatBubbleStyler {
     private static boolean tracedOutgoing;
 
     private ChatBubbleStyler() {
-    }
-
-    static void installAvatarClipHook() {
-        if (!avatarDrawableHookInstalled) {
-            try {
-                de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                        android.widget.ImageView.class, "setImageDrawable",
-                        android.graphics.drawable.Drawable.class,
-                        new de.robv.android.xposed.XC_MethodHook() {
-                            @Override
-                            protected void afterHookedMethod(MethodHookParam param) {
-                                if (active && param.thisObject instanceof View
-                                        && CHAT_AVATAR_OBJECTS.containsKey(
-                                        (View) param.thisObject)) {
-                                    clipAvatarDrawable((android.widget.ImageView)
-                                            param.thisObject);
-                                }
-                            }
-                        }
-                );
-                avatarDrawableHookInstalled = true;
-            } catch (Throwable throwable) {
-                de.robv.android.xposed.XposedBridge.log(
-                        "WeChatGlass avatar drawable hook failed: " + throwable);
-            }
-        }
-
-        if (avatarDrawChildHookInstalled) {
-            return;
-        }
-        try {
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    ViewGroup.class, "drawChild", android.graphics.Canvas.class,
-                    View.class, long.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            if (!active || !(param.args[0] instanceof android.graphics.Canvas)
-                                    || !(param.args[1] instanceof View)) {
-                                return;
-                            }
-                            View avatar = (View) param.args[1];
-                            if (!CHAT_AVATAR_OBJECTS.containsKey(avatar)
-                                    || avatar.getWidth() <= 0 || avatar.getHeight() <= 0) {
-                                return;
-                            }
-                            android.graphics.Canvas canvas =
-                                    (android.graphics.Canvas) param.args[0];
-                            int save = canvas.save();
-                            android.graphics.Path path = AVATAR_CLIP_PATHS.get(avatar);
-                            if (path == null) {
-                                path = new android.graphics.Path();
-                                AVATAR_CLIP_PATHS.put(avatar, path);
-                            }
-                            path.reset();
-                            float left = avatar.getLeft() + avatar.getTranslationX();
-                            float top = avatar.getTop() + avatar.getTranslationY();
-                            path.addOval(left, top, left + avatar.getWidth(),
-                                    top + avatar.getHeight(),
-                                    android.graphics.Path.Direction.CW);
-                            canvas.clipPath(path);
-                            if (avatarClipDrawDiag < 8) {
-                                avatarClipDrawDiag++;
-                                android.util.Log.i("WeChatGlass", "CB avatar drawChild hit="
-                                        + avatarClipDrawDiag + " object="
-                                        + Integer.toHexString(System.identityHashCode(avatar))
-                                        + " at=" + left + "," + top + " size="
-                                        + avatar.getWidth() + "x" + avatar.getHeight());
-                            }
-                            if (AVATAR_CLIP_LOGGED.put(avatar, Boolean.TRUE) == null) {
-                                android.util.Log.i("WeChatGlass", "CB avatar clipped object="
-                                        + Integer.toHexString(System.identityHashCode(avatar))
-                                        + " size=" + avatar.getWidth() + "x"
-                                        + avatar.getHeight());
-                            }
-                            param.setObjectExtra(AVATAR_CLIP_SAVE, Integer.valueOf(save));
-                        }
-
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            Object saved = param.getObjectExtra(AVATAR_CLIP_SAVE);
-                            if (saved instanceof Integer
-                                    && param.args[0] instanceof android.graphics.Canvas) {
-                                ((android.graphics.Canvas) param.args[0])
-                                        .restoreToCount(((Integer) saved).intValue());
-                                param.setObjectExtra(AVATAR_CLIP_SAVE, null);
-                            }
-                        }
-                    });
-            avatarDrawChildHookInstalled = true;
-        } catch (Throwable throwable) {
-            de.robv.android.xposed.XposedBridge.log(
-                    "WeChatGlass avatar draw clip hook failed: " + throwable);
-        }
     }
 
     static boolean isActive() {
@@ -390,11 +283,6 @@ final class ChatBubbleStyler {
         if (avatar == null || avatar.getWidth() <= 0 || avatar.getHeight() <= 0) {
             return;
         }
-        if (CHAT_AVATAR_OBJECTS.put(avatar, Boolean.TRUE) == null) {
-            android.util.Log.i("WeChatGlass", "CB avatar object selected="
-                    + Integer.toHexString(System.identityHashCode(avatar))
-                    + " size=" + avatar.getWidth() + "x" + avatar.getHeight());
-        }
         if (avatar.getOutlineProvider() != CIRCLE_OUTLINE) {
             avatar.setOutlineProvider(CIRCLE_OUTLINE);
         }
@@ -402,114 +290,6 @@ final class ChatBubbleStyler {
             avatar.setClipToOutline(true);
         }
         avatar.invalidateOutline();
-        if (avatar instanceof android.widget.ImageView) {
-            clipAvatarDrawable((android.widget.ImageView) avatar);
-        }
-    }
-
-    /** Wrap only the drawable belonging to the runtime-identified avatar view. */
-    private static void clipAvatarDrawable(android.widget.ImageView avatar) {
-        android.graphics.drawable.Drawable drawable = avatar.getDrawable();
-        if (drawable == null || drawable instanceof OvalClipDrawable) {
-            return;
-        }
-        avatar.setImageDrawable(new OvalClipDrawable(drawable));
-        android.util.Log.i("WeChatGlass", "CB avatar drawable clipped object="
-                + Integer.toHexString(System.identityHashCode(avatar))
-                + " view=" + avatar.getClass().getName()
-                + " drawable=" + drawable.getClass().getName());
-    }
-
-    /** Clips the actual image pixels, independent of WeChat's parent Canvas transforms. */
-    private static final class OvalClipDrawable extends android.graphics.drawable.Drawable
-            implements android.graphics.drawable.Drawable.Callback {
-        private final android.graphics.drawable.Drawable child;
-        private final android.graphics.Path path = new android.graphics.Path();
-
-        OvalClipDrawable(android.graphics.drawable.Drawable child) {
-            this.child = child;
-            child.setCallback(this);
-            child.setBounds(getBounds());
-            child.setState(getState());
-            child.setLevel(getLevel());
-        }
-
-        @Override
-        public void draw(android.graphics.Canvas canvas) {
-            android.graphics.Rect bounds = getBounds();
-            if (bounds.isEmpty()) {
-                return;
-            }
-            path.reset();
-            path.addOval(bounds.left, bounds.top, bounds.right, bounds.bottom,
-                    android.graphics.Path.Direction.CW);
-            int save = canvas.save();
-            canvas.clipPath(path);
-            child.draw(canvas);
-            canvas.restoreToCount(save);
-        }
-
-        @Override
-        protected void onBoundsChange(android.graphics.Rect bounds) {
-            child.setBounds(bounds);
-        }
-
-        @Override
-        protected boolean onStateChange(int[] state) {
-            return child.setState(state);
-        }
-
-        @Override
-        protected boolean onLevelChange(int level) {
-            return child.setLevel(level);
-        }
-
-        @Override
-        public boolean isStateful() {
-            return child.isStateful();
-        }
-
-        @Override
-        public int getIntrinsicWidth() {
-            return child.getIntrinsicWidth();
-        }
-
-        @Override
-        public int getIntrinsicHeight() {
-            return child.getIntrinsicHeight();
-        }
-
-        @Override
-        public int getOpacity() {
-            return android.graphics.PixelFormat.TRANSLUCENT;
-        }
-
-        @Override
-        public void setAlpha(int alpha) {
-            child.setAlpha(alpha);
-        }
-
-        @Override
-        public void setColorFilter(android.graphics.ColorFilter colorFilter) {
-            child.setColorFilter(colorFilter);
-        }
-
-        @Override
-        public void invalidateDrawable(android.graphics.drawable.Drawable who) {
-            invalidateSelf();
-        }
-
-        @Override
-        public void scheduleDrawable(android.graphics.drawable.Drawable who,
-                                     Runnable what, long when) {
-            scheduleSelf(what, when);
-        }
-
-        @Override
-        public void unscheduleDrawable(android.graphics.drawable.Drawable who,
-                                       Runnable what) {
-            unscheduleSelf(what);
-        }
     }
 
     /** Locate and clip the avatar object by its geometry inside this message row. */
@@ -524,26 +304,6 @@ final class ChatBubbleStyler {
             logAvatarObjectChain(item, avatar);
         }
 
-        // Some message rows wrap the bitmap in one or more same-sized views
-        // that draw their own overlay. Clip those exact bounds too.
-        int[] avatarLocation = new int[2];
-        avatar.getLocationOnScreen(avatarLocation);
-        float density = avatar.getResources().getDisplayMetrics().density;
-        View ancestor = avatar.getParent() instanceof View
-                ? (View) avatar.getParent() : null;
-        while (ancestor != null && ancestor != item) {
-            if (Math.abs(ancestor.getWidth() - avatar.getWidth()) <= dp(density, 3f)
-                    && Math.abs(ancestor.getHeight() - avatar.getHeight()) <= dp(density, 3f)) {
-                int[] ancestorLocation = new int[2];
-                ancestor.getLocationOnScreen(ancestorLocation);
-                if (Math.abs(ancestorLocation[0] - avatarLocation[0]) <= dp(density, 3f)
-                        && Math.abs(ancestorLocation[1] - avatarLocation[1]) <= dp(density, 3f)) {
-                    roundAvatar(ancestor);
-                }
-            }
-            ancestor = ancestor.getParent() instanceof View
-                    ? (View) ancestor.getParent() : null;
-        }
     }
 
     /** Log object identity and geometry only; never inspect or emit chat text. */
@@ -648,7 +408,6 @@ final class ChatBubbleStyler {
                 + " left=" + avatar.getLeft()
                 + " x=" + loc[0] + " " + avatar.getWidth() + "x"
                 + avatar.getHeight() + " outgoing=" + out
-                + " tracked=" + CHAT_AVATAR_OBJECTS.containsKey(avatar)
                 + " clip=" + avatar.getClipToOutline()
                 + " oval=" + (avatar.getOutlineProvider() == CIRCLE_OUTLINE));
         return out;

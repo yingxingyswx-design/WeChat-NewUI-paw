@@ -30,7 +30,6 @@ public class HookEntry implements IXposedHookLoadPackage {
             return;
         }
         try {
-            ChatBubbleStyler.installAvatarClipHook();
             hookExactBarVisibility(lpparam);
             hookChatLifecycle(lpparam);
             hookHomeLifecycle(lpparam);
