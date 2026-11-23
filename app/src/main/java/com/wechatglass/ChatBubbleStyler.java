@@ -26,10 +26,11 @@ final class ChatBubbleStyler {
     private static final int ID_BKJ = 0x7f0a0f8a;
     private static final int ID_BKL = 0x7f0a0f8d;
 
-    private static final WeakHashMap<android.app.Activity, Boolean> STARTED =
+    private static final WeakHashMap<android.app.Activity, Session> SESSIONS =
             new WeakHashMap<>();
     private static final WeakHashMap<View, BubbleDrawable> APPLIED =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, ViewState> ORIGINAL = new WeakHashMap<>();
     private static final WeakHashMap<ViewGroup, Boolean> DECORATED =
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> ROUNDED_STICKERS =
@@ -52,6 +53,128 @@ final class ChatBubbleStyler {
     private static boolean tracedIncoming;
     private static boolean tracedOutgoing;
 
+    private static final class Session {
+        final android.os.Handler handler = new android.os.Handler(
+                android.os.Looper.getMainLooper());
+        Runnable poller;
+        boolean enabled;
+    }
+
+    private static final class ViewState {
+        final android.graphics.drawable.Drawable background;
+        final android.graphics.drawable.Drawable foreground;
+        final int visibility;
+        final int paddingLeft;
+        final int paddingTop;
+        final int paddingRight;
+        final int paddingBottom;
+        final int paddingStart;
+        final int paddingEnd;
+        final boolean paddingRelative;
+        final boolean clipToOutline;
+        final android.view.ViewOutlineProvider outlineProvider;
+        final boolean clipChildren;
+        final android.graphics.drawable.Drawable imageDrawable;
+        final android.content.res.ColorStateList textColors;
+        final float textSize;
+        final float letterSpacing;
+        final float lineSpacingExtra;
+        final float lineSpacingMultiplier;
+        final boolean includeFontPadding;
+        final android.graphics.Typeface typeface;
+        final Integer reflectedTextColor;
+
+        ViewState(View view) {
+            background = view.getBackground();
+            foreground = android.os.Build.VERSION.SDK_INT >= 23
+                    ? view.getForeground() : null;
+            visibility = view.getVisibility();
+            paddingLeft = view.getPaddingLeft();
+            paddingTop = view.getPaddingTop();
+            paddingRight = view.getPaddingRight();
+            paddingBottom = view.getPaddingBottom();
+            paddingStart = view.getPaddingStart();
+            paddingEnd = view.getPaddingEnd();
+            paddingRelative = view.isPaddingRelative();
+            clipToOutline = view.getClipToOutline();
+            outlineProvider = view.getOutlineProvider();
+            clipChildren = view instanceof ViewGroup
+                    && ((ViewGroup) view).getClipChildren();
+            imageDrawable = view instanceof android.widget.ImageView
+                    ? ((android.widget.ImageView) view).getDrawable() : null;
+            if (view instanceof TextView) {
+                TextView text = (TextView) view;
+                textColors = text.getTextColors();
+                textSize = text.getTextSize();
+                letterSpacing = text.getLetterSpacing();
+                lineSpacingExtra = text.getLineSpacingExtra();
+                lineSpacingMultiplier = text.getLineSpacingMultiplier();
+                includeFontPadding = text.getIncludeFontPadding();
+                typeface = text.getTypeface();
+                reflectedTextColor = null;
+            } else {
+                textColors = null;
+                textSize = 0f;
+                letterSpacing = 0f;
+                lineSpacingExtra = 0f;
+                lineSpacingMultiplier = 1f;
+                includeFontPadding = true;
+                typeface = null;
+                reflectedTextColor = readReflectedTextColor(view);
+            }
+        }
+
+        void restore(View view) {
+            view.setBackground(background);
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                view.setForeground(foreground);
+            }
+            view.setVisibility(visibility);
+            if (paddingRelative) {
+                view.setPaddingRelative(paddingStart, paddingTop, paddingEnd, paddingBottom);
+            } else {
+                view.setPadding(paddingLeft, paddingTop, paddingRight, paddingBottom);
+            }
+            if (view instanceof ViewGroup) {
+                ((ViewGroup) view).setClipChildren(clipChildren);
+            }
+            view.setOutlineProvider(outlineProvider);
+            view.setClipToOutline(clipToOutline);
+            if (view instanceof android.widget.ImageView && imageDrawable != null) {
+                android.widget.ImageView image = (android.widget.ImageView) view;
+                android.graphics.drawable.Drawable current = image.getDrawable();
+                if (current instanceof OvalClipDrawable
+                        && ((OvalClipDrawable) current).wraps(imageDrawable)) {
+                    image.setImageDrawable(imageDrawable);
+                }
+            }
+            if (view instanceof TextView && textColors != null) {
+                TextView text = (TextView) view;
+                text.setTextColor(textColors);
+                text.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, textSize);
+                text.setLetterSpacing(letterSpacing);
+                text.setLineSpacing(lineSpacingExtra, lineSpacingMultiplier);
+                text.setIncludeFontPadding(includeFontPadding);
+                text.setTypeface(typeface);
+            } else if (reflectedTextColor != null) {
+                try {
+                    view.getClass().getMethod("setTextColor", int.class)
+                            .invoke(view, reflectedTextColor);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
+    private static Integer readReflectedTextColor(View view) {
+        try {
+            Object value = view.getClass().getMethod("getTextColor").invoke(view);
+            return value instanceof Number ? ((Number) value).intValue() : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     private ChatBubbleStyler() {
     }
 
@@ -60,34 +183,42 @@ final class ChatBubbleStyler {
     }
 
     static void attach(final android.app.Activity activity) {
-        if (activity == null || STARTED.containsKey(activity)) {
+        if (activity == null || SESSIONS.containsKey(activity)) {
             return;
         }
-        STARTED.put(activity, Boolean.TRUE);
-        active = true;
-        final android.os.Handler handler = new android.os.Handler(
-                android.os.Looper.getMainLooper());
-        handler.postDelayed(new Runnable() {
+        final Session session = new Session();
+        SESSIONS.put(activity, session);
+        session.poller = new Runnable() {
             @Override
             public void run() {
+                if (activity.isFinishing() || activity.isDestroyed()) {
+                    detach(activity);
+                    return;
+                }
                 try {
-                    View decor = activity.getWindow() == null
-                            ? null : activity.getWindow().getDecorView();
-                    View list = decor == null ? null
-                            : Ui.findByClassContains(decor, "ScrollControlRecyclerView");
-                    android.util.Log.i("WeChatGlass", "CB list="
-                            + (list == null ? "null" : list.getClass().getName()));
-                    if (list instanceof ViewGroup) {
-                        ViewGroup group = (ViewGroup) list;
-                        for (int i = 0; i < group.getChildCount(); i++) {
-                            styleItem(group.getChildAt(i), activity);
+                    boolean enabled = !HookConfig.nativeList(activity);
+                    session.enabled = enabled;
+                    updateActive();
+                    if (enabled) {
+                        View decor = activity.getWindow() == null
+                                ? null : activity.getWindow().getDecorView();
+                        View list = decor == null ? null
+                                : Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+                        if (list instanceof ViewGroup) {
+                            ViewGroup group = (ViewGroup) list;
+                            for (int i = 0; i < group.getChildCount(); i++) {
+                                styleItem(group.getChildAt(i), activity);
+                            }
                         }
+                    } else {
+                        restoreOriginalViews();
                     }
                 } catch (Throwable ignored) {
                 }
-                handler.postDelayed(this, 600L);
+                session.handler.postDelayed(this, 600L);
             }
-        }, 300L);
+        };
+        session.handler.postDelayed(session.poller, 300L);
     }
 
     static void force(TextView text) {
@@ -100,10 +231,46 @@ final class ChatBubbleStyler {
     }
 
     static void detach(android.app.Activity activity) {
-        active = false;
         if (activity != null) {
-            STARTED.remove(activity);
+            Session session = SESSIONS.remove(activity);
+            if (session != null && session.poller != null) {
+                session.handler.removeCallbacks(session.poller);
+            }
         }
+        restoreOriginalViews();
+        updateActive();
+    }
+
+    private static void updateActive() {
+        active = false;
+        for (Session session : SESSIONS.values()) {
+            if (session != null && session.enabled) {
+                active = true;
+                return;
+            }
+        }
+    }
+
+    private static void remember(View view) {
+        if (view != null && !ORIGINAL.containsKey(view)) {
+            ORIGINAL.put(view, new ViewState(view));
+        }
+    }
+
+    private static void restoreOriginalViews() {
+        for (java.util.Map.Entry<View, ViewState> entry : ORIGINAL.entrySet()) {
+            View view = entry.getKey();
+            ViewState state = entry.getValue();
+            if (view != null && state != null) {
+                try {
+                    state.restore(view);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        ORIGINAL.clear();
+        APPLIED.clear();
+        ROUNDED_STICKERS.clear();
     }
 
     private static void styleItem(View item, Context context) {
@@ -183,6 +350,7 @@ final class ChatBubbleStyler {
         View cur = target;
         while (cur != null && cur != bubble) {
             if (cur.getBackground() != null) {
+                remember(cur);
                 cur.setBackground(null);
             }
             cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
@@ -200,27 +368,34 @@ final class ChatBubbleStyler {
                 && previous.matches(color, radius, tail, outgoing)) {
             return;
         }
+        remember(bubble);
         bubble.setBackground(shape);
         APPLIED.put(bubble, shape);
         bubble.setPadding(M3Theme.dp(context, 14f), M3Theme.dp(context, 10f),
                 M3Theme.dp(context, 14f), M3Theme.dp(context, 10f));
         bubble.requestLayout();
         if (bubble.getParent() instanceof ViewGroup) {
-            ((ViewGroup) bubble.getParent()).setClipChildren(false);
+            ViewGroup bubbleParent = (ViewGroup) bubble.getParent();
+            remember(bubbleParent);
+            bubbleParent.setClipChildren(false);
         }
         if (bubble instanceof ViewGroup) {
+            remember(bubble);
             ((ViewGroup) bubble).setClipChildren(false);
         }
         if (bubble != target) {
+            remember(target);
             target.setBackground(null);
             target.setPadding(0, 0, 0, 0);
         }
         if (target instanceof TextView) {
+            remember(target);
             ((TextView) target).setTextColor(textColor);
             M3Type.apply((TextView) target, M3Type.BODY_LARGE);
         } else {
             // MMNeat7extView extends View, not TextView.
             try {
+                remember(target);
                 target.getClass().getMethod("setTextColor", int.class)
                         .invoke(target, textColor);
             } catch (Throwable ignored) {
@@ -284,9 +459,11 @@ final class ChatBubbleStyler {
             return;
         }
         if (avatar.getOutlineProvider() != CIRCLE_OUTLINE) {
+            remember(avatar);
             avatar.setOutlineProvider(CIRCLE_OUTLINE);
         }
         if (!avatar.getClipToOutline()) {
+            remember(avatar);
             avatar.setClipToOutline(true);
         }
         avatar.invalidateOutline();
@@ -294,6 +471,7 @@ final class ChatBubbleStyler {
             android.widget.ImageView image = (android.widget.ImageView) avatar;
             android.graphics.drawable.Drawable drawable = image.getDrawable();
             if (drawable != null && !(drawable instanceof OvalClipDrawable)) {
+                remember(avatar);
                 image.setImageDrawable(new OvalClipDrawable(drawable));
             }
         }
@@ -370,6 +548,7 @@ final class ChatBubbleStyler {
         }
         if (isStickerView(view) && ROUNDED_STICKERS.put(view, Boolean.TRUE) == null) {
             final float radius = M3Theme.dpF(context, 20f);
+            remember(view);
             view.setClipToOutline(true);
             view.setOutlineProvider(new android.view.ViewOutlineProvider() {
                 @Override
@@ -558,10 +737,12 @@ final class ChatBubbleStyler {
                 || n.contains("Mask") || n.contains("CheckBox");
         if (!image) {
             if (view.getBackground() != null) {
+                remember(view);
                 view.setBackground(null);
             }
             if (android.os.Build.VERSION.SDK_INT >= 23
                     && view.getForeground() != null) {
+                remember(view);
                 view.setForeground(null);
             }
             // Native bubble tails are tiny id-less plain Views. Clearing
@@ -569,6 +750,7 @@ final class ChatBubbleStyler {
             if (view.getClass() == View.class && view.getId() == View.NO_ID
                     && view.getWidth() > 0 && view.getHeight() > 0
                     && view.getWidth() < dp(56) && view.getHeight() < dp(56)) {
+                remember(view);
                 view.setVisibility(View.INVISIBLE);
             }
         }

@@ -201,7 +201,7 @@ public class SettingsActivity extends Activity {
 
         TextView nativeHint = new TextView(this);
         nativeHint.setText("开启后使用自建会话列表（实验，可能不稳定）；"
-                + "关闭时使用微信原生列表（含小程序、已登入设备、置顶笔记）。");
+                + "聊天页也使用实验气泡样式。关闭后恢复微信原生列表和消息气泡（含小程序、已登入设备、置顶笔记）。");
         nativeHint.setTextSize(13f);
         nativeHint.setTextColor(onVar);
         root.addView(nativeHint, lp(-1, -2, 0, dp(16)));

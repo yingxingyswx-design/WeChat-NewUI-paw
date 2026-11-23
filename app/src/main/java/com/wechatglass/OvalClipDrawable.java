@@ -17,6 +17,10 @@ final class OvalClipDrawable extends Drawable {
         this.wrapped = wrapped;
     }
 
+    boolean wraps(Drawable drawable) {
+        return wrapped == drawable;
+    }
+
     @Override
     public void draw(Canvas canvas) {
         Rect b = getBounds();
