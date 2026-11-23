@@ -832,10 +832,9 @@ final class ChatBubbleStyler {
             outgoing = loc[0] > screen - (loc[0] + card.getWidth());
         }
 
-        M3ColorScheme current = M3Theme.colors(context);
-        // Transaction/red-packet cards use the selected primary role from the
-        // opposite brightness palette, as requested for their colored fill.
-        M3ColorScheme cardScheme = M3ColorScheme.forContext(context, !current.dark);
+        // Transaction/red-packet cards always use the selected dark-palette
+        // primary role, regardless of the current page brightness.
+        M3ColorScheme cardScheme = M3ColorScheme.forContext(context, true);
         int color = cardScheme.primary;
         int textColor = cardScheme.onPrimary;
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
