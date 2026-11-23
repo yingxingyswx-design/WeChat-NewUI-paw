@@ -43,9 +43,12 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> AVATAR_CLIP_LOGGED =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, Boolean> AVATAR_CHAIN_LOGGED =
+            new WeakHashMap<>();
     private static final String AVATAR_CLIP_SAVE = "wechatglass.avatar.clip.save";
     private static volatile boolean avatarDrawChildHookInstalled;
     private static int avatarClipDrawDiag;
+    private static int avatarChainDiag;
     private static final android.view.ViewOutlineProvider CIRCLE_OUTLINE =
             new android.view.ViewOutlineProvider() {
                 @Override
@@ -382,6 +385,11 @@ final class ChatBubbleStyler {
             return;
         }
         roundAvatar(avatar);
+        if (avatarChainDiag < 4
+                && AVATAR_CHAIN_LOGGED.put(avatar, Boolean.TRUE) == null) {
+            avatarChainDiag++;
+            logAvatarObjectChain(item, avatar);
+        }
 
         // Some message rows wrap the bitmap in one or more same-sized views
         // that draw their own overlay. Clip those exact bounds too.
@@ -402,6 +410,48 @@ final class ChatBubbleStyler {
             }
             ancestor = ancestor.getParent() instanceof View
                     ? (View) ancestor.getParent() : null;
+        }
+    }
+
+    /** Log object identity and geometry only; never inspect or emit chat text. */
+    private static void logAvatarObjectChain(View item, View avatar) {
+        View current = avatar;
+        int depth = 0;
+        while (current != null && depth < 10) {
+            int[] screen = new int[2];
+            current.getLocationOnScreen(screen);
+            View parent = current.getParent() instanceof View
+                    ? (View) current.getParent() : null;
+            android.graphics.drawable.Drawable background = current.getBackground();
+            String bg = "none";
+            if (background instanceof android.graphics.drawable.ColorDrawable) {
+                bg = "color:#" + Integer.toHexString(
+                        ((android.graphics.drawable.ColorDrawable) background).getColor());
+            } else if (background instanceof android.graphics.drawable.GradientDrawable) {
+                bg = "gradient";
+            } else if (background != null) {
+                bg = "set alpha=" + background.getAlpha();
+            }
+            int children = current instanceof ViewGroup
+                    ? ((ViewGroup) current).getChildCount() : 0;
+            android.util.Log.i("WeChatGlass", "CB avatar chain depth=" + depth
+                    + " object="
+                    + Integer.toHexString(System.identityHashCode(current))
+                    + " parent=" + (parent == null ? "none"
+                    : Integer.toHexString(System.identityHashCode(parent)))
+                    + " bounds=" + current.getLeft() + "," + current.getTop()
+                    + "," + current.getWidth() + "x" + current.getHeight()
+                    + " screen=" + screen[0] + "," + screen[1]
+                    + " bg=" + bg
+                    + " fg=" + (current.getForeground() != null)
+                    + " clip=" + current.getClipToOutline()
+                    + " oval=" + (current.getOutlineProvider() == CIRCLE_OUTLINE)
+                    + " children=" + children);
+            if (current == item) {
+                break;
+            }
+            current = parent;
+            depth++;
         }
     }
 
