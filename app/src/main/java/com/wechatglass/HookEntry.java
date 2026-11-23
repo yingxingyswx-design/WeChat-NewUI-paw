@@ -436,37 +436,7 @@ private static void hookHomeBottomTab(ClassLoader cl) {
         }
         return false;
     }
-
-    private static void hookBlockPanelBg() { // blockPanelBg
-        try {
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    android.view.View.class, "setBackgroundResource", int.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void beforeHookedMethod(MethodHookParam p) {
-                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
-                        }
-                    });
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    android.view.View.class, "setBackground",
-                    android.graphics.drawable.Drawable.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void beforeHookedMethod(MethodHookParam p) {
-                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
-                        }
-                    });
-            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
-                    android.view.View.class, "setBackgroundColor", int.class,
-                    new de.robv.android.xposed.XC_MethodHook() {
-                        @Override protected void beforeHookedMethod(MethodHookParam p) {
-                            if (inPanel((android.view.View) p.thisObject)) p.setResult(null);
-                        }
-                    });
-        } catch (Throwable ignored) {
-        }
-    }
-
-
-    private static void hookPanelBgMethods(ClassLoader cl) { // hookPanelBgMethods
+private static void hookPanelBgMethods(ClassLoader cl) { // hookPanelBgMethods
         // SmileyPanelImpl.setPanelBackgroundColor writes an opaque colour onto
         // the emoji content container (NestedBounceView) every time the panel
         // opens, which paints over the panel's liquid glass. The other names are
