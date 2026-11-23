@@ -1717,7 +1717,7 @@ final class ChatBubbleStyler {
                     || view instanceof android.view.TextureView) {
                 mediaVisual = width >= M3Theme.dp(context, 72f)
                         && height >= M3Theme.dp(context, 56f);
-            } else if (isStickerView(view)) {
+            } else if (isStickerRenderView(view)) {
                 mediaVisual = true;
             } else if (!(view instanceof ViewGroup) && !(view instanceof TextView)
                     && width >= M3Theme.dp(context, 120f)
@@ -1850,7 +1850,7 @@ final class ChatBubbleStyler {
         }
         boolean panelThumbnail = panelThumbnails
                 && isPanelStickerThumbnail(view, context);
-        boolean messageSticker = isStickerView(view);
+        boolean messageSticker = isStickerRenderView(view);
         if (messageSticker || panelThumbnail) {
             final float radius = M3Theme.dpF(context, panelThumbnail ? 12f : 20f);
             boolean firstClip = ROUNDED_STICKERS.put(view, Boolean.TRUE) == null;
@@ -1925,7 +1925,7 @@ final class ChatBubbleStyler {
                 || view.getVisibility() != View.VISIBLE) {
             return false;
         }
-        int minSide = M3Theme.dp(context, 28f);
+        int minSide = M3Theme.dp(context, 20f);
         if (view.getWidth() < minSide || view.getHeight() < minSide) {
             return false;
         }
@@ -1943,6 +1943,12 @@ final class ChatBubbleStyler {
                 || name.contains("EmojiImageView")
                 || name.contains("EmojiView")
                 || name.contains("GifImageView");
+    }
+
+    /** Pixel-rendering sticker view, excluding transparent frame hosts. */
+    private static boolean isStickerRenderView(View view) {
+        return view != null && !(view instanceof ViewGroup)
+                && isStickerView(view);
     }
 
     private static boolean isOutgoingByAvatar(View avatar, int screen) {
@@ -2385,7 +2391,7 @@ final class ChatBubbleStyler {
                 || view instanceof android.view.TextureView
                 && width >= M3Theme.dp(context, 72f)
                 && height >= M3Theme.dp(context, 56f)
-                || isStickerView(view);
+                || isStickerRenderView(view);
     }
 
     private static void logAppliedSurface(String kind, View view) {
@@ -2405,7 +2411,9 @@ final class ChatBubbleStyler {
                 android.graphics.drawable.Drawable childBg = child.getBackground();
                 children.append(child.getClass().getSimpleName())
                         .append('@').append(child.getWidth()).append('x')
-                        .append(child.getHeight()).append("/bg=")
+                        .append(child.getHeight()).append("/scale=")
+                        .append(child.getScaleX()).append('x').append(child.getScaleY())
+                        .append("/bg=")
                         .append(childBg == null ? "-" : childBg.getClass().getSimpleName())
                         .append("/vis=").append(child.getVisibility());
             }
@@ -2416,6 +2424,8 @@ final class ChatBubbleStyler {
                 + "@" + Integer.toHexString(System.identityHashCode(background)))
                 + ",color=" + (background instanceof BubbleDrawable
                 ? "#" + Integer.toHexString(((BubbleDrawable) background).fillColor()) : "-")
+                + ",content=" + (background instanceof BubbleDrawable
+                ? ((BubbleDrawable) background).contentBoundsDescription() : "-")
                 + ",bounds=" + (background == null ? "-" : background.getBounds().toShortString())
                 + ",fg=" + (foreground == null ? "-"
                 : foreground.getClass().getSimpleName())

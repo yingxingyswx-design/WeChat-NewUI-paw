@@ -63,6 +63,10 @@ final class BubbleDrawable extends Drawable {
         return color;
     }
 
+    String contentBoundsDescription() {
+        return contentBounds == null ? "full" : contentBounds.toShortString();
+    }
+
     @Override
     public void draw(Canvas canvas) {
         Rect b = getBounds();
