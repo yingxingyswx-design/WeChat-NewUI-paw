@@ -52,7 +52,6 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookFreGriest(lpparam.classLoader);
         hookNeatTextBackground(lpparam.classLoader);
         hookNeatTextAttach(lpparam.classLoader);
-        hookCanvasText();
         hookDrawChild();
         hookShadowLoader();
         XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onCreate",
@@ -85,6 +84,16 @@ public class HookEntry implements IXposedHookLoadPackage {
                     }
                 });
 
+        XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onPause",
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        if (param.thisObject instanceof Activity) {
+                            ChatBubbleStyler.detach((Activity) param.thisObject);
+                        }
+                    }
+                });
+
         XposedHelpers.findAndHookMethod(CHATTING_UI, lpparam.classLoader, "onDestroy",
                 new XC_MethodHook() {
                     @Override
@@ -92,6 +101,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         try {
                             if (param.thisObject instanceof Activity) {
                                 ChatGlassHook.detach((Activity) param.thisObject);
+                                ChatBubbleStyler.detach((Activity) param.thisObject);
                             }
                         } catch (Throwable throwable) {
                             XposedBridge.log(TAG + " detach failed: " + throwable);
@@ -218,7 +228,8 @@ public class HookEntry implements IXposedHookLoadPackage {
                     "setBackgroundResource", int.class, new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            if (param.thisObject instanceof android.widget.TextView) {
+                            if (ChatBubbleStyler.isActive()
+                                    && param.thisObject instanceof android.widget.TextView) {
                                 ChatBubbleStyler.force((android.widget.TextView) param.thisObject);
                                 param.setResult(null);
                             }
@@ -235,7 +246,8 @@ public class HookEntry implements IXposedHookLoadPackage {
                     "onAttachedToWindow", new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            if (param.thisObject instanceof android.widget.TextView) {
+                            if (ChatBubbleStyler.isActive()
+                                    && param.thisObject instanceof android.widget.TextView) {
                                 ChatBubbleStyler.attachText(
                                         (android.widget.TextView) param.thisObject);
                             }
@@ -253,6 +265,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
                             try {
+                                if (!ChatBubbleStyler.isActive()) return;
                                 ChatBubbleDrawer.draw(
                                         (android.graphics.Canvas) param.args[0],
                                         (android.view.ViewGroup) param.thisObject,

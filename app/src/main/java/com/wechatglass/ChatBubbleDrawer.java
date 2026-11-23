@@ -28,6 +28,9 @@ final class ChatBubbleDrawer {
     }
 
     static void draw(Canvas canvas, ViewGroup parent, View child) {
+        if (!ChatBubbleStyler.isActive()) {
+            return;
+        }
         if (parent == null || child == null
                 || !parent.getClass().getName().contains("ScrollControlRecyclerView")) {
             return;

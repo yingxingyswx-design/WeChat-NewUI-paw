@@ -32,6 +32,13 @@ final class ChatBubbleStyler {
         return active;
     }
 
+    static void detach(android.app.Activity activity) {
+        active = false;
+        if (activity != null) {
+            STARTED.remove(activity);
+        }
+    }
+
     private static boolean inChatList(View v) {
         for (int i = 0; i < 10 && v != null; i++) {
             if (v.getClass().getName().contains("ScrollControlRecyclerView")) {
