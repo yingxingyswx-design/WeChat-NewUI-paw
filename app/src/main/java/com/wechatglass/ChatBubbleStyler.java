@@ -344,7 +344,7 @@ final class ChatBubbleStyler {
                 ? (scheme.dark ? scheme.secondaryContainer : scheme.primaryContainer)
                 : scheme.surfaceContainerLow;
         int textColor = outgoing
-                ? (scheme.dark ? scheme.onSecondaryContainer : scheme.onPrimaryContainer)
+                ? (scheme.dark ? 0xFFFFFFFF : scheme.onPrimaryContainer)
                 : scheme.onSurface;
 
         View cur = target;
