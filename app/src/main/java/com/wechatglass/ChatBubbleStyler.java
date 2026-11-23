@@ -45,6 +45,7 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final String AVATAR_CLIP_SAVE = "wechatglass.avatar.clip.save";
     private static volatile boolean avatarDrawChildHookInstalled;
+    private static int avatarClipDrawDiag;
     private static final android.view.ViewOutlineProvider CIRCLE_OUTLINE =
             new android.view.ViewOutlineProvider() {
                 @Override
@@ -98,6 +99,14 @@ final class ChatBubbleStyler {
                                     top + avatar.getHeight(),
                                     android.graphics.Path.Direction.CW);
                             canvas.clipPath(path);
+                            if (avatarClipDrawDiag < 8) {
+                                avatarClipDrawDiag++;
+                                android.util.Log.i("WeChatGlass", "CB avatar drawChild hit="
+                                        + avatarClipDrawDiag + " object="
+                                        + Integer.toHexString(System.identityHashCode(avatar))
+                                        + " at=" + left + "," + top + " size="
+                                        + avatar.getWidth() + "x" + avatar.getHeight());
+                            }
                             if (AVATAR_CLIP_LOGGED.put(avatar, Boolean.TRUE) == null) {
                                 android.util.Log.i("WeChatGlass", "CB avatar clipped object="
                                         + Integer.toHexString(System.identityHashCode(avatar))
@@ -455,7 +464,10 @@ final class ChatBubbleStyler {
                 + Integer.toHexString(System.identityHashCode(avatar))
                 + " left=" + avatar.getLeft()
                 + " x=" + loc[0] + " " + avatar.getWidth() + "x"
-                + avatar.getHeight() + " outgoing=" + out);
+                + avatar.getHeight() + " outgoing=" + out
+                + " tracked=" + CHAT_AVATAR_OBJECTS.containsKey(avatar)
+                + " clip=" + avatar.getClipToOutline()
+                + " oval=" + (avatar.getOutlineProvider() == CIRCLE_OUTLINE));
         return out;
     }
 
