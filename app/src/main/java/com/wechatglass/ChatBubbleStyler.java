@@ -58,6 +58,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, MessageTimePadding> MESSAGE_TIME_PADDING =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, CachedMessageTime> MESSAGE_TIME_CACHE =
+            new WeakHashMap<>();
     private static final WeakHashMap<View, String> MESSAGE_TIME_SOURCES =
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> TIME_DIAGNOSTICS =
@@ -130,6 +132,16 @@ final class ChatBubbleStyler {
             right = view.getPaddingRight();
             bottom = view.getPaddingBottom();
         }
+    }
+
+    private static final class CachedMessageTime {
+        int bindingSignature;
+        long scannedAt;
+        long millis;
+        String path = "-";
+        int objectsVisited;
+        final ArrayList<String> modelPaths = new ArrayList<>();
+        final ArrayList<String> timeFields = new ArrayList<>();
     }
 
     private static final class ViewState {
@@ -371,6 +383,7 @@ final class ChatBubbleStyler {
         MESSAGE_TIME_LABELS.clear();
         MESSAGE_TIME_HOSTS.clear();
         MESSAGE_TIME_PADDING.clear();
+        MESSAGE_TIME_CACHE.clear();
         MESSAGE_TIME_SOURCES.clear();
         TIME_DIAGNOSTICS.clear();
         APPLIED.clear();
@@ -559,16 +572,34 @@ final class ChatBubbleStyler {
             removeMessageTime(item);
             return;
         }
-        TimeSearch search = new TimeSearch();
-        collectMvvmViewModels(item, search, 0);
-        collectMessageTime(item, search);
-        if (search.bestMillis <= 0) {
-            logMissingMessageTime(item, anchor, search);
+        int bindingSignature = messageBindingSignature(item);
+        long now = android.os.SystemClock.uptimeMillis();
+        CachedMessageTime cached = MESSAGE_TIME_CACHE.get(item);
+        if (cached == null || cached.bindingSignature != bindingSignature
+                || now - cached.scannedAt > 30000L) {
+            TimeSearch scanned = new TimeSearch();
+            collectMvvmViewModels(item, scanned, 0);
+            collectMessageTime(item, scanned);
+            cached = new CachedMessageTime();
+            cached.bindingSignature = bindingSignature;
+            cached.scannedAt = now;
+            cached.millis = scanned.bestMillis;
+            cached.path = scanned.bestPath;
+            cached.objectsVisited = scanned.objectsVisited;
+            cached.modelPaths.addAll(scanned.modelPaths);
+            cached.timeFields.addAll(scanned.timeFields);
+            MESSAGE_TIME_CACHE.put(item, cached);
+        }
+        if (cached.millis <= 0) {
+            TimeSearch missing = new TimeSearch();
+            missing.objectsVisited = cached.objectsVisited;
+            missing.modelPaths.addAll(cached.modelPaths);
+            missing.timeFields.addAll(cached.timeFields);
+            logMissingMessageTime(item, anchor, missing);
             removeMessageTime(item);
             return;
         }
         TIME_DIAGNOSTICS.remove(item);
-        ViewGroup row = (ViewGroup) item;
         TextView label = MESSAGE_TIME_LABELS.get(item);
         if (label == null) {
             label = new TextView(context);
@@ -595,10 +626,22 @@ final class ChatBubbleStyler {
             overlayHost.getOverlay().add(label);
             MESSAGE_TIME_HOSTS.put(item, overlayHost);
         }
-        label.setText(formatMessageTime(search.bestMillis));
-        label.setTextColor(M3ColorScheme.forContext(context, false).onSurfaceVariant);
-        label.measure(View.MeasureSpec.makeMeasureSpec(overlayHost.getWidth(), View.MeasureSpec.AT_MOST),
-                View.MeasureSpec.makeMeasureSpec(overlayHost.getHeight(), View.MeasureSpec.AT_MOST));
+        String formattedTime = formatMessageTime(cached.millis);
+        boolean textChanged = !formattedTime.contentEquals(label.getText());
+        if (textChanged) {
+            label.setText(formattedTime);
+        }
+        int timeColor = M3ColorScheme.forContext(context, false).onSurfaceVariant;
+        if (label.getCurrentTextColor() != timeColor) {
+            label.setTextColor(timeColor);
+        }
+        if (textChanged || label.getMeasuredWidth() <= 0 || label.getMeasuredHeight() <= 0
+                || label.getMeasuredWidth() > overlayHost.getWidth()) {
+            label.measure(View.MeasureSpec.makeMeasureSpec(overlayHost.getWidth(),
+                            View.MeasureSpec.AT_MOST),
+                    View.MeasureSpec.makeMeasureSpec(overlayHost.getHeight(),
+                            View.MeasureSpec.AT_MOST));
+        }
         int labelWidth = label.getMeasuredWidth();
         int labelHeight = label.getMeasuredHeight();
         android.graphics.Rect anchorBounds = new android.graphics.Rect(
@@ -613,7 +656,10 @@ final class ChatBubbleStyler {
         // Reserve only the missing space above this bubble. The label can then
         // stay inside the row overlay and move with the row during scrolling.
         int baseAnchorTop = Math.max(0, anchorBounds.top - padding.extraTop);
-        int extraTop = Math.max(0, labelHeight + gap - baseAnchorTop);
+        int neededTop = Math.max(0, labelHeight + gap - baseAnchorTop);
+        // Keep the row's reserved time slot stable if RecyclerView reuses this
+        // item view for another message with a different internal layout.
+        int extraTop = Math.max(padding.extraTop, neededTop);
         if (extraTop != padding.extraTop) {
             remember(item);
             padding.extraTop = extraTop;
@@ -640,15 +686,18 @@ final class ChatBubbleStyler {
         int y = anchorBounds.top - labelHeight - gap;
         x = Math.max(0, Math.min(x, Math.max(0, overlayHost.getWidth() - labelWidth)));
         y = Math.max(0, Math.min(y, Math.max(0, overlayHost.getHeight() - labelHeight)));
-        label.layout(x, y, x + labelWidth, y + labelHeight);
-        label.invalidate();
+        if (label.getLeft() != x || label.getTop() != y
+                || label.getRight() != x + labelWidth
+                || label.getBottom() != y + labelHeight) {
+            label.layout(x, y, x + labelWidth, y + labelHeight);
+            label.invalidate();
+        }
 
-        String source = item.getClass().getName() + ":" + search.bestPath
+        String source = item.getClass().getName() + ":" + cached.path
                 + ":anchor=" + anchor.getClass().getName()
                 + ":host=" + overlayHost.getClass().getName()
-                + ":anchorBounds=" + anchorBounds.toShortString()
-                + ":extraTop=" + extraTop
-                + ":labelAt=" + x + "," + y;
+                + ":binding=" + bindingSignature
+                + ":extraTop=" + extraTop;
         if (!source.equals(MESSAGE_TIME_SOURCES.get(item))) {
             MESSAGE_TIME_SOURCES.put(item, source);
             android.util.Log.i("WeChatGlass", "CB time source=" + source
@@ -677,6 +726,49 @@ final class ChatBubbleStyler {
             TIME_DIAGNOSTICS.put(item, signature);
             android.util.Log.i("WeChatGlass", "CB time missing " + signature);
         }
+    }
+
+    /** Cheaply detects RecyclerView rebinding without traversing model fields. */
+    private static int messageBindingSignature(View root) {
+        if (root == null) {
+            return 0;
+        }
+        long signature = 0x9e3779b97f4a7c15L;
+        ArrayList<View> pending = new ArrayList<>();
+        pending.add(root);
+        int visited = 0;
+        while (!pending.isEmpty() && visited < 256) {
+            View view = pending.remove(pending.size() - 1);
+            visited++;
+            signature = signature * 31 + view.getId();
+            signature = signature * 31 + view.getClass().getName().hashCode();
+            signature = signature * 31 + System.identityHashCode(view.getTag());
+            if (view instanceof TextView) {
+                CharSequence text = ((TextView) view).getText();
+                signature = signature * 31 + (text == null ? 0 : text.hashCode());
+            }
+            Class<?> type = view.getClass();
+            while (type != null && type != Object.class
+                    && !"com.tencent.mm.mvvm.MvvmView".equals(type.getName())) {
+                type = type.getSuperclass();
+            }
+            if (type != null && type != Object.class) {
+                try {
+                    Object model = view.getClass().getMethod("getViewModel").invoke(view);
+                    signature = signature * 31 + System.identityHashCode(model);
+                } catch (Throwable ignored) {
+                }
+            }
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                signature = signature * 31 + group.getChildCount();
+                for (int i = group.getChildCount() - 1; i >= 0; i--) {
+                    pending.add(group.getChildAt(i));
+                }
+            }
+        }
+        signature = signature * 31 + visited;
+        return (int) (signature ^ (signature >>> 32));
     }
 
     private static void collectMvvmViewModels(View view, TimeSearch search, int depth) {
@@ -715,20 +807,12 @@ final class ChatBubbleStyler {
         TextView label = MESSAGE_TIME_LABELS.remove(item);
         ViewGroup host = MESSAGE_TIME_HOSTS.remove(item);
         MESSAGE_TIME_SOURCES.remove(item);
-        MessageTimePadding padding = MESSAGE_TIME_PADDING.remove(item);
         if (host == null && item instanceof ViewGroup) {
             host = (ViewGroup) item;
         }
         if (label != null && host != null) {
             try {
                 host.getOverlay().remove(label);
-            } catch (Throwable ignored) {
-            }
-        }
-        if (padding != null && item != null) {
-            try {
-                item.setPadding(padding.left, padding.top, padding.right, padding.bottom);
-                item.requestLayout();
             } catch (Throwable ignored) {
             }
         }
