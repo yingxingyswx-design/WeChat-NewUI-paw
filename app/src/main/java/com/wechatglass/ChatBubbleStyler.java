@@ -295,6 +295,10 @@ final class ChatBubbleStyler {
         View target = findBubbleTarget(item, null, 0);
         if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0
                 || target.getVisibility() != View.VISIBLE) {
+            View card = findRichCardObject(item, avatar, null, context);
+            if (card != null) {
+                styleRichCard(card, item, null, avatar, context);
+            }
             return;
         }
         View parent = target.getParent() instanceof View
@@ -347,15 +351,9 @@ final class ChatBubbleStyler {
         traceItemOnce(item, bubble, target, outgoing);
         android.util.Log.i("WeChatGlass", "CB dir outgoing=" + outgoing
                 + " bx=" + bl[0] + " bw=" + bubble.getWidth());
-        M3ColorScheme scheme = M3Theme.colors(context);
-        // Use the selected M3 seed for sent messages; received messages stay
-        // on the neutral surface roles so both remain legible in light/dark.
-        int color = outgoing
-                ? (scheme.dark ? scheme.secondaryContainer : scheme.primaryContainer)
-                : scheme.surfaceContainerLow;
-        int textColor = outgoing
-                ? (scheme.dark ? 0xFFFFFFFF : scheme.onPrimaryContainer)
-                : scheme.onSurface;
+        M3ColorScheme scheme = M3ColorScheme.forContext(context, true);
+        int color = scheme.primary;
+        int textColor = scheme.onPrimary;
 
         View cur = target;
         while (cur != null && cur != bubble) {
@@ -752,22 +750,22 @@ final class ChatBubbleStyler {
                 || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
             return null;
         }
-        if (view != item && view instanceof ViewGroup
-                && isDescendantOf(target, view) && !isDescendantOf(avatar, view)
-                && view.getWidth() >= M3Theme.dp(context, 112f)
-                && view.getHeight() >= M3Theme.dp(context, 48f)
-                && view.getWidth() <= item.getWidth() * 88 / 100
-                && view.getHeight() <= item.getHeight() * 92 / 100) {
+        boolean cardCandidate = view != item && view instanceof ViewGroup
+                && (target == null || isDescendantOf(target, view))
+                && !isDescendantOf(avatar, view)
+                && view.getWidth() >= M3Theme.dp(context, 88f)
+                && view.getHeight() >= M3Theme.dp(context, 36f)
+                && view.getWidth() <= item.getWidth() * 96 / 100
+                && view.getHeight() <= item.getHeight() * 98 / 100;
+        if (cardCandidate) {
             int textCount = countVisibleTextObjects(view, target, 0);
             int imageCount = countVisibleContentImages(view, avatar, 0);
             boolean interactive = view.isClickable() || view.isLongClickable()
                     || hasInteractiveContent(view, view, target, 0);
-            boolean cardContent = textCount >= 2 && imageCount <= 1
-                    && (interactive || imageCount == 0);
-            if (cardContent && hasBackgroundSurface(view, avatar, 0)
-                    && isContentBesideAvatar(item, view, avatar, context)) {
-                return view;
-            }
+            boolean cardContent = textCount >= 2
+                    || (textCount >= 1 && (imageCount > 0 || interactive));
+            cardCandidate = cardContent && imageCount <= 2
+                    && hasBackgroundSurface(view, avatar, 0);
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
@@ -779,26 +777,7 @@ final class ChatBubbleStyler {
                 }
             }
         }
-        return null;
-    }
-
-    private static boolean isContentBesideAvatar(View item, View content,
-                                                 View avatar, Context context) {
-        if (avatar == null) {
-            return true;
-        }
-        int[] itemPos = new int[2];
-        int[] avatarPos = new int[2];
-        int[] contentPos = new int[2];
-        item.getLocationOnScreen(itemPos);
-        avatar.getLocationOnScreen(avatarPos);
-        content.getLocationOnScreen(contentPos);
-        int mid = itemPos[0] + item.getWidth() / 2;
-        int gap = M3Theme.dp(context, 8f);
-        if (avatarPos[0] + avatar.getWidth() / 2 < mid) {
-            return contentPos[0] >= avatarPos[0] + avatar.getWidth() - gap;
-        }
-        return contentPos[0] + content.getWidth() <= avatarPos[0] + gap;
+        return cardCandidate ? view : null;
     }
 
     private static boolean hasBackgroundSurface(View view, View avatar, int depth) {
