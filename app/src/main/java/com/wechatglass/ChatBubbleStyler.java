@@ -579,16 +579,69 @@ final class ChatBubbleStyler {
                     return;
                 }
                 styleItem(item, activity);
-                if (settle && MESSAGE_TIME_LABELS.get(item) == null) {
+                if (settle) {
+                    final int styledSignature = visualBindingSignature(item);
                     item.postDelayed(new Runnable() {
                         @Override
                         public void run() {
-                            scheduleStyleItem(session, activity, item, 0, false);
+                            if (!session.enabled || session.list == null
+                                    || !item.isAttachedToWindow()
+                                    || !isDescendantOf(item, session.list)) {
+                                return;
+                            }
+                            if (visualBindingSignature(item) != styledSignature) {
+                                android.util.Log.d("WeChatGlass",
+                                        "CB row binding changed; restyle "
+                                                + item.getClass().getName());
+                                scheduleStyleItem(session, activity, item, 0, false);
+                            }
                         }
-                    }, 500L);
+                    }, 650L);
                 }
             }
         });
+    }
+
+    /**
+     * A bounded, shallow signature for detecting late RecyclerView binds.
+     * It deliberately avoids model reflection and is evaluated only once
+     * after a row is attached.
+     */
+    private static int visualBindingSignature(View root) {
+        if (root == null) {
+            return 0;
+        }
+        long signature = 0x517cc1b727220a95L;
+        ArrayList<View> pending = new ArrayList<>();
+        pending.add(root);
+        int visited = 0;
+        while (!pending.isEmpty() && visited < 256) {
+            View view = pending.remove(pending.size() - 1);
+            visited++;
+            signature = signature * 31 + System.identityHashCode(view);
+            signature = signature * 31 + view.getVisibility();
+            signature = signature * 31 + view.getWidth();
+            signature = signature * 31 + view.getHeight();
+            signature = signature * 31
+                    + System.identityHashCode(view.getBackground());
+            if (view instanceof android.widget.ImageView) {
+                signature = signature * 31 + System.identityHashCode(
+                        ((android.widget.ImageView) view).getDrawable());
+            }
+            if (view instanceof TextView) {
+                CharSequence text = ((TextView) view).getText();
+                signature = signature * 31 + (text == null ? 0 : text.hashCode());
+            }
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                signature = signature * 31 + group.getChildCount();
+                for (int i = group.getChildCount() - 1; i >= 0; i--) {
+                    pending.add(group.getChildAt(i));
+                }
+            }
+        }
+        signature = signature * 31 + visited;
+        return (int) (signature ^ (signature >>> 32));
     }
 
     static void force(TextView text) {
@@ -882,9 +935,10 @@ final class ChatBubbleStyler {
             label.setSingleLine(true);
             label.setIncludeFontPadding(false);
             label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
-            label.setTextColor(M3ColorScheme.forContext(context, false).onSurfaceVariant);
-            label.setBackground(null);
-            label.setPadding(0, 0, 0, 0);
+            label.setTextColor(timeLabelTextColor(context));
+            label.setBackground(new android.graphics.drawable.GradientDrawable());
+            label.setPadding(M3Theme.dp(context, 4f), M3Theme.dp(context, 2f),
+                    M3Theme.dp(context, 4f), M3Theme.dp(context, 2f));
             label.setClickable(false);
             label.setLongClickable(false);
             label.setFocusable(false);
@@ -907,10 +961,11 @@ final class ChatBubbleStyler {
         if (textChanged) {
             label.setText(formattedTime);
         }
-        int timeColor = M3ColorScheme.forContext(context, false).onSurfaceVariant;
+        int timeColor = timeLabelTextColor(context);
         if (label.getCurrentTextColor() != timeColor) {
             label.setTextColor(timeColor);
         }
+        applyTimeLabelBackground(label, context);
         if (textChanged || label.getMeasuredWidth() <= 0 || label.getMeasuredHeight() <= 0
                 || label.getMeasuredWidth() > overlayHost.getWidth()) {
             label.measure(View.MeasureSpec.makeMeasureSpec(overlayHost.getWidth(),
@@ -999,6 +1054,28 @@ final class ChatBubbleStyler {
         if (!signature.equals(TIME_DIAGNOSTICS.get(item))) {
             TIME_DIAGNOSTICS.put(item, signature);
             android.util.Log.i("WeChatGlass", "CB time missing " + signature);
+        }
+    }
+
+    private static int timeLabelTextColor(Context context) {
+        return M3Theme.isDark(context) ? 0xFFB0B0B0 : 0xFF666666;
+    }
+
+    private static void applyTimeLabelBackground(TextView label, Context context) {
+        android.graphics.drawable.GradientDrawable background;
+        if (label.getBackground() instanceof android.graphics.drawable.GradientDrawable) {
+            background = (android.graphics.drawable.GradientDrawable) label.getBackground();
+        } else {
+            background = new android.graphics.drawable.GradientDrawable();
+            label.setBackground(background);
+        }
+        background.setColor(M3Theme.isDark(context) ? 0xFF353535 : 0xFFE5E5E5);
+        background.setCornerRadius(M3Theme.dpF(context, 4f));
+        int horizontal = M3Theme.dp(context, 4f);
+        int vertical = M3Theme.dp(context, 2f);
+        if (label.getPaddingLeft() != horizontal || label.getPaddingRight() != horizontal
+                || label.getPaddingTop() != vertical || label.getPaddingBottom() != vertical) {
+            label.setPadding(horizontal, vertical, horizontal, vertical);
         }
     }
 
