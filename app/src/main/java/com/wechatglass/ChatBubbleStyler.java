@@ -564,26 +564,26 @@ final class ChatBubbleStyler {
                 View.MeasureSpec.makeMeasureSpec(row.getHeight(), View.MeasureSpec.AT_MOST));
         int labelWidth = label.getMeasuredWidth();
         int labelHeight = label.getMeasuredHeight();
-        int[] rowLocation = new int[2];
-        int[] anchorLocation = new int[2];
-        row.getLocationOnScreen(rowLocation);
-        anchor.getLocationOnScreen(anchorLocation);
+        android.graphics.Rect anchorBounds = new android.graphics.Rect(
+                0, 0, anchor.getWidth(), anchor.getHeight());
+        row.offsetDescendantRectToMyCoords(anchor, anchorBounds);
         int gap = M3Theme.dp(context, 2f);
         boolean outgoing = avatar != null
                 ? isOutgoingByAvatar(avatar, context.getResources().getDisplayMetrics().widthPixels)
-                : anchorLocation[0] + anchor.getWidth() / 2
+                : anchorBounds.centerX()
                 > context.getResources().getDisplayMetrics().widthPixels / 2;
         int x = outgoing
-                ? anchorLocation[0] - rowLocation[0] + anchor.getWidth() - labelWidth
-                : anchorLocation[0] - rowLocation[0];
-        int y = anchorLocation[1] - rowLocation[1] - labelHeight - gap;
+                ? anchorBounds.right - labelWidth : anchorBounds.left;
+        int y = anchorBounds.top - labelHeight - gap;
         x = Math.max(0, Math.min(x, Math.max(0, row.getWidth() - labelWidth)));
         y = Math.max(0, Math.min(y, Math.max(0, row.getHeight() - labelHeight)));
         label.layout(x, y, x + labelWidth, y + labelHeight);
         label.invalidate();
 
         String source = item.getClass().getName() + ":" + search.bestPath
-                + ":anchor=" + anchor.getClass().getName();
+                + ":anchor=" + anchor.getClass().getName()
+                + ":anchorBounds=" + anchorBounds.toShortString()
+                + ":labelAt=" + x + "," + y;
         if (!source.equals(MESSAGE_TIME_SOURCES.get(item))) {
             MESSAGE_TIME_SOURCES.put(item, source);
             android.util.Log.i("WeChatGlass", "CB time source=" + source
