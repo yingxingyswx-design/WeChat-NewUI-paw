@@ -83,6 +83,9 @@ final class ChatBubbleStyler {
         final android.os.Handler handler = new android.os.Handler(
                 android.os.Looper.getMainLooper());
         Runnable poller;
+        ViewGroup list;
+        Object childAttachListener;
+        java.lang.reflect.Method removeChildAttachListener;
         boolean enabled;
     }
 
@@ -292,30 +295,185 @@ final class ChatBubbleStyler {
                     detach(activity);
                     return;
                 }
-                try {
-                    boolean enabled = !HookConfig.nativeList(activity);
-                    session.enabled = enabled;
-                    updateActive();
-                    if (enabled) {
-                        View decor = activity.getWindow() == null
-                                ? null : activity.getWindow().getDecorView();
-                        View list = decor == null ? null
-                                : Ui.findByClassContains(decor, "ScrollControlRecyclerView");
-                        if (list instanceof ViewGroup) {
-                            ViewGroup group = (ViewGroup) list;
-                            for (int i = 0; i < group.getChildCount(); i++) {
-                                styleItem(group.getChildAt(i), activity);
-                            }
-                        }
-                    } else {
-                        restoreOriginalViews();
-                    }
-                } catch (Throwable ignored) {
-                }
-                session.handler.postDelayed(this, 600L);
+                updateSession(session, activity);
+                session.handler.postDelayed(this,
+                        session.childAttachListener == null ? 2000L : 3000L);
             }
         };
         session.handler.postDelayed(session.poller, 300L);
+    }
+
+    private static void updateSession(final Session session,
+                                     final android.app.Activity activity) {
+        try {
+            boolean enabled = !HookConfig.nativeList(activity);
+            if (!enabled) {
+                boolean wasEnabled = session.enabled;
+                session.enabled = false;
+                removeChildAttachListener(session);
+                session.list = null;
+                updateActive();
+                if (wasEnabled) {
+                    restoreOriginalViews();
+                }
+                return;
+            }
+
+            View decor = activity.getWindow() == null
+                    ? null : activity.getWindow().getDecorView();
+            View candidate = session.list != null && session.list.isAttachedToWindow()
+                    && decor != null && isDescendantOf(session.list, decor)
+                    ? session.list : decor == null ? null
+                    : Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+            if (!(candidate instanceof ViewGroup)) {
+                if (session.list != null && !session.list.isAttachedToWindow()) {
+                    removeChildAttachListener(session);
+                    session.list = null;
+                }
+                session.enabled = true;
+                updateActive();
+                return;
+            }
+
+            ViewGroup list = (ViewGroup) candidate;
+            boolean listChanged = list != session.list;
+            boolean newlyEnabled = !session.enabled;
+            session.enabled = true;
+            updateActive();
+            if (listChanged) {
+                removeChildAttachListener(session);
+                session.list = list;
+                installChildAttachListener(session, activity, list);
+                styleVisibleChildren(session, activity, list, true);
+            } else if (newlyEnabled || session.childAttachListener == null) {
+                // Slow fallback only when this WeChat RecyclerView version
+                // does not expose its child-attach listener reflectively.
+                styleVisibleChildren(session, activity, list, false);
+            }
+        } catch (Throwable error) {
+            android.util.Log.w("WeChatGlass", "CB list monitor failed "
+                    + error.getClass().getSimpleName());
+        }
+    }
+
+    private static void installChildAttachListener(final Session session,
+                                                   final android.app.Activity activity,
+                                                   final ViewGroup list) {
+        try {
+            Class<?> recyclerClass = findRecyclerViewClass(list.getClass());
+            if (recyclerClass == null) {
+                throw new ClassNotFoundException("RecyclerView base class");
+            }
+            Class<?> listenerClass = Class.forName(
+                    recyclerClass.getName() + "$OnChildAttachStateChangeListener",
+                    false, recyclerClass.getClassLoader());
+            Object listener = java.lang.reflect.Proxy.newProxyInstance(
+                    listenerClass.getClassLoader(), new Class<?>[]{listenerClass},
+                    (proxy, method, args) -> {
+                        String name = method.getName();
+                        if ("onChildViewAttachedToWindow".equals(name)
+                                && args != null && args.length == 1
+                                && args[0] instanceof View && session.enabled) {
+                            scheduleStyleItem(session, activity, (View) args[0], 0, true);
+                        }
+                        if ("equals".equals(name)) {
+                            return proxy == (args == null ? null : args[0]);
+                        }
+                        if ("hashCode".equals(name)) {
+                            return System.identityHashCode(proxy);
+                        }
+                        if ("toString".equals(name)) {
+                            return "WeChatGlassChildAttachListener";
+                        }
+                        return null;
+                    });
+            java.lang.reflect.Method add = recyclerClass.getMethod(
+                    "addOnChildAttachStateChangeListener", listenerClass);
+            java.lang.reflect.Method remove = recyclerClass.getMethod(
+                    "removeOnChildAttachStateChangeListener", listenerClass);
+            add.invoke(list, listener);
+            session.childAttachListener = listener;
+            session.removeChildAttachListener = remove;
+            android.util.Log.i("WeChatGlass", "CB child attach listener active"
+                    + " list=" + list.getClass().getSimpleName());
+        } catch (Throwable error) {
+            if (session.list == list) {
+                android.util.Log.w("WeChatGlass", "CB child listener unavailable "
+                        + error.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private static Class<?> findRecyclerViewClass(Class<?> type) {
+        Class<?> current = type;
+        while (current != null && current != Object.class) {
+            if ("androidx.recyclerview.widget.RecyclerView".equals(current.getName())) {
+                return current;
+            }
+            current = current.getSuperclass();
+        }
+        return null;
+    }
+
+    private static void removeChildAttachListener(Session session) {
+        if (session.childAttachListener != null && session.list != null
+                && session.removeChildAttachListener != null) {
+            try {
+                session.removeChildAttachListener.invoke(session.list,
+                        session.childAttachListener);
+            } catch (Throwable ignored) {
+            }
+        }
+        session.childAttachListener = null;
+        session.removeChildAttachListener = null;
+    }
+
+    private static void styleVisibleChildren(Session session,
+                                             android.app.Activity activity,
+                                             ViewGroup list, boolean settle) {
+        for (int i = 0; i < list.getChildCount(); i++) {
+            scheduleStyleItem(session, activity, list.getChildAt(i), 0, settle);
+        }
+    }
+
+    private static void scheduleStyleItem(final Session session,
+                                          final android.app.Activity activity,
+                                          final View item, final int layoutAttempt,
+                                          final boolean settle) {
+        if (item == null) {
+            return;
+        }
+        item.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!session.enabled || session.list == null
+                        || !item.isAttachedToWindow()
+                        || !isDescendantOf(item, session.list)) {
+                    return;
+                }
+                if (item.getWidth() <= 0 || item.getHeight() <= 0) {
+                    if (layoutAttempt < 5) {
+                        item.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                scheduleStyleItem(session, activity, item,
+                                        layoutAttempt + 1, settle);
+                            }
+                        }, 50L);
+                    }
+                    return;
+                }
+                styleItem(item, activity);
+                if (settle) {
+                    item.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            scheduleStyleItem(session, activity, item, 0, false);
+                        }
+                    }, 500L);
+                }
+            }
+        });
     }
 
     static void force(TextView text) {
@@ -330,8 +488,11 @@ final class ChatBubbleStyler {
     static void detach(android.app.Activity activity) {
         if (activity != null) {
             Session session = SESSIONS.remove(activity);
-            if (session != null && session.poller != null) {
-                session.handler.removeCallbacks(session.poller);
+            if (session != null) {
+                if (session.poller != null) {
+                    session.handler.removeCallbacks(session.poller);
+                }
+                removeChildAttachListener(session);
             }
         }
         restoreOriginalViews();
