@@ -5,8 +5,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
-import androidx.recyclerview.widget.RecyclerView;
-
 import com.wechatglass.m3.M3ColorScheme;
 import com.wechatglass.m3.M3Shape;
 import com.wechatglass.m3.M3Theme;
@@ -673,21 +671,37 @@ final class ChatBubbleStyler {
     private static void collectMessageTime(View item, TimeSearch search) {
         collectTimeFromView(item, search, 0);
         View current = item;
-        while (current != null && !(current instanceof RecyclerView)) {
-            if (current.getParent() instanceof View) {
-                current = (View) current.getParent();
-            } else {
-                current = null;
+        View recyclerChild = item;
+        while (current != null) {
+            if (isRecyclerViewObject(current)) {
+                try {
+                    java.lang.reflect.Method getHolder = current.getClass().getMethod(
+                            "getChildViewHolder", View.class);
+                    Object holder = getHolder.invoke(current, recyclerChild);
+                    scanTimeObject(holder, search, 0, "holder", true);
+                } catch (Throwable ignored) {
+                }
+                break;
             }
-        }
-        if (current instanceof RecyclerView) {
-            try {
-                RecyclerView recycler = (RecyclerView) current;
-                RecyclerView.ViewHolder holder = recycler.getChildViewHolder(item);
-                scanTimeObject(holder, search, 0, "holder", true);
-            } catch (Throwable ignored) {
+            View parent = current.getParent() instanceof View
+                    ? (View) current.getParent() : null;
+            if (parent == null) {
+                break;
             }
+            recyclerChild = current;
+            current = parent;
         }
+    }
+
+    private static boolean isRecyclerViewObject(View view) {
+        Class<?> type = view == null ? null : view.getClass();
+        while (type != null && type != Object.class) {
+            if ("androidx.recyclerview.widget.RecyclerView".equals(type.getName())) {
+                return true;
+            }
+            type = type.getSuperclass();
+        }
+        return false;
     }
 
     private static void collectTimeFromView(View view, TimeSearch search, int depth) {
