@@ -13,6 +13,14 @@ import com.wechatglass.m3.M3Theme;
 import com.wechatglass.m3.M3Type;
 
 import java.util.ArrayList;
+import java.lang.reflect.Array;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.IdentityHashMap;
+import java.util.Locale;
 import java.util.WeakHashMap;
 
 /**
@@ -44,6 +52,11 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> APPLIED_DIAGNOSTICS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, TextView> MESSAGE_TIME_LABELS =
+            new WeakHashMap<>();
+    private static final WeakHashMap<View, String> MESSAGE_TIME_SOURCES =
+            new WeakHashMap<>();
+    private static final int MAX_TIME_GRAPH_OBJECTS = 160;
     private static final int MAX_DIAGNOSTIC_ITEMS = 48;
     private static final int MAX_DIAGNOSTIC_VIEWS = 32;
     private static final int MAX_DIAGNOSTIC_CANDIDATES = 12;
@@ -63,6 +76,30 @@ final class ChatBubbleStyler {
                 android.os.Looper.getMainLooper());
         Runnable poller;
         boolean enabled;
+    }
+
+    private static final class TimeSearch {
+        final IdentityHashMap<Object, Boolean> seen = new IdentityHashMap<>();
+        long bestMillis;
+        int bestRank = Integer.MAX_VALUE;
+        int objectsVisited;
+        String bestPath = "-";
+
+        void consider(long value, int depth, String path) {
+            long millis = normalizeTimestamp(value);
+            if (millis <= 0) {
+                return;
+            }
+            String lower = path.toLowerCase(java.util.Locale.ROOT);
+            boolean hinted = lower.contains("time") || lower.contains("date")
+                    || lower.contains("create") || lower.contains("send");
+            int rank = depth * 2 - (hinted ? 1 : 0);
+            if (rank < bestRank) {
+                bestMillis = millis;
+                bestRank = rank;
+                bestPath = path;
+            }
+        }
     }
 
     private static final class ViewState {
@@ -287,6 +324,18 @@ final class ChatBubbleStyler {
             }
         }
         ORIGINAL.clear();
+        for (java.util.Map.Entry<View, TextView> entry : MESSAGE_TIME_LABELS.entrySet()) {
+            View item = entry.getKey();
+            TextView label = entry.getValue();
+            if (item instanceof ViewGroup && label != null) {
+                try {
+                    ((ViewGroup) item).getOverlay().remove(label);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        MESSAGE_TIME_LABELS.clear();
+        MESSAGE_TIME_SOURCES.clear();
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
         STICKER_OUTLINES.clear();
@@ -320,6 +369,7 @@ final class ChatBubbleStyler {
             } else if (card != null) {
                 styleRichCard(card, item, null, avatar, context);
             }
+            updateMessageTime(item, selected, avatar, context);
             return;
         }
         if (containsDiagnosticMedia(item, avatar, 0)) {
@@ -328,6 +378,7 @@ final class ChatBubbleStyler {
                 logRuntimeDetection(item, avatar, target, null, media,
                         "media-hit", context, false);
                 styleMediaBubble(media, item, avatar, context);
+                updateMessageTime(item, media, avatar, context);
                 return;
             }
             View richCard = findRichCardObject(item, avatar, target, context);
@@ -335,6 +386,7 @@ final class ChatBubbleStyler {
                 logRuntimeDetection(item, avatar, target, null, richCard,
                         "rich-hit", context, false);
                 styleRichCard(richCard, item, target, avatar, context);
+                updateMessageTime(item, richCard, avatar, context);
                 return;
             }
         }
@@ -356,6 +408,8 @@ final class ChatBubbleStyler {
             if (card != null) {
                 styleRichCard(card, item, target, avatar, context);
             }
+            updateMessageTime(item, card != null ? card : bubble != item ? bubble : target,
+                    avatar, context);
             return;
         }
         logRuntimeDetection(item, avatar, target, bubble, null,
@@ -436,6 +490,249 @@ final class ChatBubbleStyler {
             }
         }
         logAppliedSurface("text", bubble);
+        updateMessageTime(item, bubble, avatar, context);
+    }
+
+    private static void updateMessageTime(View item, View anchor, View avatar,
+                                          Context context) {
+        if (!(item instanceof ViewGroup) || anchor == null || anchor == item
+                || anchor.getWidth() <= 0 || anchor.getHeight() <= 0
+                || anchor.getVisibility() != View.VISIBLE || !anchor.isAttachedToWindow()) {
+            removeMessageTime(item);
+            return;
+        }
+        TimeSearch search = new TimeSearch();
+        collectMessageTime(item, search);
+        if (search.bestMillis <= 0) {
+            removeMessageTime(item);
+            return;
+        }
+        ViewGroup row = (ViewGroup) item;
+        TextView label = MESSAGE_TIME_LABELS.get(item);
+        if (label == null) {
+            label = new TextView(context);
+            label.setSingleLine(true);
+            label.setIncludeFontPadding(false);
+            label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
+            label.setTextColor(M3ColorScheme.forContext(context, false).onSurfaceVariant);
+            label.setBackground(null);
+            label.setPadding(0, 0, 0, 0);
+            label.setClickable(false);
+            label.setLongClickable(false);
+            label.setFocusable(false);
+            label.setFocusableInTouchMode(false);
+            label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            label.setElevation(0f);
+            row.getOverlay().add(label);
+            MESSAGE_TIME_LABELS.put(item, label);
+        }
+        label.setText(formatMessageTime(search.bestMillis));
+        label.setTextColor(M3ColorScheme.forContext(context, false).onSurfaceVariant);
+        label.measure(View.MeasureSpec.makeMeasureSpec(row.getWidth(), View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(row.getHeight(), View.MeasureSpec.AT_MOST));
+        int labelWidth = label.getMeasuredWidth();
+        int labelHeight = label.getMeasuredHeight();
+        int[] rowLocation = new int[2];
+        int[] anchorLocation = new int[2];
+        row.getLocationOnScreen(rowLocation);
+        anchor.getLocationOnScreen(anchorLocation);
+        int gap = M3Theme.dp(context, 2f);
+        boolean outgoing = avatar != null
+                ? isOutgoingByAvatar(avatar, context.getResources().getDisplayMetrics().widthPixels)
+                : anchorLocation[0] + anchor.getWidth() / 2
+                > context.getResources().getDisplayMetrics().widthPixels / 2;
+        int x = outgoing
+                ? anchorLocation[0] - rowLocation[0] + anchor.getWidth() - labelWidth
+                : anchorLocation[0] - rowLocation[0];
+        int y = anchorLocation[1] - rowLocation[1] - labelHeight - gap;
+        x = Math.max(0, Math.min(x, Math.max(0, row.getWidth() - labelWidth)));
+        y = Math.max(0, Math.min(y, Math.max(0, row.getHeight() - labelHeight)));
+        label.layout(x, y, x + labelWidth, y + labelHeight);
+        label.bringToFront();
+        label.invalidate();
+
+        String source = item.getClass().getName() + ":" + search.bestPath
+                + ":anchor=" + anchor.getClass().getName();
+        if (!source.equals(MESSAGE_TIME_SOURCES.get(item))) {
+            MESSAGE_TIME_SOURCES.put(item, source);
+            android.util.Log.i("WeChatGlass", "CB time source=" + source
+                    + " row=" + item.getClass().getName()
+                    + " label=" + label.getWidth() + "x" + label.getHeight());
+        }
+    }
+
+    private static void removeMessageTime(View item) {
+        TextView label = MESSAGE_TIME_LABELS.remove(item);
+        MESSAGE_TIME_SOURCES.remove(item);
+        if (label != null && item instanceof ViewGroup) {
+            try {
+                ((ViewGroup) item).getOverlay().remove(label);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static String formatMessageTime(long millis) {
+        Calendar message = Calendar.getInstance();
+        message.setTimeInMillis(millis);
+        Calendar today = Calendar.getInstance();
+        boolean sameDay = message.get(Calendar.ERA) == today.get(Calendar.ERA)
+                && message.get(Calendar.YEAR) == today.get(Calendar.YEAR)
+                && message.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR);
+        return new SimpleDateFormat(sameDay ? "HH:mm:ss" : "yyyy-MM-dd HH:mm:ss",
+                Locale.getDefault()).format(new Date(millis));
+    }
+
+    private static void collectMessageTime(View item, TimeSearch search) {
+        collectTimeFromView(item, search, 0);
+        View current = item;
+        while (current != null && !(current instanceof RecyclerView)) {
+            if (current.getParent() instanceof View) {
+                current = (View) current.getParent();
+            } else {
+                current = null;
+            }
+        }
+        if (current instanceof RecyclerView) {
+            try {
+                RecyclerView recycler = (RecyclerView) current;
+                RecyclerView.ViewHolder holder = recycler.getChildViewHolder(item);
+                scanTimeObject(holder, search, 0, "holder", true);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static void collectTimeFromView(View view, TimeSearch search, int depth) {
+        if (view == null || depth > 16 || search.objectsVisited >= MAX_TIME_GRAPH_OBJECTS) {
+            return;
+        }
+        scanTimeObject(view.getTag(), search, 0, "view.tag", true);
+        scanTimeObject(view, search, 0, "view." + view.getClass().getName(), true);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectTimeFromView(group.getChildAt(i), search, depth + 1);
+            }
+        }
+    }
+
+    private static void scanTimeObject(Object value, TimeSearch search, int depth,
+                                       String path, boolean root) {
+        if (value == null || depth > 8 || search.objectsVisited >= MAX_TIME_GRAPH_OBJECTS) {
+            return;
+        }
+        if (value instanceof Number) {
+            search.consider(((Number) value).longValue(), depth, path);
+            return;
+        }
+        if (value instanceof Date) {
+            search.consider(((Date) value).getTime(), depth, path);
+            return;
+        }
+        if (value instanceof Calendar) {
+            search.consider(((Calendar) value).getTimeInMillis(), depth, path);
+            return;
+        }
+        Class<?> type = value.getClass();
+        if (type.isPrimitive() || value instanceof CharSequence || value instanceof Boolean
+                || value instanceof Character || value instanceof Enum
+                || value instanceof Class || value instanceof Context
+                || value instanceof android.graphics.drawable.Drawable
+                || value instanceof View && !root) {
+            return;
+        }
+        if (search.seen.put(value, Boolean.TRUE) != null) {
+            return;
+        }
+        search.objectsVisited++;
+        if (type.isArray()) {
+            int length = Math.min(Array.getLength(value), 24);
+            for (int i = 0; i < length; i++) {
+                scanTimeObject(Array.get(value, i), search, depth + 1,
+                        path + "[" + i + "]", false);
+            }
+            return;
+        }
+        if (value instanceof Iterable) {
+            int count = 0;
+            for (Object entry : (Iterable<?>) value) {
+                if (count >= 24) break;
+                scanTimeObject(entry, search, depth + 1, path + "[]", false);
+                count++;
+            }
+            return;
+        }
+        if (value instanceof java.util.Map) {
+            int count = 0;
+            for (Object entry : ((java.util.Map<?, ?>) value).values()) {
+                if (count >= 24) break;
+                scanTimeObject(entry, search, depth + 1, path + "{}", false);
+                count++;
+            }
+            return;
+        }
+        String className = type.getName();
+        boolean supportedClass = className.startsWith("com.tencent.mm.")
+                || className.startsWith("com.tencent.wework.")
+                || className.startsWith("androidx.recyclerview.widget.RecyclerView$");
+        if (!supportedClass && !root) {
+            return;
+        }
+        Class<?> cursor = type;
+        int fieldCount = 0;
+        while (cursor != null && cursor != Object.class && fieldCount < 48
+                && search.objectsVisited < MAX_TIME_GRAPH_OBJECTS) {
+            String ownerName = cursor.getName();
+            if (!(ownerName.startsWith("com.tencent.mm.")
+                    || ownerName.startsWith("com.tencent.wework.")
+                    || ownerName.startsWith("androidx.recyclerview.widget.RecyclerView$"))) {
+                break;
+            }
+            Field[] fields;
+            try {
+                fields = cursor.getDeclaredFields();
+            } catch (Throwable ignored) {
+                break;
+            }
+            for (Field field : fields) {
+                if (fieldCount++ >= 48 || Modifier.isStatic(field.getModifiers())) continue;
+                try {
+                    field.setAccessible(true);
+                    Object child = field.get(value);
+                    String childPath = path + "." + field.getName();
+                    if (child instanceof Number) {
+                        search.consider(((Number) child).longValue(), depth + 1, childPath);
+                    } else if (child instanceof Date) {
+                        search.consider(((Date) child).getTime(), depth + 1, childPath);
+                    } else if (child instanceof Calendar) {
+                        search.consider(((Calendar) child).getTimeInMillis(), depth + 1, childPath);
+                    } else {
+                        scanTimeObject(child, search, depth + 1, childPath, false);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            cursor = cursor.getSuperclass();
+        }
+    }
+
+    private static long normalizeTimestamp(long value) {
+        long now = System.currentTimeMillis();
+        long lowerSeconds = 946684800L;
+        long upperSeconds = now / 1000L + 86400L;
+        if (value >= lowerSeconds && value <= upperSeconds) {
+            return value * 1000L;
+        }
+        long lowerMillis = 946684800000L;
+        long upperMillis = now + 86400000L;
+        if (value >= lowerMillis && value <= upperMillis) {
+            return value;
+        }
+        if (value >= lowerMillis * 1000L && value <= upperMillis * 1000L) {
+            return value / 1000L;
+        }
+        return 0L;
     }
 
     /**
