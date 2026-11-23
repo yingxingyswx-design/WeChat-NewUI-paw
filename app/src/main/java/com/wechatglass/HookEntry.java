@@ -214,6 +214,8 @@ public class HookEntry implements IXposedHookLoadPackage {
                                 Object tab = param.args[0];
                                 if (tab instanceof Integer) {
                                     HomeGlassHook.onBottomTab((Integer) tab);
+                                    HomeGlassHook.applyBottomTabTheme(
+                                            param.thisObject, (Integer) tab);
                                 }
                             } catch (Throwable ignored) {
                             }

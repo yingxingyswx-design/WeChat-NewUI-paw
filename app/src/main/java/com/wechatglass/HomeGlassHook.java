@@ -37,6 +37,63 @@ final class HomeGlassHook {
     /** setTo(): 0 = Weixin, 1 = Discover, 2 = Contacts, 3 = Me; -1 until known. */
     private static volatile int bottomTab = -1;
 
+    /**
+     * Repaints WeChat's native tab icon/label with the current theme accent.
+     * The native layout, ripple, red dots and click handling stay untouched.
+     */
+    static void applyBottomTabTheme(Object tabView, int index) {
+        if (tabView != null) {
+            bottomTabView = new java.lang.ref.WeakReference<>(tabView);
+        }
+        Object target = tabView != null ? tabView
+                : (bottomTabView == null ? null : bottomTabView.get());
+        if (!(target instanceof View)) {
+            return;
+        }
+        try {
+            com.wechatglass.m3.M3ColorScheme scheme =
+                    com.wechatglass.m3.M3Theme.colors(((View) target).getContext());
+            String[] fields = {"f", "h", "g", "i"};
+            for (int i = 0; i < fields.length; i++) {
+                Object tab = de.robv.android.xposed.XposedHelpers
+                        .getObjectField(target, fields[i]);
+                if (tab == null) {
+                    continue;
+                }
+                android.widget.TextView label = (android.widget.TextView)
+                        de.robv.android.xposed.XposedHelpers
+                                .getObjectField(tab, "f");
+                if (label != null) {
+                    label.setTextColor(i == index ? scheme.primary : scheme.onSurfaceVariant);
+                }
+                Object icon = de.robv.android.xposed.XposedHelpers
+                        .getObjectField(tab, "e");
+                if (icon != null) {
+                    Object selectedPaint = de.robv.android.xposed.XposedHelpers
+                            .getObjectField(icon, "m");
+                    Object idlePaint = de.robv.android.xposed.XposedHelpers
+                            .getObjectField(icon, "n");
+                    if (selectedPaint instanceof android.graphics.Paint) {
+                        ((android.graphics.Paint) selectedPaint).setColorFilter(
+                                new android.graphics.PorterDuffColorFilter(
+                                        i == index ? scheme.primary : scheme.onSurfaceVariant,
+                                        android.graphics.PorterDuff.Mode.SRC_ATOP));
+                    }
+                    if (idlePaint instanceof android.graphics.Paint) {
+                        ((android.graphics.Paint) idlePaint).setColorFilter(
+                                new android.graphics.PorterDuffColorFilter(
+                                        scheme.onSurfaceVariant,
+                                        android.graphics.PorterDuff.Mode.SRC_ATOP));
+                    }
+                    if (icon instanceof View) {
+                        ((View) icon).invalidate();
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     static void onBottomTab(int tab) {
         if (bottomTab == tab) {
             return;
@@ -971,6 +1028,7 @@ final class HomeGlassHook {
             renderer.requestUpdate();
         }
         applySystemBars();
+        applyBottomTabTheme(null, Math.max(0, bottomTab));
     }
 
     /** Status/navigation bars follow the same theme as the switcher pill. */
@@ -1363,6 +1421,7 @@ final class HomeGlassHook {
 
     private boolean categoryPageFilled;
     private int lastIndexVersion = -1;
+    private static java.lang.ref.WeakReference<Object> bottomTabView;
 
     /**
      * Places our own conversation list on top of WeChat's list, at the same
