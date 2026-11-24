@@ -844,6 +844,10 @@ final class ChatBubbleStyler {
         TextView label = MESSAGE_TIME_LABELS.remove(item);
         ViewGroup host = MESSAGE_TIME_HOSTS.remove(item);
         MESSAGE_TIME_SOURCES.remove(item);
+        MessageTimePadding padding = MESSAGE_TIME_PADDING.remove(item);
+        if (padding != null && item != null) {
+            item.setPadding(padding.left, padding.top, padding.right, padding.bottom);
+        }
         if (host == null && item instanceof ViewGroup) {
             host = (ViewGroup) item;
         }

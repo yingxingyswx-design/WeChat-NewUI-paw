@@ -23,6 +23,7 @@ final class HookConfig {
     static final String KEY_NATIVE_LIST = "native_list";
     static final String KEY_COLOR_MONET = "color_monet";
     static final String KEY_COLOR_SEED = "color_seed";
+    static final String KEY_MESSAGE_TIME = "message_time";
     static final int DEFAULT_SEED = 0xFF07C160;
 
     private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
@@ -57,6 +58,7 @@ final class HookConfig {
                                 .getBoolean(KEY_COLOR_MONET, true));
                         reply.putExtra(KEY_COLOR_SEED, ctx.getSharedPreferences(PREFS, 0)
                                 .getInt(KEY_COLOR_SEED, DEFAULT_SEED));
+                        reply.putExtra(KEY_MESSAGE_TIME, messageTimeEnabled(ctx));
                         ctx.sendBroadcast(reply);
                         return;
                     }
@@ -67,11 +69,13 @@ final class HookConfig {
                     boolean nativeList = intent.getBooleanExtra(KEY_NATIVE_LIST, false);
                     boolean monet = intent.getBooleanExtra(KEY_COLOR_MONET, true);
                     int seed = intent.getIntExtra(KEY_COLOR_SEED, DEFAULT_SEED);
+                    boolean messageTime = intent.getBooleanExtra(KEY_MESSAGE_TIME, false);
                     ctx.getSharedPreferences(PREFS, 0).edit()
                             .putBoolean(KEY_GLASS, glass)
                             .putBoolean(KEY_NATIVE_LIST, nativeList)
                             .putBoolean(KEY_COLOR_MONET, monet)
                             .putInt(KEY_COLOR_SEED, seed)
+                            .putBoolean(KEY_MESSAGE_TIME, messageTime)
                             .apply();
                     com.wechatglass.m3.M3Theme.refresh();
                     android.util.Log.i("WeChatGlass", "config broadcast glass=" + glass
@@ -104,6 +108,21 @@ final class HookConfig {
                 .getBoolean(KEY_GLASS, true);
         android.util.Log.i("WeChatGlass", "config glass=" + enabled);
         return enabled;
+    }
+
+    static boolean messageTimeEnabled(Context context) {
+        try {
+            de.robv.android.xposed.XSharedPreferences module =
+                    new de.robv.android.xposed.XSharedPreferences(
+                            "io.github.yingxingyswx_design.wechatglass", "settings");
+            module.reload();
+            if (module.contains(KEY_MESSAGE_TIME)) {
+                return module.getBoolean(KEY_MESSAGE_TIME, false);
+            }
+        } catch (Throwable ignored) {
+        }
+        return context.getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_MESSAGE_TIME, false);
     }
 
     static boolean nativeList(Context context) {

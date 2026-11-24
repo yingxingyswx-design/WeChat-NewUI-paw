@@ -29,6 +29,7 @@ public class SettingsActivity extends Activity {
     private static final String KEY_AUTO_CONFLICT = "auto_disable_original";
     private static final String KEY_MONET = "color_monet";
     private static final String KEY_SEED = "color_seed";
+    private static final String KEY_MESSAGE_TIME = "message_time";
     private static final int DEFAULT_SEED = 0xFF07C160;
     private static final int[] SEED_COLORS = {
             0xFF07C160, 0xFF1A73E8, 0xFF6750A4, 0xFFFF7A00,
@@ -54,6 +55,7 @@ public class SettingsActivity extends Activity {
     private int statusGeneration;
     private boolean hasResumed;
     private M3Switch monetSwitch;
+    private M3Switch messageTimeSwitch;
     private LinearLayout swatchRow;
     private int selectedSeed = DEFAULT_SEED;
 
@@ -199,6 +201,35 @@ public class SettingsActivity extends Activity {
         nativeRow.addView(nativeSwitch);
         root.addView(nativeRow, lp(-1, -2, 0, dp(8)));
 
+        LinearLayout messageTimeRow = new LinearLayout(this);
+        messageTimeRow.setOrientation(LinearLayout.HORIZONTAL);
+        messageTimeRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView messageTimeLabel = new TextView(this);
+        messageTimeLabel.setText("每条消息时间显示（功耗增加）");
+        messageTimeLabel.setTextSize(16f);
+        messageTimeLabel.setTextColor(onBg);
+        messageTimeRow.addView(messageTimeLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        messageTimeSwitch = new M3Switch(this);
+        messageTimeSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_MESSAGE_TIME, false));
+        messageTimeSwitch.setOnClickListener(v -> {
+            userToggled = true;
+            boolean on = !messageTimeSwitch.isChecked();
+            messageTimeSwitch.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit()
+                    .putBoolean(KEY_MESSAGE_TIME, on).apply();
+            pushConfig();
+        });
+        messageTimeRow.addView(messageTimeSwitch);
+        root.addView(messageTimeRow, lp(-1, -2, 0, dp(8)));
+
+        TextView messageTimeHint = new TextView(this);
+        messageTimeHint.setText("开启后会在每条消息上方显示时间，滚动时开销更高；默认关闭。");
+        messageTimeHint.setTextSize(13f);
+        messageTimeHint.setTextColor(onVar);
+        root.addView(messageTimeHint, lp(-1, -2, 0, dp(16)));
+
         TextView nativeHint = new TextView(this);
         nativeHint.setText("开启后使用自建会话列表（实验，可能不稳定）；"
                 + "聊天页也使用实验气泡样式。关闭后恢复微信原生列表和消息气泡（含小程序、已登入设备、置顶笔记）。");
@@ -328,6 +359,14 @@ public class SettingsActivity extends Activity {
                 if (nativeSwitchField != null) {
                     nativeSwitchField.setCheckedNoAnim(!nativeList);
                 }
+                if (intent.hasExtra("message_time")) {
+                    boolean messageTime = intent.getBooleanExtra("message_time", false);
+                    if (messageTimeSwitch != null) {
+                        messageTimeSwitch.setCheckedNoAnim(messageTime);
+                    }
+                    getSharedPreferences(PREFS, 0).edit()
+                            .putBoolean(KEY_MESSAGE_TIME, messageTime).apply();
+                }
                 if (!intent.hasExtra("color_monet") && !intent.hasExtra("color_seed")) {
                     return;
                 }
@@ -391,6 +430,8 @@ public class SettingsActivity extends Activity {
             intent.putExtra("color_monet",
                     monetSwitch == null || monetSwitch.isChecked());
             intent.putExtra("color_seed", selectedSeed);
+            intent.putExtra("message_time",
+                    messageTimeSwitch != null && messageTimeSwitch.isChecked());
             sendBroadcast(intent);
         } catch (Throwable ignored) {
         }
