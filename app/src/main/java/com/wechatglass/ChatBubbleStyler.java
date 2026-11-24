@@ -80,6 +80,11 @@ final class ChatBubbleStyler {
             };
     private static volatile boolean active;
     private static int diagnosticItemsLogged;
+    // The 600ms poller asks for the switch once per visible row; the hook side
+    // may have to fall back to XSharedPreferences (file IO) when the broadcast
+    // never arrived, so the answer is cached for a second.
+    private static boolean messageTimeSwitchOn;
+    private static long messageTimeSwitchCheckedAt;
 
     private static final class Session {
         final android.os.Handler handler = new android.os.Handler(
@@ -387,6 +392,9 @@ final class ChatBubbleStyler {
         MESSAGE_TIME_PADDING.clear();
         MESSAGE_TIME_CACHE.clear();
         MESSAGE_TIME_SOURCES.clear();
+        // Force the next attach to re-read the switch instead of reusing the
+        // cached answer from the previous chat screen.
+        messageTimeSwitchCheckedAt = 0L;
         TIME_DIAGNOSTICS.clear();
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
@@ -546,8 +554,27 @@ final class ChatBubbleStyler {
         updateMessageTime(item, bubble, avatar, context);
     }
 
+    private static boolean messageTimeEnabled(Context context) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - messageTimeSwitchCheckedAt < 1000L) {
+            return messageTimeSwitchOn;
+        }
+        messageTimeSwitchCheckedAt = now;
+        messageTimeSwitchOn = HookConfig.messageTimeEnabled(context);
+        return messageTimeSwitchOn;
+    }
+
     private static void updateMessageTime(View item, View anchor, View avatar,
                                           Context context) {
+        // The settings switch is the only gate. Turning it off has to undo the
+        // work as well: the label lives in the row's overlay and the row carries
+        // an extra top padding, so returning early without cleanup would leave
+        // the pills on screen until the chat is reopened. This also skips the
+        // expensive binding-signature / model-graph scan while disabled.
+        if (context == null || !messageTimeEnabled(context)) {
+            removeMessageTime(item);
+            return;
+        }
         try {
             updateMessageTimeInternal(item, anchor, avatar, context);
         } catch (Throwable error) {
