@@ -1905,6 +1905,7 @@ final class ChatGlassHook {
         }
         clearEmojiBackgrounds(panelScope, 0);
         clearEmojiTabBackgrounds(panelScope, panelScope, 0);
+        clearKnownEmojiTabBar();
         View nested = Ui.findByClassContains(panelScope, "NestedBounceView");
         if (nested != null) {
             nested.setBackground(null);
@@ -1930,6 +1931,7 @@ final class ChatGlassHook {
                     }
                     clearEmojiBackgrounds(settledScope, 0);
                     clearEmojiTabBackgrounds(settledScope, settledScope, 0);
+                    clearKnownEmojiTabBar();
                     ChatBubbleStyler.roundStickerPanel(settledScope, activity);
                     if (decor != null) {
                         android.util.Log.i(TAG, "CB emoji-tree content-settled panel="
@@ -2039,6 +2041,34 @@ final class ChatGlassHook {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
                 clearEmojiTabSubtree(group.getChildAt(i), depth + 1);
+            }
+        }
+    }
+
+    /**
+     * The modern emoji panel is inflated from layout a77. Its category bar is
+     * the RecyclerView n0t and the solid strip behind it is dcy. They can sit
+     * outside ChatFooterBottom during WeChat's panel transition, so find these
+     * concrete resources from the activity decor instead of guessing by size.
+     */
+    private void clearKnownEmojiTabBar() {
+        if (decor == null) {
+            return;
+        }
+        View strip = decor.findViewById(0x7f0a1d1a); // dcy
+        if (strip != null) {
+            strip.setBackground(null);
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                strip.setForeground(null);
+            }
+        }
+        View tabs = decor.findViewById(0x7f0a61fb); // n0t
+        if (tabs != null) {
+            clearEmojiTabSubtree(tabs, 0);
+            if (transparentEmojiTabBars.add(tabs)) {
+                android.util.Log.i(TAG, "CB transparent emoji tabs exact"
+                        + " class=" + tabs.getClass().getName()
+                        + " size=" + tabs.getWidth() + "x" + tabs.getHeight());
             }
         }
     }
