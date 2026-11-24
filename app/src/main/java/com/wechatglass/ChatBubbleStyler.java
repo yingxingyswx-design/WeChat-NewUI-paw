@@ -425,11 +425,19 @@ final class ChatBubbleStyler {
         if ("1".equals(prop("debug.wxglass.media.tree"))) {
             dumpMediaTree(item, 0);
         }
+        boolean roundAvatarOn = HookConfig.roundAvatarEnabled(context);
+        boolean mediaBubbleOn = HookConfig.mediaBubbleEnabled(context);
         // Sticker messages do not necessarily contain text, so apply their
         // visual treatment before looking for a text-bubble target.
         roundStickers(item, context, 0);
         View avatar = findAvatar(item);
-        roundChatAvatars(item, avatar);
+        if (roundAvatarOn) {
+            roundChatAvatars(item, avatar);
+        } else {
+            // Toggled off while the chat is open: put the avatar's own shape back
+            // instead of leaving the circle we applied on an earlier pass.
+            restoreAvatar(avatar);
+        }
         View target = findBubbleTarget(item, item, avatar, context, null, 0);
         if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0
                 || target.getVisibility() != View.VISIBLE) {
@@ -442,7 +450,11 @@ final class ChatBubbleStyler {
             logRuntimeDetection(item, avatar, target, null, selected,
                     branch, context, selected == null);
             if (media != null) {
-                styleMediaBubble(media, item, avatar, context);
+                if (mediaBubbleOn) {
+                    styleMediaBubble(media, item, avatar, context);
+                } else {
+                    clearMediaBubble(media);
+                }
             } else if (card != null) {
                 styleRichCard(card, item, null, avatar, context);
             }
@@ -454,7 +466,11 @@ final class ChatBubbleStyler {
             if (media != null) {
                 logRuntimeDetection(item, avatar, target, null, media,
                         "media-hit", context, false);
-                styleMediaBubble(media, item, avatar, context);
+                if (mediaBubbleOn) {
+                    styleMediaBubble(media, item, avatar, context);
+                } else {
+                    clearMediaBubble(media);
+                }
                 updateMessageTime(item, media, avatar, context);
                 return;
             }
@@ -1465,6 +1481,22 @@ final class ChatBubbleStyler {
 
     }
 
+    /** Undoes the circular clip when the round-avatar setting is turned off. */
+    private static void restoreAvatar(View avatar) {
+        if (avatar == null) {
+            return;
+        }
+        ViewState state = ORIGINAL.get(avatar);
+        if (state == null) {
+            return;
+        }
+        try {
+            state.restore(avatar);
+        } catch (Throwable ignored) {
+        }
+        ORIGINAL.remove(avatar);
+    }
+
     /** Log object identity and geometry only; never inspect or emit chat text. */
     private static void logAvatarObjectChain(View item, View avatar) {
         View current = avatar;
@@ -1535,15 +1567,17 @@ final class ChatBubbleStyler {
             // clipToOutline would also clip the media bubble's grown background and
             // tail, which are drawn past the sticker's bounds — the same flag cannot
             // serve both, and this is what made the sticker corners turn square.
-            // RoundedRectClipDrawable implements Animatable and forwards start/stop,
-            // so animated stickers keep playing.
+            // Animated drawables (GIF stickers) stay in the ImageView's own pipeline:
+            // wrapping them adds a drawable layer on every frame and the animation
+            // stutters, so those are rounded by the view outline instead.
             boolean roundedByDrawable = false;
             if (view instanceof android.widget.ImageView) {
                 android.widget.ImageView image = (android.widget.ImageView) view;
                 android.graphics.drawable.Drawable drawable = image.getDrawable();
                 boolean alreadyRounded = drawable instanceof RoundedRectClipDrawable
                         && ((RoundedRectClipDrawable) drawable).hasRadius(radius);
-                if (drawable != null && !alreadyRounded) {
+                boolean animated = drawable instanceof android.graphics.drawable.Animatable;
+                if (drawable != null && !alreadyRounded && !animated) {
                     if (drawable instanceof RoundedRectClipDrawable) {
                         drawable = ((RoundedRectClipDrawable) drawable).getWrappedDrawable();
                     }
@@ -1945,6 +1979,18 @@ final class ChatBubbleStyler {
         }
         applyCardTheme(card, card, avatar, textTarget, color, textColor, 0);
         logAppliedSurface("card", card);
+    }
+
+    /** Removes the bubble painted on a media view (the setting was turned off). */
+    private static void clearMediaBubble(View media) {
+        if (media == null) {
+            return;
+        }
+        if (media.getBackground() instanceof BubbleDrawable) {
+            media.setBackground(null);
+            media.invalidate();
+        }
+        APPLIED.remove(media);
     }
 
     private static void styleMediaBubble(View media, View item, View avatar,

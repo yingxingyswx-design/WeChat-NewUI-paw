@@ -24,6 +24,10 @@ final class HookConfig {
     static final String KEY_COLOR_MONET = "color_monet";
     static final String KEY_COLOR_SEED = "color_seed";
     static final String KEY_MESSAGE_TIME = "message_time";
+    /** Media/sticker messages get a bubble (only meaningful under Material Design). */
+    static final String KEY_MEDIA_BUBBLE = "media_bubble";
+    /** Sender avatars are clipped to circles (only meaningful under Material Design). */
+    static final String KEY_ROUND_AVATAR = "round_avatar";
     static final int DEFAULT_SEED = 0xFF07C160;
 
     private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
@@ -59,6 +63,8 @@ final class HookConfig {
                         reply.putExtra(KEY_COLOR_SEED, ctx.getSharedPreferences(PREFS, 0)
                                 .getInt(KEY_COLOR_SEED, DEFAULT_SEED));
                         reply.putExtra(KEY_MESSAGE_TIME, messageTimeEnabled(ctx));
+                        reply.putExtra(KEY_MEDIA_BUBBLE, mediaBubbleEnabled(ctx));
+                        reply.putExtra(KEY_ROUND_AVATAR, roundAvatarEnabled(ctx));
                         ctx.sendBroadcast(reply);
                         return;
                     }
@@ -70,12 +76,16 @@ final class HookConfig {
                     boolean monet = intent.getBooleanExtra(KEY_COLOR_MONET, true);
                     int seed = intent.getIntExtra(KEY_COLOR_SEED, DEFAULT_SEED);
                     boolean messageTime = intent.getBooleanExtra(KEY_MESSAGE_TIME, false);
+                    boolean mediaBubble = intent.getBooleanExtra(KEY_MEDIA_BUBBLE, true);
+                    boolean roundAvatar = intent.getBooleanExtra(KEY_ROUND_AVATAR, true);
                     ctx.getSharedPreferences(PREFS, 0).edit()
                             .putBoolean(KEY_GLASS, glass)
                             .putBoolean(KEY_NATIVE_LIST, nativeList)
                             .putBoolean(KEY_COLOR_MONET, monet)
                             .putInt(KEY_COLOR_SEED, seed)
                             .putBoolean(KEY_MESSAGE_TIME, messageTime)
+                            .putBoolean(KEY_MEDIA_BUBBLE, mediaBubble)
+                            .putBoolean(KEY_ROUND_AVATAR, roundAvatar)
                             .apply();
                     com.wechatglass.m3.M3Theme.refresh();
                     android.util.Log.i("WeChatGlass", "config broadcast glass=" + glass
@@ -134,5 +144,42 @@ final class HookConfig {
     static boolean nativeList(Context context) {
         return context == null || context.getSharedPreferences(PREFS, 0)
                 .getBoolean(KEY_NATIVE_LIST, true);
+    }
+
+    /** Media/sticker bubbles: on by default, independent of the list mode. */
+    static boolean mediaBubbleEnabled(Context context) {
+        return boolWithModuleFallback(context, KEY_MEDIA_BUBBLE, true);
+    }
+
+    /** Circular sender avatars: on by default, independent of the list mode. */
+    static boolean roundAvatarEnabled(Context context) {
+        return boolWithModuleFallback(context, KEY_ROUND_AVATAR, true);
+    }
+
+    /**
+     * Hook prefs first (the broadcast writes them synchronously), then the
+     * module's own preferences for a cold start before any broadcast arrived.
+     */
+    private static boolean boolWithModuleFallback(Context context, String key,
+                                                  boolean fallback) {
+        if (context == null) {
+            return fallback;
+        }
+        android.content.SharedPreferences hook =
+                context.getSharedPreferences(PREFS, 0);
+        if (hook.contains(key)) {
+            return hook.getBoolean(key, fallback);
+        }
+        try {
+            de.robv.android.xposed.XSharedPreferences module =
+                    new de.robv.android.xposed.XSharedPreferences(
+                            "io.github.yingxingyswx_design.wechatglass", "settings");
+            module.reload();
+            if (module.contains(key)) {
+                return module.getBoolean(key, fallback);
+            }
+        } catch (Throwable ignored) {
+        }
+        return fallback;
     }
 }

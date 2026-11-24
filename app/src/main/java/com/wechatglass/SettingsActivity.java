@@ -41,6 +41,9 @@ public class SettingsActivity extends Activity {
     private static final String ACTION = "com.wechatglass.CONFIG";
     private static final String ACTION_QUERY = "com.wechatglass.QUERY";
     private static final String ACTION_STATE = "com.wechatglass.STATE";
+    /** Full display name of the module the conflict guard watches. */
+    private static final String NAV_BAR_MODULE =
+            "液态玻璃导航栏模块（" + ConflictGuard.ORIGINAL + "）";
 
     private TextView wallpaperHint;
     private M3Switch glassSwitch;
@@ -56,8 +59,15 @@ public class SettingsActivity extends Activity {
     private boolean hasResumed;
     private M3Switch monetSwitch;
     private M3Switch messageTimeSwitch;
+    private M3Switch roundAvatarSwitch;
+    private M3Switch mediaBubbleSwitch;
     private LinearLayout swatchRow;
     private int selectedSeed = DEFAULT_SEED;
+
+    // New keys live in the module's own prefs and are mirrored to WeChat's prefs
+    // through the config broadcast (same channel as the rest of the settings).
+    private static final String KEY_ROUND_AVATAR = "round_avatar";
+    private static final String KEY_MEDIA_BUBBLE = "media_bubble";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,12 +80,17 @@ public class SettingsActivity extends Activity {
         int onBg = scheme.onSurface;
         int onVar = scheme.onSurfaceVariant;
         int barColor = scheme.primary;
-        getWindow().setStatusBarColor(barColor);
+        // Transparent status bar: the page is laid out underneath it and the
+        // content gets a matching top inset, so the system bar shows the page
+        // background instead of an opaque block.
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(barColor);
         if (android.os.Build.VERSION.SDK_INT >= 28) {
             getWindow().setNavigationBarDividerColor(barColor);
         }
-        int lightFlags = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        int lightFlags = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             lightFlags |= android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         }
@@ -87,9 +102,28 @@ public class SettingsActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);
-        root.setPadding(pad, dp(28), pad, dp(28));
+        root.setPadding(pad, dp(28) + statusBarHeight(), pad, dp(28));
         scroll.addView(root);
+        scroll.setClipToPadding(false);
         setContentView(scroll);
+
+        TextView banner = new TextView(this);
+        banner.setText("非液态玻璃选项需要微信运行时动态注入！");
+        banner.setTextSize(17f);
+        banner.setTypeface(android.graphics.Typeface.create(
+                "sans-serif-medium", android.graphics.Typeface.NORMAL));
+        banner.setTextColor(scheme.error);
+        banner.setPadding(dp(2), dp(4), dp(2), dp(2));
+        root.addView(banner, lp(-1, -2, 0, 0));
+
+        TextView banner2 = new TextView(this);
+        banner2.setText("聊天页液态玻璃需要手动选择壁纸！");
+        banner2.setTextSize(17f);
+        banner2.setTypeface(android.graphics.Typeface.create(
+                "sans-serif-medium", android.graphics.Typeface.NORMAL));
+        banner2.setTextColor(scheme.error);
+        banner2.setPadding(dp(2), dp(2), dp(2), dp(4));
+        root.addView(banner2, lp(-1, -2, 0, dp(16)));
 
         TextView title = new TextView(this);
         title.setText("液态玻璃");
@@ -106,6 +140,187 @@ public class SettingsActivity extends Activity {
 
         buildStatusCard(root, card, onBg, onVar);
 
+        // 2. 对微信强制停止 / 打开微信
+        root.addView(section("操作", card, onBg, onVar));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        Button stopButton = new Button(this);
+        stopButton.setText("强制停止微信");
+        stopButton.setAllCaps(false);
+        stopButton.setTextSize(15f);
+        stopButton.setOnClickListener(v -> forceStopWeChat());
+        styleButton(stopButton, true);
+        Button openButton = new Button(this);
+        openButton.setText("打开微信");
+        openButton.setAllCaps(false);
+        openButton.setTextSize(15f);
+        openButton.setOnClickListener(v -> openWeChat());
+        styleButton(openButton, false);
+        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(0, dp(72), 1f);
+        stopLp.rightMargin = dp(8);
+        actions.addView(stopButton, stopLp);
+        actions.addView(openButton, new LinearLayout.LayoutParams(0, dp(72), 1f));
+        root.addView(actions, lp(-1, -2, 0, dp(8)));
+
+        // 3. 液态玻璃总开关
+        root.addView(section("液态玻璃", card, onBg, onVar));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label = new TextView(this);
+        label.setText("开启液态玻璃（增加封号风险）");
+        label.setTextSize(16f);
+        label.setTextColor(onBg);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        row.addView(label, labelLp);
+        M3Switch glass = new M3Switch(this);
+        glassSwitch = glass;
+        glass.setCheckedNoAnim(getSharedPreferences(PREFS, 0).getBoolean(KEY_GLASS, true));
+        glass.setOnClickListener(v -> {
+            userToggled = true;
+            boolean on = !glass.isChecked();
+            glass.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_GLASS, on).apply();
+            pushConfig();
+        });
+        row.addView(glass);
+        root.addView(row, lp(-1, -2, 0, dp(8)));
+
+        // 4. 选择聊天壁纸（聊天页玻璃必需）
+        root.addView(section("聊天页液态玻璃背景壁纸", card, onBg, onVar));
+
+        wallpaperHint = new TextView(this);
+        wallpaperHint.setTextSize(13f);
+        wallpaperHint.setTextColor(onVar);
+        String saved = getSharedPreferences(PREFS, 0).getString(KEY_WALLPAPER, null);
+        wallpaperHint.setText(saved == null ? "未选择（玻璃只显示内容）" : saved);
+        root.addView(wallpaperHint, lp(-1, -2, 0, dp(8)));
+
+        Button pick = new Button(this);
+        pick.setText("选择壁纸");
+        pick.setAllCaps(false);
+        pick.setTextSize(16f);
+        pick.setOnClickListener(v -> pickWallpaper());
+        styleButton(pick, false);
+        root.addView(pick, lp(-1, dp(72), 0, dp(8)));
+
+        // 5-8. Material Design 相关
+        root.addView(section("Material Design", card, onBg, onVar));
+
+        LinearLayout nativeRow = new LinearLayout(this);
+        nativeRow.setOrientation(LinearLayout.HORIZONTAL);
+        nativeRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView nativeLabel = new TextView(this);
+        nativeLabel.setText("开启 Material Design（实验）");
+        nativeLabel.setTextSize(16f);
+        nativeLabel.setTextColor(onBg);
+        nativeRow.addView(nativeLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        M3Switch nativeSwitch = new M3Switch(this);
+        nativeSwitchField = nativeSwitch;
+        // Checked = Material Design (custom list); unchecked = WeChat native.
+        nativeSwitch.setCheckedNoAnim(!getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_NATIVE, true));
+        nativeSwitch.setOnClickListener(v -> {
+            userToggled = true;
+            boolean on = !nativeSwitch.isChecked();
+            nativeSwitch.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit()
+                    .putBoolean(KEY_NATIVE, !on).apply();
+            updateM3GatedSwitches();
+            pushConfig();
+        });
+        nativeRow.addView(nativeSwitch);
+        root.addView(nativeRow, lp(-1, -2, 0, dp(8)));
+
+        // 6. 开启圆形头像
+        LinearLayout roundAvatarRow = new LinearLayout(this);
+        roundAvatarRow.setOrientation(LinearLayout.HORIZONTAL);
+        roundAvatarRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView roundAvatarLabel = new TextView(this);
+        roundAvatarLabel.setText("开启圆形头像");
+        roundAvatarLabel.setTextSize(16f);
+        roundAvatarLabel.setTextColor(onBg);
+        roundAvatarRow.addView(roundAvatarLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        roundAvatarSwitch = new M3Switch(this);
+        roundAvatarSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_ROUND_AVATAR, true));
+        roundAvatarSwitch.setOnClickListener(v -> {
+            userToggled = true;
+            boolean on = !roundAvatarSwitch.isChecked();
+            roundAvatarSwitch.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit()
+                    .putBoolean(KEY_ROUND_AVATAR, on).commit();
+            pushConfig();
+        });
+        roundAvatarRow.addView(roundAvatarSwitch);
+        root.addView(roundAvatarRow, lp(-1, -2, 0, dp(8)));
+
+        // 7. 媒体和表情包使用消息气泡
+        LinearLayout mediaBubbleRow = new LinearLayout(this);
+        mediaBubbleRow.setOrientation(LinearLayout.HORIZONTAL);
+        mediaBubbleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView mediaBubbleLabel = new TextView(this);
+        mediaBubbleLabel.setText("媒体和表情包使用消息气泡");
+        mediaBubbleLabel.setTextSize(16f);
+        mediaBubbleLabel.setTextColor(onBg);
+        mediaBubbleRow.addView(mediaBubbleLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        mediaBubbleSwitch = new M3Switch(this);
+        mediaBubbleSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_MEDIA_BUBBLE, true));
+        mediaBubbleSwitch.setOnClickListener(v -> {
+            userToggled = true;
+            boolean on = !mediaBubbleSwitch.isChecked();
+            mediaBubbleSwitch.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit()
+                    .putBoolean(KEY_MEDIA_BUBBLE, on).commit();
+            pushConfig();
+        });
+        mediaBubbleRow.addView(mediaBubbleSwitch);
+        root.addView(mediaBubbleRow, lp(-1, -2, 0, dp(8)));
+
+        TextView gatedHint = new TextView(this);
+        gatedHint.setText("圆形头像与媒体气泡需先开启 Material Design，否则不可用。");
+        gatedHint.setTextSize(13f);
+        gatedHint.setTextColor(onVar);
+        root.addView(gatedHint, lp(-1, -2, 0, dp(10)));
+
+        // 8. 每条消息显示发送时间
+        LinearLayout messageTimeRow = new LinearLayout(this);
+        messageTimeRow.setOrientation(LinearLayout.HORIZONTAL);
+        messageTimeRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView messageTimeLabel = new TextView(this);
+        messageTimeLabel.setText("每条消息显示发送时间（功耗增加）");
+        messageTimeLabel.setTextSize(16f);
+        messageTimeLabel.setTextColor(onBg);
+        messageTimeRow.addView(messageTimeLabel, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        messageTimeSwitch = new M3Switch(this);
+        messageTimeSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
+                .getBoolean(KEY_MESSAGE_TIME, false));
+        messageTimeSwitch.setOnClickListener(v -> {
+            userToggled = true;
+            boolean on = !messageTimeSwitch.isChecked();
+            messageTimeSwitch.setChecked(on);
+            getSharedPreferences(PREFS, 0).edit()
+                    .putBoolean(KEY_MESSAGE_TIME, on).commit();
+            pushConfig();
+        });
+        messageTimeRow.addView(messageTimeSwitch);
+        root.addView(messageTimeRow, lp(-1, -2, 0, dp(8)));
+
+        TextView messageTimeHint = new TextView(this);
+        messageTimeHint.setText("开启后会在每条消息上方显示时间，滚动时开销更高；默认关闭。");
+        messageTimeHint.setTextSize(13f);
+        messageTimeHint.setTextColor(onVar);
+        root.addView(messageTimeHint, lp(-1, -2, 0, dp(16)));
+
+        // 动态色彩
         root.addView(section("动态色彩", card, onBg, onVar));
 
         LinearLayout monetRow = new LinearLayout(this);
@@ -149,94 +364,7 @@ public class SettingsActivity extends Activity {
         selectedSeed = getSharedPreferences(PREFS, 0).getInt(KEY_SEED, DEFAULT_SEED);
         refreshSwatches();
 
-        root.addView(section("液态玻璃", card, onBg, onVar));
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView label = new TextView(this);
-        label.setText("开启液态玻璃（增加封号风险）");
-        label.setTextSize(16f);
-        label.setTextColor(onBg);
-        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        row.addView(label, labelLp);
-        M3Switch glass = new M3Switch(this);
-        glassSwitch = glass;
-        glass.setCheckedNoAnim(getSharedPreferences(PREFS, 0).getBoolean(KEY_GLASS, true));
-        glass.setOnClickListener(v -> {
-            userToggled = true;
-            boolean on = !glass.isChecked();
-            glass.setChecked(on);
-            getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_GLASS, on).apply();
-            pushConfig();
-        });
-        row.addView(glass);
-        root.addView(row, lp(-1, -2, 0, dp(8)));
-
-        root.addView(section("界面", card, onBg, onVar));
-
-        LinearLayout nativeRow = new LinearLayout(this);
-        nativeRow.setOrientation(LinearLayout.HORIZONTAL);
-        nativeRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView nativeLabel = new TextView(this);
-        nativeLabel.setText("启用 Material Design 设计风格（实验）");
-        nativeLabel.setTextSize(16f);
-        nativeLabel.setTextColor(onBg);
-        nativeRow.addView(nativeLabel, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        M3Switch nativeSwitch = new M3Switch(this);
-        nativeSwitchField = nativeSwitch;
-        // Checked = Material Design (custom list); unchecked = WeChat native.
-        nativeSwitch.setCheckedNoAnim(!getSharedPreferences(PREFS, 0)
-                .getBoolean(KEY_NATIVE, true));
-        nativeSwitch.setOnClickListener(v -> {
-            userToggled = true;
-            boolean on = !nativeSwitch.isChecked();
-            nativeSwitch.setChecked(on);
-            getSharedPreferences(PREFS, 0).edit()
-                    .putBoolean(KEY_NATIVE, !on).apply();
-            pushConfig();
-        });
-        nativeRow.addView(nativeSwitch);
-        root.addView(nativeRow, lp(-1, -2, 0, dp(8)));
-
-        LinearLayout messageTimeRow = new LinearLayout(this);
-        messageTimeRow.setOrientation(LinearLayout.HORIZONTAL);
-        messageTimeRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView messageTimeLabel = new TextView(this);
-        messageTimeLabel.setText("每条消息时间显示（功耗增加）");
-        messageTimeLabel.setTextSize(16f);
-        messageTimeLabel.setTextColor(onBg);
-        messageTimeRow.addView(messageTimeLabel, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        messageTimeSwitch = new M3Switch(this);
-        messageTimeSwitch.setCheckedNoAnim(getSharedPreferences(PREFS, 0)
-                .getBoolean(KEY_MESSAGE_TIME, false));
-        messageTimeSwitch.setOnClickListener(v -> {
-            userToggled = true;
-            boolean on = !messageTimeSwitch.isChecked();
-            messageTimeSwitch.setChecked(on);
-            getSharedPreferences(PREFS, 0).edit()
-                    .putBoolean(KEY_MESSAGE_TIME, on).commit();
-            pushConfig();
-        });
-        messageTimeRow.addView(messageTimeSwitch);
-        root.addView(messageTimeRow, lp(-1, -2, 0, dp(8)));
-
-        TextView messageTimeHint = new TextView(this);
-        messageTimeHint.setText("开启后会在每条消息上方显示时间，滚动时开销更高；默认关闭。");
-        messageTimeHint.setTextSize(13f);
-        messageTimeHint.setTextColor(onVar);
-        root.addView(messageTimeHint, lp(-1, -2, 0, dp(16)));
-
-        TextView nativeHint = new TextView(this);
-        nativeHint.setText("开启后使用自建会话列表（实验，可能不稳定）；"
-                + "聊天页也使用实验气泡样式。关闭后恢复微信原生列表和消息气泡（含小程序、已登入设备、置顶笔记）。");
-        nativeHint.setTextSize(13f);
-        nativeHint.setTextColor(onVar);
-        root.addView(nativeHint, lp(-1, -2, 0, dp(16)));
-
+        // 冲突检测
         root.addView(section("冲突检测", card, onBg, onVar));
 
         conflictStatus = new TextView(this);
@@ -249,7 +377,7 @@ public class SettingsActivity extends Activity {
         autoConflictRow.setOrientation(LinearLayout.HORIZONTAL);
         autoConflictRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView autoConflictLabel = new TextView(this);
-        autoConflictLabel.setText("检测到原版模块时自动停用");
+        autoConflictLabel.setText("检测到" + NAV_BAR_MODULE + "时自动停用");
         autoConflictLabel.setTextSize(16f);
         autoConflictLabel.setTextColor(onBg);
         autoConflictRow.addView(autoConflictLabel, new LinearLayout.LayoutParams(0,
@@ -269,55 +397,14 @@ public class SettingsActivity extends Activity {
         root.addView(autoConflictRow, lp(-1, -2, 0, dp(8)));
 
         Button conflictButton = new Button(this);
-        conflictButton.setText("检测并停用原版模块");
+        conflictButton.setText("检测并停用" + NAV_BAR_MODULE);
         conflictButton.setAllCaps(false);
         conflictButton.setTextSize(15f);
         conflictButton.setOnClickListener(v -> checkConflictAsync(true));
         styleButton(conflictButton, false);
-        root.addView(conflictButton, lp(-1, dp(56), 0, dp(8)));
+        root.addView(conflictButton, lp(-1, dp(72), 0, dp(8)));
 
-        root.addView(section("操作", card, onBg, onVar));
-
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button stopButton = new Button(this);
-        stopButton.setText("强制停止微信");
-        stopButton.setAllCaps(false);
-        stopButton.setTextSize(15f);
-        stopButton.setOnClickListener(v -> forceStopWeChat());
-        styleButton(stopButton, true);
-        Button openButton = new Button(this);
-        openButton.setText("打开微信");
-        openButton.setAllCaps(false);
-        openButton.setTextSize(15f);
-        openButton.setOnClickListener(v -> openWeChat());
-        styleButton(openButton, false);
-        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(0, dp(56), 1f);
-        stopLp.rightMargin = dp(8);
-        actions.addView(stopButton, stopLp);
-        actions.addView(openButton, new LinearLayout.LayoutParams(0, dp(56), 1f));
-        root.addView(actions, lp(-1, -2, 0, dp(8)));
-
-        TextView wallTitle = new TextView(this);
-        wallTitle.setText("背景壁纸");
-        wallTitle.setTextSize(16f);
-        wallTitle.setTextColor(onBg);
-        root.addView(wallTitle, lp(-1, -2, 0, dp(24)));
-
-        wallpaperHint = new TextView(this);
-        wallpaperHint.setTextSize(13f);
-        wallpaperHint.setTextColor(onVar);
-        String saved = getSharedPreferences(PREFS, 0).getString(KEY_WALLPAPER, null);
-        wallpaperHint.setText(saved == null ? "未选择（玻璃只显示内容）" : saved);
-        root.addView(wallpaperHint, lp(-1, -2, 0, dp(8)));
-
-        Button pick = new Button(this);
-        pick.setText("选择壁纸");
-        pick.setAllCaps(false);
-        pick.setTextSize(16f);
-        pick.setOnClickListener(v -> pickWallpaper());
-        styleButton(pick, false);
-        root.addView(pick, lp(-1, dp(56), 0, dp(8)));
+        updateM3GatedSwitches();
 
         registerStateReceiver();
         refreshStatus();
@@ -367,6 +454,23 @@ public class SettingsActivity extends Activity {
                     getSharedPreferences(PREFS, 0).edit()
                             .putBoolean(KEY_MESSAGE_TIME, messageTime).apply();
                 }
+                if (intent.hasExtra("round_avatar")) {
+                    boolean roundAvatar = intent.getBooleanExtra("round_avatar", true);
+                    if (roundAvatarSwitch != null) {
+                        roundAvatarSwitch.setCheckedNoAnim(roundAvatar);
+                    }
+                    getSharedPreferences(PREFS, 0).edit()
+                            .putBoolean(KEY_ROUND_AVATAR, roundAvatar).apply();
+                }
+                if (intent.hasExtra("media_bubble")) {
+                    boolean mediaBubble = intent.getBooleanExtra("media_bubble", true);
+                    if (mediaBubbleSwitch != null) {
+                        mediaBubbleSwitch.setCheckedNoAnim(mediaBubble);
+                    }
+                    getSharedPreferences(PREFS, 0).edit()
+                            .putBoolean(KEY_MEDIA_BUBBLE, mediaBubble).apply();
+                }
+                updateM3GatedSwitches();
                 if (!intent.hasExtra("color_monet") && !intent.hasExtra("color_seed")) {
                     return;
                 }
@@ -432,6 +536,10 @@ public class SettingsActivity extends Activity {
             intent.putExtra("color_seed", selectedSeed);
             intent.putExtra("message_time",
                     messageTimeSwitch != null && messageTimeSwitch.isChecked());
+            intent.putExtra("round_avatar",
+                    roundAvatarSwitch == null || roundAvatarSwitch.isChecked());
+            intent.putExtra("media_bubble",
+                    mediaBubbleSwitch == null || mediaBubbleSwitch.isChecked());
             sendBroadcast(intent);
         } catch (Throwable ignored) {
         }
@@ -447,7 +555,7 @@ public class SettingsActivity extends Activity {
         bg.setColor(filled ? scheme.primary : scheme.primaryContainer);
         bg.setCornerRadius(dp(20));
         button.setBackground(bg);
-        button.setMinHeight(dp(56));
+        button.setMinHeight(dp(72));
         button.setPadding(dp(16), dp(10), dp(16), dp(10));
     }
 
@@ -523,7 +631,7 @@ public class SettingsActivity extends Activity {
         statusConflictValue = statusValueView(onBg);
         box.addView(statusRow("Root", statusRootValue, onVar));
         box.addView(statusRow("LSPosed 注入", statusInjectValue, onVar));
-        box.addView(statusRow("原模块冲突", statusConflictValue, onVar));
+        box.addView(statusRow("导航栏模块冲突", statusConflictValue, onVar));
 
         root.addView(box, lp(-1, -2, 0, dp(16)));
     }
@@ -576,9 +684,9 @@ public class SettingsActivity extends Activity {
                         setStatusValue(statusRootValue,
                                 status.root ? "已授权" : "未授权", status.root);
                         if (!status.installed) {
-                            setStatusValue(statusConflictValue, "未安装原模块", true);
+                            setStatusValue(statusConflictValue, "未安装导航栏模块", true);
                         } else if (status.conflict()) {
-                            setStatusValue(statusConflictValue, "原模块仍勾选微信", false);
+                            setStatusValue(statusConflictValue, "导航栏模块仍勾选微信", false);
                         } else {
                             setStatusValue(statusConflictValue, "无冲突（未勾选微信）", true);
                         }
@@ -647,36 +755,36 @@ public class SettingsActivity extends Activity {
             return;
         }
         if (!status.installed) {
-            conflictStatus.setText("未检测到 WeChat-LiquidGlass，无冲突。");
+            conflictStatus.setText("未检测到 " + NAV_BAR_MODULE + "，无冲突。");
             return;
         }
         if (disabled && !status.conflict()) {
-            conflictStatus.setText("已移除原版模块的微信作用域；QQ 作用域保留。\n"
+            conflictStatus.setText("已移除" + NAV_BAR_MODULE + "的微信作用域；QQ 作用域保留。\n"
                     + "请点下方「强制停止微信」再重新打开，整合后的底栏才会接管。");
             return;
         }
         if (!status.root) {
-            conflictStatus.setText("已安装原版模块；模块 App 没有 root 权限，无法自动检查。\n"
+            conflictStatus.setText("已安装" + NAV_BAR_MODULE + "；模块 App 没有 root 权限，无法自动检查。\n"
                     + "请在 LSPosed 里确认 " + ConflictGuard.ORIGINAL
                     + " 只勾选 QQ、不勾选微信。");
             return;
         }
         if (status.lspctl == null) {
-            conflictStatus.setText("已安装原版模块，但有 root 也没找到 LSPosed 的 lspctl。\n"
+            conflictStatus.setText("已安装" + NAV_BAR_MODULE + "，但有 root 也没找到 LSPosed 的 lspctl。\n"
                     + "请在 LSPosed 里只取消 " + ConflictGuard.ORIGINAL
                     + " 的微信作用域，保留 QQ。");
             return;
         }
         if (status.conflict()) {
-            conflictStatus.setText("检测到原版模块勾选了微信。\n"
+            conflictStatus.setText("检测到" + NAV_BAR_MODULE + "勾选了微信。\n"
                     + "自动移除微信作用域失败（root 未授权？），请在 LSPosed 里只取消微信，保留 QQ。");
             return;
         }
         if (!status.wechatScope()) {
-            conflictStatus.setText("原版模块没有勾选微信，不冲突；QQ 作用域保留。");
+            conflictStatus.setText(NAV_BAR_MODULE + "没有勾选微信，不冲突；QQ 作用域保留。");
             return;
         }
-        conflictStatus.setText("原版模块的微信作用域已移除，当前不会冲突。");
+        conflictStatus.setText(NAV_BAR_MODULE + "的微信作用域已移除，当前不会冲突。");
     }
 
     private void forceStopWeChat() {
@@ -780,5 +888,27 @@ public class SettingsActivity extends Activity {
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    /** Height of the system status bar, so the page can sit underneath it. */
+    private int statusBarHeight() {
+        int id = getResources().getIdentifier(
+                "status_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : dp(24);
+    }
+
+    /** Keeps the two Material Design dependent switches in sync with the mode. */
+    private void updateM3GatedSwitches() {
+        boolean m3 = nativeSwitchField != null && nativeSwitchField.isChecked();
+        applyGated(roundAvatarSwitch, m3);
+        applyGated(mediaBubbleSwitch, m3);
+    }
+
+    private void applyGated(M3Switch sw, boolean enabled) {
+        if (sw == null) {
+            return;
+        }
+        sw.setEnabled(enabled);
+        sw.setAlpha(enabled ? 1f : 0.35f);
     }
 }

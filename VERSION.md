@@ -1,41 +1,41 @@
-# WeChat-NewUI v1.2-pre
+# WeChat-NewUI v1.2.1
 
-- versionCode：`3`
-- versionName：`1.2-pre`
-- Release tag：`3-1.2-pre`（LSPosed Store 要求 `VersionCode-VersionName`）
-- APK：`wechat-glass-1.2-pre.apk`
+- versionCode：`4`
+- versionName：`1.2.1`
+- Release tag：`v.1.2.1`
+- APK：`wechat-glass-1.2.1.apk`
 - 作用域：仅 `com.tencent.mm`（微信）
-- 发布形态：**Pre-Release**（预览版，非稳定版）
 
 ## 这一版新增
 
-- **聊天页液态玻璃面板**：表情面板与「+」面板不再是被媒体盖住的纯色块；面板玻璃在每次
-  打开时立即重绘（修掉"只有首次打开才是玻璃"），并去掉那层白色叠加。
-- **消息时间胶囊**：GUI 可开关「每条消息时间显示」（默认关闭，标注功耗）；关闭时立即移除胶囊
-  并还原行内边距，不再"开关无效"。
-- **媒体/表情消息气泡**：气泡按**面积 +25%**外扩、居中于媒体、保留小尾巴；表情包圆角改为
-  按 drawable 裁剪，避免与气泡外扩互相裁剪；只作用于聊天页消息行。
-- **自建会话列表未读/已读**：会话未读数改为**实时刷新**（后台每 2.5s 重读 `rconversation`，
-  仅更新角标/预览/时间，不重跑整表联系人查询）。
+- **两个新开关**（依赖 Material Design）：
+  - 「开启圆形头像」：关闭时头像用微信原生风格的圆角矩形；
+  - 「媒体和表情包使用消息气泡」：控制图片/表情消息是否套 M3 气泡。
+- **GUI 重排**：运行状态 → 操作 → 液态玻璃 → 聊天页液态玻璃背景壁纸 →
+  Material Design（含上面两个开关 + 每条消息发送时间）→ 动态色彩 → 冲突检测。
+- **GUI 细节**：顶部两行红色提示；透明状态栏；按钮加高；冲突检测里的原模块
+  改称「液态玻璃导航栏模块（io.github.liuran001.mmliquidglass）」。
+- **实时生效**：改圆形头像 / 媒体气泡开关会立即应用到首页与聊天页。
 
-## 之前版本已有（v1.1）
+## 修复
 
-- M3 Expressive 设计底座（Monet 动态色彩、30 type style、10 级圆角、expressive 弹簧）。
-- App 顶部运行状态（Root / LSPosed 注入 / 原模块冲突）。
-- LiquidGlass 底部导航（MIT 移植，水滴选中态、拖拽弹簧）。
-- 冲突检测：只移除原模块的 `com.tencent.mm` 作用域，保留 QQ。
-- 软件 Canvas 路径自动跳过 AGSL 高光，修 `RuntimeShader` 崩溃。
+- **GIF 表情包卡顿**：动态 drawable 不再被 `RoundedRectClipDrawable` 包装，恢复流畅播放。
+- **Home 头像永久圆形**：自建列表头像现在跟随「开启圆形头像」开关。
+- 聊天页液态玻璃面板每次打开立即重绘（不再只有首次是玻璃），去掉白色叠加。
+- 媒体/表情消息气泡按面积 +25% 外扩、居中、保留小尾巴；贴纸圆角改为 drawable 裁剪。
+- 每条消息时间胶囊开关真正生效（关闭即移除）。
+- 自建会话列表未读/已读实时刷新（后台每 2.5s 重读会话表）。
 
 ## 已知问题
 
+- 聊天页液态玻璃**必须先在模块 App 内手动选择壁纸**，否则聊天页没有玻璃效果。
 - 模块按微信 8.0.79 的类名/资源 id 适配，微信升级后可能失效。
-- 底栏在微信 `BlurView` 软件采样路径下会自动退回较平材质（有意降级）。
 - 自建会话列表为实验功能，默认走微信原生列表。
 
 ## 安装
 
 ```powershell
-adb install -r .\wechat-glass-1.2-pre.apk
+adb install -r .\wechat-glass-1.2.1.apk
 adb shell am force-stop --user 0 com.tencent.mm
 adb shell am start --user 0 -n com.tencent.mm/.ui.LauncherUI
 ```

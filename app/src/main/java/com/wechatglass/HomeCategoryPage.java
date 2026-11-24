@@ -395,13 +395,7 @@ final class HomeCategoryPage extends FrameLayout {
         avatarLp.leftMargin = M3Theme.dp(context, 20f);
         avatarLp.rightMargin = M3Theme.dp(context, 16f);
         avatar.setBackgroundColor(scheme.surfaceContainerHighest);
-        avatar.setOutlineProvider(new android.view.ViewOutlineProvider() {
-            @Override
-            public void getOutline(View view, android.graphics.Outline outline) {
-                outline.setOval(0, 0, view.getWidth(), view.getHeight());
-            }
-        });
-        avatar.setClipToOutline(true);
+        applyAvatarShape(avatar);
         row.addView(avatar, avatarLp);
 
         LinearLayout texts = new LinearLayout(context);
@@ -461,6 +455,7 @@ final class HomeCategoryPage extends FrameLayout {
         }
         holder.name.setText(entry.display);
         holder.avatar.setBackgroundColor(colorFor(entry.username));
+        applyAvatarShape(holder.avatar);
         AvatarLoader.load(holder.avatar, entry.username);
         if (entry.hasConversation) {
             holder.preview.setText(entry.preview == null || entry.preview.isEmpty()
@@ -476,6 +471,39 @@ final class HomeCategoryPage extends FrameLayout {
         } else {
             holder.unread.setVisibility(View.GONE);
         }
+    }
+
+    private static final android.view.ViewOutlineProvider OVAL_OUTLINE =
+            new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, android.graphics.Outline outline) {
+                    outline.setOval(0, 0, view.getWidth(), view.getHeight());
+                }
+            };
+
+    /** Circular when on; WeChat's own rounded rectangle when off. */
+    private android.view.ViewOutlineProvider roundedOutline;
+
+    private void applyAvatarShape(android.widget.ImageView avatar) {
+        if (avatar == null) {
+            return;
+        }
+        if (HookConfig.roundAvatarEnabled(getContext())) {
+            avatar.setOutlineProvider(OVAL_OUTLINE);
+            avatar.setClipToOutline(true);
+            return;
+        }
+        if (roundedOutline == null) {
+            final float r = M3Theme.dp(getContext(), 8f);
+            roundedOutline = new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), r);
+                }
+            };
+        }
+        avatar.setOutlineProvider(roundedOutline);
+        avatar.setClipToOutline(true);
     }
 
     private static String initial(String display) {
