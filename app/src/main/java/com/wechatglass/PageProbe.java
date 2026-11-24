@@ -183,9 +183,12 @@ final class PageProbe {
             if (item0 == null) {
                 dumpAdapterShape(adapter);
             } else {
-                for (int i = 0; i < 3; i++) {
-                    dumpShallow("  item" + i, safeCall(adapter, "getItem", i));
+                int prefCount = 0;
+                Object c = safeCall(adapter, "getCount");
+                if (c instanceof Integer) {
+                    prefCount = (Integer) c;
                 }
+                dumpPreferences(adapter, prefCount);
             }
             if (adapter instanceof SectionIndexer) {
                 Object[] sections = ((SectionIndexer) adapter).getSections();
@@ -235,8 +238,16 @@ final class PageProbe {
                             }
                         }
                     } else if (value instanceof java.util.Map) {
-                        log("  field " + field.getName() + " Map size="
-                                + ((java.util.Map<?, ?>) value).size());
+                        java.util.Map<?, ?> map = (java.util.Map<?, ?>) value;
+                        log("  field " + field.getName() + " Map size=" + map.size());
+                        int shown = 0;
+                        for (java.util.Map.Entry<?, ?> entry : map.entrySet()) {
+                            if (shown++ >= 3) {
+                                break;
+                            }
+                            log("    key=" + shorten(entry.getKey()));
+                            dumpShallow("    value", entry.getValue());
+                        }
                     }
                 } catch (Throwable ignored) {
                 }
@@ -246,6 +257,92 @@ final class PageProbe {
     }
 
     /** Field names and primitive values only; objects are shown by type. */
+    /** Every Preference row with the values our re-skin would render. */
+    private static void dumpPreferences(Object adapter, int count) {
+        int limit = Math.min(count, 16);
+        log("  preferences count=" + count);
+        for (int i = 0; i < limit; i++) {
+            Object pref = safeCall(adapter, "getItem", i);
+            if (pref == null) {
+                log("  pref[" + i + "] = null");
+                continue;
+            }
+            Object icon = safeCall(pref, "getIcon");
+            Object summary = safeCall(pref, "getSummary");
+            log("  pref[" + i + "] " + pref.getClass().getSimpleName()
+                    + " h=" + shorten(readField(pref, "h"))
+                    + " e=" + shorten(readField(pref, "e"))
+                    + " f=" + shorten(readField(pref, "f"))
+                    + " title=" + shorten(safeCall(pref, "getTitle"))
+                    + " summary=" + shorten(summary)
+                    + " icon=" + (icon == null ? "null" : icon.getClass().getSimpleName())
+                    + " iconRes=" + readField(pref, "i")
+                    + " layout=" + readField(pref, "F"));
+        }
+    }
+
+    /** Logs the AppCompat ActionBar object chain (replaces class-name lookups). */
+    static void probeActionBar(android.app.Activity activity) {
+        try {
+            Object bar = safeCall(activity, "getSupportActionBar");
+            log("actionBar=" + (bar == null ? "null" : bar.getClass().getName())
+                    + " hash=" + System.identityHashCode(bar));
+            if (bar == null) {
+                return;
+            }
+            Object custom = safeCall(bar, "getCustomView");
+            log("customView=" + (custom == null ? "null"
+                    : custom.getClass().getName())
+                    + " hash=" + System.identityHashCode(custom));
+            // WeChat uses a Toolbar instead of a custom view, so the bar object
+            // itself must hand us the container view: read its View fields.
+            Class<?> type = bar.getClass();
+            while (type != null && !"java.lang.Object".equals(type.getName())) {
+                for (Field field : type.getDeclaredFields()) {
+                    try {
+                        field.setAccessible(true);
+                        Object value = field.get(bar);
+                        if (value instanceof View) {
+                            log("  bar." + field.getName() + " -> "
+                                    + value.getClass().getName()
+                                    + " hash=" + System.identityHashCode(value));
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+                type = type.getSuperclass();
+            }
+            if (custom instanceof View) {
+                dumpTree("custom", (View) custom, 0, 4);
+            }
+        } catch (Throwable throwable) {
+            log("actionBar probe failed: " + throwable);
+        }
+    }
+
+    private static void dumpTree(String label, View view, int depth, int maxDepth) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < depth; i++) {
+            sb.append("  ");
+        }
+        sb.append("- ").append(view.getClass().getSimpleName())
+                .append(" id=0x").append(Integer.toHexString(view.getId()))
+                .append(" vis=").append(view.getVisibility())
+                .append(" w=").append(view.getWidth())
+                .append(" h=").append(view.getHeight());
+        if (view instanceof android.widget.TextView) {
+            sb.append(" text=").append(shorten(((android.widget.TextView) view).getText()));
+        }
+        log(label + sb);
+        if (depth >= maxDepth || !(view instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < Math.min(group.getChildCount(), 20); i++) {
+            dumpTree(label, group.getChildAt(i), depth + 1, maxDepth);
+        }
+    }
+
     private static void dumpShallow(String label, Object item) {
         if (item == null) {
             log(label + " = null");

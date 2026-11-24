@@ -141,6 +141,10 @@ final class HomeGlassHook {
         }
         PageProbe.probe(pagerView);
         PageProbe.dumpPager(pagerView);
+        if (!probeBarDone) {
+            probeBarDone = true;
+            PageProbe.probeActionBar(activity);
+        }
         // WeChat builds the page's adapter asynchronously, so dump again once
         // the first frame and the data pass have both landed.
         final View pager = pagerView;
@@ -210,6 +214,7 @@ final class HomeGlassHook {
     private boolean installed;
     private int attempts;
     private boolean overlaySet;
+    private boolean probeBarDone;
     private long lastGeometrySignature = Long.MIN_VALUE;
 
     private final Runnable tick = new Runnable() {
