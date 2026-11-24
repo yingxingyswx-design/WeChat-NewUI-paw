@@ -2,7 +2,10 @@ package com.wechatglass;
 
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
-import android.graphics.Path;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -16,9 +19,9 @@ final class RoundedRectClipDrawable extends Drawable
     private final float radius;
     private final int inset;
     private final float offsetX;
-    private final Path clipPath = new Path();
     private final RectF clipRect = new RectF();
     private final Rect contentBounds = new Rect();
+    private final Paint maskPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private boolean drawLogged;
 
     RoundedRectClipDrawable(Drawable wrapped, float radius) {
@@ -82,16 +85,22 @@ final class RoundedRectClipDrawable extends Drawable
         if (scale <= 0f) {
             return;
         }
-        int save = canvas.save();
         clipRect.set(cx - halfWidth + appliedOffset, cy - halfHeight,
                 cx + halfWidth + appliedOffset, cy + halfHeight);
-        clipPath.reset();
-        clipPath.addRoundRect(clipRect, radius, radius, Path.Direction.CW);
-        canvas.clipPath(clipPath);
+        // WeChat's oj5.d drawable restores its own Canvas state while it
+        // renders the asynchronously-loaded thumbnail. That can undo a
+        // clipPath applied before draw(). Render it to a temporary layer and
+        // apply the rounded alpha mask afterwards so the drawable cannot
+        // remove the crop.
+        int save = canvas.saveLayer(clipRect, null);
         canvas.translate(appliedOffset, 0f);
         canvas.scale(scale, scale, cx, cy);
         wrapped.setBounds(bounds);
         wrapped.draw(canvas);
+        maskPaint.setColor(Color.WHITE);
+        maskPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+        canvas.drawRoundRect(clipRect, radius, radius, maskPaint);
+        maskPaint.setXfermode(null);
         canvas.restoreToCount(save);
     }
 
