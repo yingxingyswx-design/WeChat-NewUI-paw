@@ -285,7 +285,7 @@ public class SettingsActivity extends Activity {
         root.addView(mediaBubbleRow, lp(-1, -2, 0, dp(8)));
 
         TextView gatedHint = new TextView(this);
-        gatedHint.setText("圆形头像与媒体气泡需先开启 Material Design，否则不可用。");
+        gatedHint.setText("圆形头像、媒体气泡与每条消息时间需先开启 Material Design，否则不可用。");
         gatedHint.setTextSize(13f);
         gatedHint.setTextColor(onVar);
         root.addView(gatedHint, lp(-1, -2, 0, dp(10)));
@@ -897,11 +897,12 @@ public class SettingsActivity extends Activity {
         return id > 0 ? getResources().getDimensionPixelSize(id) : dp(24);
     }
 
-    /** Keeps the two Material Design dependent switches in sync with the mode. */
+    /** Keeps the Material Design dependent switches in sync with the mode. */
     private void updateM3GatedSwitches() {
         boolean m3 = nativeSwitchField != null && nativeSwitchField.isChecked();
         applyGated(roundAvatarSwitch, m3);
         applyGated(mediaBubbleSwitch, m3);
+        applyGated(messageTimeSwitch, m3);
     }
 
     private void applyGated(M3Switch sw, boolean enabled) {

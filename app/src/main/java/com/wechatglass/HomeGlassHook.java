@@ -553,6 +553,7 @@ final class HomeGlassHook {
         });
         renderer.setHiddenViews(overlay);
 
+
         addChip(overlay, searchChip, chipHeight);
         addChip(overlay, plusChip, chipHeight);
         addChip(overlay, scanChip, chipHeight);
@@ -1624,6 +1625,12 @@ final class HomeGlassHook {
                     public void open(String action) {
                         openEntry(action);
                     }
+                },
+                new HomeCategoryPage.LongPress() {
+                    @Override
+                    public boolean open(String username) {
+                        return openNativeConversationMenu(username);
+                    }
                 });
         parent.addView(categoryPage, index + 1,
                 new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1903,6 +1910,65 @@ final class HomeGlassHook {
         return null;
     }
 
+    /**
+     * Long-press on our own row forwards to WeChat's conversation menu: fill the
+     * native position for that username, then call the list's own long-click
+     * listener. No database writes by us.
+     */
+    private boolean openNativeConversationMenu(String username) {
+        try {
+            if (!(homeListView instanceof android.widget.AbsListView)) {
+                return false;
+            }
+            android.widget.AbsListView list = homeListView;
+            android.widget.ListAdapter adapter = list.getAdapter();
+            if (adapter == null) {
+                return false;
+            }
+            int position = -1;
+            for (int i = 0; i < adapter.getCount(); i++) {
+                if (username.equals(HomeConversationFilter.talkerOf(adapter, i))) {
+                    position = i;
+                    break;
+                }
+            }
+            if (position < 0) {
+                Log.i(TAG, "no native row for " + username);
+                return false;
+            }
+            View row = list.getChildAt(position - list.getFirstVisiblePosition());
+            if (row == null) {
+                list.setSelection(position);
+                row = list.getChildAt(position - list.getFirstVisiblePosition());
+            }
+            Object listener = readObjectField(list, "mOnItemLongClickListener");
+            if (listener instanceof android.widget.AdapterView.OnItemLongClickListener) {
+                return ((android.widget.AdapterView.OnItemLongClickListener) listener)
+                        .onItemLongClick(list, row, position, adapter.getItemId(position));
+            }
+            Log.i(TAG, "no native long-click listener");
+            return false;
+        } catch (Throwable throwable) {
+            Log.w(TAG, "native menu failed", throwable);
+            return false;
+        }
+    }
+
+    private static Object readObjectField(Object target, String name) {
+        Class<?> type = target.getClass();
+        while (type != null) {
+            try {
+                java.lang.reflect.Field field = type.getDeclaredField(name);
+                field.setAccessible(true);
+                return field.get(target);
+            } catch (NoSuchFieldException ignored) {
+                type = type.getSuperclass();
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
     private void openChat(String username) {        try {
             android.content.Intent intent = new android.content.Intent();
             intent.setClassName(activity, "com.tencent.mm.ui.chatting.ChattingUI");
@@ -2224,7 +2290,8 @@ final class HomeGlassHook {
         top = Math.min(top, Math.max(0, height - chipHeight - Ui.dp(activity, 2f)));
 
         if (overlay != null) {
-            int overlayHeight = Math.max(height, top + chipHeight + Ui.dp(activity, 4f));
+            int overlayHeight = Math.max(height,
+                    top + chipHeight + Ui.dp(activity, 4f));
             ViewGroup.LayoutParams op = overlay.getLayoutParams();
             if (op != null && op.height != overlayHeight) {
                 op.height = overlayHeight;
@@ -2286,7 +2353,8 @@ final class HomeGlassHook {
                 cp.gravity = Gravity.TOP | Gravity.LEFT;
             }
             boolean changed = cp.width != switchW || cp.height != chipHeight
-                    || cp.leftMargin != switchX || cp.topMargin != top;
+                    || cp.leftMargin != switchX
+                    || cp.topMargin != top;
             cp.width = switchW;
             cp.height = chipHeight;
             cp.leftMargin = switchX;

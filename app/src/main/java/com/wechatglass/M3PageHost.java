@@ -32,6 +32,13 @@ final class M3PageHost {
         if (pager == null || activity == null) {
             return;
         }
+        // The three pages are part of the Material Design experiment: with the
+        // switch off, WeChat's own pages must stay untouched.
+        if (HookConfig.nativeList(activity)) {
+            hideAll();
+            current = -1;
+            return;
+        }
         current = tab;
         for (int i = 1; i <= 3; i++) {
             if (i != tab && pages[i] != null && pages[i].getVisibility() != View.GONE) {
@@ -43,6 +50,14 @@ final class M3PageHost {
         }
         if (!mount(tab)) {
             retry(tab, 0);
+        }
+    }
+
+    private void hideAll() {
+        for (int i = 1; i <= 3; i++) {
+            if (pages[i] != null && pages[i].getVisibility() != View.GONE) {
+                pages[i].setVisibility(View.GONE);
+            }
         }
     }
 

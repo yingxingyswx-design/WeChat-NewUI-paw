@@ -43,6 +43,11 @@ final class HomeCategoryPage extends FrameLayout {
         void open(String action);
     }
 
+    /** Long-press forwards to WeChat's own conversation menu (no DB writes). */
+    interface LongPress {
+        boolean open(String username);
+    }
+
     private final ListView list;
     private final EntryAdapter adapter = new EntryAdapter();
     private final int topInset;
@@ -52,9 +57,11 @@ final class HomeCategoryPage extends FrameLayout {
     private final int cardBg;
     private final OpenChat openChat;
     private final OpenAction openAction;
+    private final LongPress longPress;
 
     HomeCategoryPage(Context context, boolean night, int topInset, int bottomInset,
-                     OpenChat openChat, final Runnable onPullDown, OpenAction openAction) {
+                     OpenChat openChat, final Runnable onPullDown, OpenAction openAction,
+                     LongPress longPress) {
         super(context);
         this.scheme = M3Theme.colors(context);
         // Sampled from Google Chat's light home: neutral page + card.
@@ -66,20 +73,8 @@ final class HomeCategoryPage extends FrameLayout {
         this.bottomInset = bottomInset;
         this.openChat = openChat;
         this.openAction = openAction;
+        this.longPress = longPress;
         setBackgroundColor(pageBg);
-
-        // The other three tabs paint a 32sp large title; the home tab had none,
-        // which is what made it feel unlike the rest of the M3E shell.
-        TextView heading = new TextView(context);
-        heading.setText(titleFor(context));
-        M3Type.apply(heading, M3Type.HEADLINE_LARGE, true);
-        heading.setTextColor(scheme.onSurface);
-        heading.setSingleLine(true);
-        FrameLayout.LayoutParams headingLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        headingLp.leftMargin = M3Theme.dp(context, 16f);
-        headingLp.topMargin = Ui.statusBarHeight(context) + M3Theme.dp(context, 40f);
-        addView(heading, headingLp);
 
         list = new ListView(context);
         list.setBackgroundColor(pageBg);
@@ -162,18 +157,6 @@ final class HomeCategoryPage extends FrameLayout {
         current = this;
     }
 
-    private static String titleFor(Context context) {
-        String language = "zh";
-        try {
-            language = context.getResources().getConfiguration()
-                    .getLocales().get(0).getLanguage();
-        } catch (Throwable ignored) {
-        }
-        if ("ja".equals(language)) {
-            return "Weixin";
-        }
-        return "zh".equals(language) ? "微信" : "WeChat";
-    }
 
     private static final class Row {
         final ConversationIndex.Entry entry;
@@ -481,6 +464,13 @@ final class HomeCategoryPage extends FrameLayout {
         if (entry == null) {
             return;
         }
+        final String username = entry.username;
+        row.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                return longPress != null && longPress.open(username);
+            }
+        });
         holder.name.setText(entry.display);
         holder.avatar.setBackgroundColor(colorFor(entry.username));
         applyAvatarShape(holder.avatar);

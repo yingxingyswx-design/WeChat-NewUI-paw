@@ -195,6 +195,11 @@ final class ConversationIndex {
                 e.pinned = conv.pinned;
                 SYSTEM.add(e);
             }
+            // A system account can arrive twice: once from rcontact (it is a
+            // friend too) and once from its conversation row. Keep one row.
+            dedupe(FRIENDS);
+            dedupe(GROUPS);
+            dedupe(SYSTEM);
             version++;
             loaded = true;
             android.util.Log.i("WeChatGlass", "HL index friends=" + FRIENDS.size()
@@ -550,6 +555,16 @@ final class ConversationIndex {
         return copy;
     }
 
+    /** Removes duplicate usernames, keeping the first (already-updated) entry. */
+    private static void dedupe(List<Entry> list) {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (int i = list.size() - 1; i >= 0; i--) {
+            String username = list.get(i).username;
+            if (username != null && !seen.add(username)) {
+                list.remove(i);
+            }
+        }
+    }
     private static String safe(String value) {
         return value == null ? "" : value;
     }

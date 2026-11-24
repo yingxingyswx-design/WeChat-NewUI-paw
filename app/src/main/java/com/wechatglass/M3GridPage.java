@@ -98,9 +98,12 @@ class M3GridPage extends M3PageBase {
                 // what showed up as ghost cards before.
                 continue;
             }
-            Object iconRes = readField(item, "i");
-            if (iconRes instanceof Integer) {
-                cell.iconRes = (Integer) iconRes;
+            Object titleRes = readField(item, "i");
+            if (titleRes instanceof Integer) {
+                cell.titleRes = (Integer) titleRes;
+            }
+            if (mode == ME && isPrimaryEntry(cell.title)) {
+                cell.fullWidth = true;
             }
             cells.add(cell);
         }
@@ -111,22 +114,53 @@ class M3GridPage extends M3PageBase {
             header.position = profilePos;
             rows.add(header);
         }
+        java.util.List<Cell> pending = new ArrayList<>();
+        for (Cell cell : cells) {
+            if (cell.fullWidth) {
+                addPairs(rows, pending);
+                Row row = new Row();
+                row.left = cell;
+                row.full = true;
+                rows.add(row);
+            } else {
+                pending.add(cell);
+            }
+        }
+        addPairs(rows, pending);
+        adapter.notifyDataSetChanged();
+    }
+
+    /** 「服务 / 支付」 gets its own full-width row above the grid. */
+    private static boolean isPrimaryEntry(String title) {
+        if (title == null) {
+            return false;
+        }
+        String text = title.toLowerCase(java.util.Locale.ROOT);
+        return text.contains("pay") || text.contains("支付")
+                || text.contains("サービス") || text.contains("服务");
+    }
+
+    private void addPairs(List<Row> target, List<Cell> cells) {
         for (int i = 0; i < cells.size(); i += 2) {
             Row row = new Row();
             row.left = cells.get(i);
             if (i + 1 < cells.size()) {
                 row.right = cells.get(i + 1);
             }
-            rows.add(row);
+            target.add(row);
         }
-        adapter.notifyDataSetChanged();
+        cells.clear();
     }
 
     private static final class Cell {
         Object pref;
         int position;
         String title;
-        int iconRes;
+        /** Field {@code i} is a title string id, not a drawable id. */
+        int titleRes;
+        Drawable icon;
+        /** 「服务」 gets its own full-width row. */
+        boolean fullWidth;
     }
 
     private static final class Row {
@@ -134,6 +168,7 @@ class M3GridPage extends M3PageBase {
         int position;
         Cell left;
         Cell right;
+        boolean full;
     }
 
     private final class GridAdapter extends BaseAdapter {
@@ -162,6 +197,14 @@ class M3GridPage extends M3PageBase {
                 return profileCard(row);
             }
             Context context = getContext();
+            if (row.full) {
+                LinearLayout single = new LinearLayout(context);
+                single.setOrientation(LinearLayout.HORIZONTAL);
+                single.setPadding(pad, M3Theme.dp(context, 3f), pad, M3Theme.dp(context, 3f));
+                single.addView(card(row.left), new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, M3Theme.dp(context, 64f)));
+                return single;
+            }
             LinearLayout line = new LinearLayout(context);
             line.setOrientation(LinearLayout.HORIZONTAL);
             line.setPadding(pad, M3Theme.dp(context, 3f), pad, M3Theme.dp(context, 3f));
@@ -294,13 +337,61 @@ class M3GridPage extends M3PageBase {
         aliasLp.topMargin = M3Theme.dp(context, 4f);
         texts.addView(alias, aliasLp);
 
+        final String selfUsername = asString(readField(row.profile, "K"));
         card.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                clickNative(0);
+                // WeChat's own 「个人信息」 entry is CommonSettingsUI; the
+                // AccountInfoPreference callback only handles its own views.
+                openProfile(selfUsername);
             }
         });
         return card;
+    }
+
+    /** The native row view at an adapter position, or null. */
+    private View clickNativeRowView(int position) {
+        if (!(nativeList instanceof AbsListView)) {
+            return null;
+        }
+        AbsListView list = (AbsListView) nativeList;
+        int first = list.getFirstVisiblePosition();
+        return list.getChildAt(position - first);
+    }
+
+    /** Clicks the native row view itself (preference rows own the listener). */
+    private boolean clickNativeRow(int position) {
+        if (!(nativeList instanceof AbsListView)) {
+            android.util.Log.i("WeChatGlass", "profile row: no list");
+            return false;
+        }
+        AbsListView list = (AbsListView) nativeList;
+        int first = list.getFirstVisiblePosition();
+        View row = list.getChildAt(position - first);
+        android.util.Log.i("WeChatGlass", "profile row=" + (row == null ? "null"
+                : row.getClass().getName())
+                + " first=" + first
+                + " clickable=" + (row != null && row.isClickable())
+                + " listeners=" + (row != null && row.hasOnClickListeners())
+                + " pos=" + list.getChildCount());
+        if (row == null) {
+            return false;
+        }
+        row.performClick();
+        return true;
+    }
+
+    /** Opens WeChat's own 「个人信息」 page (CommonSettingsUI). */
+    private void openProfile(String username) {
+        try {
+            android.content.Intent intent = new android.content.Intent();
+            intent.setClassName(getContext(),
+                    "com.tencent.mm.plugin.setting.ui.setting_new.CommonSettingsUI");
+            intent.putExtra("key_config_item", "SettingGroup_Main_PersonalInfo");
+            getContext().startActivity(intent);
+        } catch (Throwable throwable) {
+            android.util.Log.w("WeChatGlass", "open profile failed", throwable);
+        }
     }
 
     private Drawable readAvatar(Object preference) {
@@ -324,73 +415,92 @@ class M3GridPage extends M3PageBase {
                 }
             };
 
+    private android.view.ViewOutlineProvider rounded;
+
+    /** Follows the 「圆形头像」 switch: circle when on, 8dp rounded rect when off. */
     private void applyCircle(ImageView view) {
-        view.setOutlineProvider(OVAL);
+        if (HookConfig.roundAvatarEnabled(getContext())) {
+            view.setOutlineProvider(OVAL);
+        } else {
+            if (rounded == null) {
+                final float radius = M3Theme.dp(getContext(), 8f);
+                rounded = new android.view.ViewOutlineProvider() {
+                    @Override
+                    public void getOutline(View v, android.graphics.Outline outline) {
+                        outline.setRoundRect(0, 0, v.getWidth(), v.getHeight(), radius);
+                    }
+                };
+            }
+            view.setOutlineProvider(rounded);
+        }
         view.setClipToOutline(true);
     }
 
+    /**
+     * WeChat binds the icon into the row view itself; field {@code i} on the
+     * Preference is a title string id, not a drawable. Ask the native adapter to
+     * build the row once and take the icon out of it, then cache per cell.
+     */
     private Drawable iconFor(Cell cell) {
-        // WeChat ships the right glyph for every entry (and every language), so
-        // reuse its drawable by the id carried on the Preference object.
-        if (cell.iconRes != 0) {
-            try {
-                Drawable nativeIcon = getContext().getDrawable(cell.iconRes);
-                if (nativeIcon != null) {
-                    return nativeIcon;
+        if (cell.icon != null) {
+            return cell.icon;
+        }
+        if (!(nativeList instanceof ViewGroup) || nativeAdapter == null) {
+            return null;
+        }
+        try {
+            View row = nativeAdapter.getView(cell.position, null, (ViewGroup) nativeList);
+            cell.icon = firstIcon(row);
+        } catch (Throwable throwable) {
+            android.util.Log.w("WeChatGlass", "icon extract failed", throwable);
+        }
+        return cell.icon;
+    }
+
+    private static Drawable firstIcon(View view) {
+        if (view instanceof ImageView) {
+            Drawable drawable = ((ImageView) view).getDrawable();
+            if (drawable != null) {
+                return drawable;
+            }
+        }
+        // Some WeChat rows (e.g. 小店与卡包) paint the glyph as a View
+        // background instead of an ImageView drawable.
+        Drawable background = view.getBackground();
+        if (background instanceof android.graphics.drawable.BitmapDrawable
+                || isVector(background)) {
+            return background;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                Drawable found = firstIcon(group.getChildAt(i));
+                if (found != null) {
+                    return found;
                 }
-            } catch (Throwable ignored) {
             }
         }
         return null;
     }
 
-    private static String iconForTitle(String title) {
-        String text = title == null ? "" : title.toLowerCase(java.util.Locale.ROOT);
-        if (contains(text, "pay", "支付", "サービス", "服务")) {
-            return "m3_ic_pay";
-        }
-        if (contains(text, "お気に入り", "收藏", "favorite", "saved")) {
-            return "m3_ic_bookmark";
-        }
-        if (contains(text, "モーメンツ", "朋友圈", "moments")) {
-            return "m3_ic_moments";
-        }
-        if (contains(text, "動画", "视频号", "channels", "video")) {
-            return "m3_ic_channels";
-        }
-        if (contains(text, "カード", "卡包", "wallet", "card")) {
-            return "m3_ic_card";
-        }
-        if (contains(text, "ステッカー", "表情", "sticker", "emoji", "mood")) {
-            return "m3_ic_emoji";
-        }
-        if (contains(text, "設定", "设置", "settings")) {
-            return "m3_ic_settings";
-        }
-        return "m3_ic_bookmark";
+    private static boolean isVector(Drawable drawable) {
+        return drawable != null && drawable.getClass().getName()
+                .startsWith("android.graphics.drawable.VectorDrawable");
     }
 
-    private static boolean contains(String text, String... needles) {
-        for (String needle : needles) {
-            if (text.contains(needle)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void clickNative(int position) {
+    private boolean clickNative(int position) {
         if (!(nativeList instanceof AbsListView) || nativeAdapter == null) {
-            return;
+            return false;
         }
         AbsListView view = (AbsListView) nativeList;
         int first = view.getFirstVisiblePosition();
         View row = view.getChildAt(position - first);
         try {
-            view.performItemClick(row != null ? row : view, position,
+            return view.performItemClick(row != null ? row : view, position,
                     nativeAdapter.getItemId(position));
         } catch (Throwable throwable) {
             android.util.Log.w("WeChatGlass", "performItemClick failed", throwable);
+            return false;
         }
     }
 

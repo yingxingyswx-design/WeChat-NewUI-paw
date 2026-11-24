@@ -272,13 +272,39 @@ class M3ContactsPage extends M3PageBase {
         return header;
     }
 
+    /**
+     * Same capsule as the home list rows: a 16dp-radius card inset 20dp from
+     * the sides and 3dp vertically, with an 8% press state layer.
+     */
+    private android.graphics.drawable.Drawable capsuleBackground() {
+        Context context = getContext();
+        int insetX = M3Theme.dp(context, 20f);
+        int insetY = M3Theme.dp(context, 3f);
+        android.graphics.drawable.StateListDrawable states =
+                new android.graphics.drawable.StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_pressed},
+                new android.graphics.drawable.InsetDrawable(
+                        com.wechatglass.m3.M3Drawable.fill(context,
+                                com.wechatglass.m3.M3ColorScheme.mix(
+                                        cardBg, scheme.onSurface, 0.08f),
+                                com.wechatglass.m3.M3Shape.LARGE),
+                        insetX, insetY, insetX, insetY));
+        states.addState(new int[]{},
+                new android.graphics.drawable.InsetDrawable(
+                        com.wechatglass.m3.M3Drawable.fill(context, cardBg,
+                                com.wechatglass.m3.M3Shape.LARGE),
+                        insetX, insetY, insetX, insetY));
+        return states;
+    }
+
     private View entryRow(final EntryRow entry) {
         Context context = getContext();
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(M3Theme.dp(context, 64f));
-        row.setPadding(pad, M3Theme.dp(context, 8f), pad, M3Theme.dp(context, 8f));
+        row.setPadding(pad, M3Theme.dp(context, 6f), pad, M3Theme.dp(context, 6f));
+        row.setBackground(capsuleBackground());
         if (entry.icon != null) {
             ImageView icon = new ImageView(context);
             icon.setImageDrawable(entry.icon);
@@ -312,7 +338,8 @@ class M3ContactsPage extends M3PageBase {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(M3Theme.dp(context, 64f));
-        row.setPadding(pad, M3Theme.dp(context, 8f), pad, M3Theme.dp(context, 8f));
+        row.setPadding(pad, M3Theme.dp(context, 6f), pad, M3Theme.dp(context, 6f));
+        row.setBackground(capsuleBackground());
 
         ImageView avatar = new ImageView(context);
         avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);

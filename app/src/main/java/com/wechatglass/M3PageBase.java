@@ -78,20 +78,43 @@ class M3PageBase extends FrameLayout {
         return states;
     }
 
-    /** Rounded icon container filled with primaryContainer. */
+    /** Rounded icon container; the icon is forced to the theme's primary colour. */
     FrameLayout iconBox(Drawable icon, float boxDp, float iconDp) {
         FrameLayout box = new FrameLayout(getContext());
-        box.setBackground(M3Drawable.fill(getContext(), scheme.primaryContainer,
+        box.setBackground(M3Drawable.fill(getContext(), scheme.surfaceContainerHigh,
                 M3Shape.LARGE_INCREASED));
         ImageView image = new ImageView(getContext());
-        image.setImageDrawable(icon);
-        image.setColorFilter(scheme.onPrimaryContainer);
         int size = M3Theme.dp(getContext(), iconDp);
+        if (icon != null) {
+            image.setImageDrawable(monochrome(icon, scheme.primary, size));
+        }
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size);
         lp.gravity = android.view.Gravity.CENTER;
         box.addView(image, lp);
         int boxSize = M3Theme.dp(getContext(), boxDp);
         box.setLayoutParams(new android.view.ViewGroup.LayoutParams(boxSize, boxSize));
         return box;
+    }
+
+    /**
+     * WeChat's icon drawable ({@code oj5.d}) is a custom subclass that ignores
+     * tint/colour filters, so the glyph is rasterised first and then flattened
+     * with {@code SRC_IN}: alpha is kept, every colour becomes {@code color}.
+     */
+    Drawable monochrome(Drawable icon, int color, int size) {
+        try {
+            android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(
+                    Math.max(1, size), Math.max(1, size),
+                    android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+            Drawable copy = icon.getConstantState() != null
+                    ? icon.getConstantState().newDrawable() : icon;
+            copy.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+            copy.draw(canvas);
+            canvas.drawColor(color, android.graphics.PorterDuff.Mode.SRC_IN);
+            return new android.graphics.drawable.BitmapDrawable(getResources(), bitmap);
+        } catch (Throwable throwable) {
+            return icon;
+        }
     }
 }
