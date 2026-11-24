@@ -38,6 +38,8 @@ final class ConversationIndex {
     private static volatile int version;
     /** Conversation storage handle, cached so refresh() re-queries without re-resolving. */
     private static Object conversationDb;
+    /** Read-only contact DB handle, kept only for the P0 column probe. */
+    private static Object contactDatabase;
 
     private ConversationIndex() {
     }
@@ -100,6 +102,7 @@ final class ConversationIndex {
                     .callMethod(container, "s");
             Object contactDb = de.robv.android.xposed.XposedHelpers
                     .getObjectField(contactStorage, "d");
+            contactDatabase = contactDb;
             conversationDb = de.robv.android.xposed.XposedHelpers
                     .getObjectField(conversationStorage, "d");
 
@@ -501,6 +504,82 @@ final class ConversationIndex {
 
     static List<Entry> friends() {
         return FRIENDS;
+    }
+
+    /**
+     * P0 probe: which columns rcontact actually has, and whether WeChat's own
+     * pinyin columns are populated. Read-only SQL, no writes.
+     */
+    static void probeContactSchema() {
+        if (contactDatabase == null) {
+            android.util.Log.i("WeChatGlassProbe", "schema: no contact db");
+            return;
+        }
+        try {
+            android.database.Cursor cursor = (android.database.Cursor)
+                    de.robv.android.xposed.XposedHelpers.callMethod(
+                            contactDatabase, "A", "pragma table_info(rcontact)", null);
+            StringBuilder names = new StringBuilder();
+            if (cursor != null) {
+                int nameCol = cursor.getColumnIndex("name");
+                while (cursor.moveToNext()) {
+                    names.append(nameCol >= 0 ? cursor.getString(nameCol) : "?").append(',');
+                }
+                cursor.close();
+            }
+            android.util.Log.i("WeChatGlassProbe", "schema cols=" + names);
+        } catch (Throwable throwable) {
+            android.util.Log.i("WeChatGlassProbe", "schema failed: " + throwable);
+        }
+        try {
+            android.database.Cursor cursor = (android.database.Cursor)
+                    de.robv.android.xposed.XposedHelpers.callMethod(contactDatabase, "A",
+                            "select username, pyInitial, quanPin, conRemark, nickname"
+                                    + " from rcontact where (type & 1 != 0) and type & 32 = 0"
+                                    + " and type & 8 = 0 and verifyFlag & 8 = 0"
+                                    + " and deleteFlag = 0"
+                                    + " and username not like '%@chatroom'"
+                                    + " and username not like '%@im.chatroom'"
+                                    + " and username not like 'gh_%'"
+                                    + " and username not like '%@%'"
+                                    + " order by pyInitial asc limit 40", null);
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    android.util.Log.i("WeChatGlassProbe", "schema row user="
+                            + cursor.getString(0) + " py=" + cursor.getString(1)
+                            + " quan=" + cursor.getString(2)
+                            + " remark=" + cursor.getString(3)
+                            + " nick=" + cursor.getString(4));
+                }
+                cursor.close();
+            }
+        } catch (Throwable throwable) {
+            android.util.Log.i("WeChatGlassProbe", "schema pinyin query failed: " + throwable);
+        }
+        // Own account: the contacts page must not list yourself as a friend.
+        try {
+            android.database.Cursor cursor = (android.database.Cursor)
+                    de.robv.android.xposed.XposedHelpers.callMethod(contactDatabase, "A",
+                            "select * from userinfo limit 1", null);
+            if (cursor != null) {
+                StringBuilder keys = new StringBuilder();
+                for (String name : cursor.getColumnNames()) {
+                    keys.append(name).append(' ');
+                }
+                android.util.Log.i("WeChatGlassProbe", "userinfo cols=" + keys);
+                if (cursor.moveToFirst()) {
+                    int rows = 0;
+                    do {
+                        android.util.Log.i("WeChatGlassProbe", "userinfo row id="
+                                + cursor.getString(0) + " type=" + cursor.getString(1)
+                                + " value=" + cursor.getString(2));
+                    } while (cursor.moveToNext() && ++rows < 15);
+                }
+                cursor.close();
+            }
+        } catch (Throwable throwable) {
+            android.util.Log.i("WeChatGlassProbe", "userinfo failed: " + throwable);
+        }
     }
 
     static List<Entry> groups() {

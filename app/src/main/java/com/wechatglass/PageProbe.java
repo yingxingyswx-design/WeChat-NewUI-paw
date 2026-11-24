@@ -35,6 +35,8 @@ final class PageProbe {
 
     private static Object hookedAdapter;
     private static boolean clickTested;
+    private static boolean schemaProbed;
+    private static boolean contactTested;
     private static final List<Integer> DUMPED_PAGES = new ArrayList<>();
 
     private PageProbe() {
@@ -121,6 +123,13 @@ final class PageProbe {
                         // One-shot functional test of the object-based click:
                         // open the first real row of the Discover page.
                         maybeTestClick(child);
+                    }
+                    if (i == 1) {
+                        if (!ConversationIndex.loaded()) {
+                            log("index not loaded yet");
+                        }
+                        ConversationIndex.probeContactSchema();
+                        dumpRowTexts(child);
                     }
                 }
             }
@@ -389,6 +398,97 @@ final class PageProbe {
             clickTested = true;
             log("CLICKTEST failed: " + throwable);
         }
+    }
+
+    /** One-shot test: open the first contact's native profile page. */
+    static void testContactOpen(android.app.Activity activity) {
+        if (contactTested || activity == null) {
+            return;
+        }
+        List<ConversationIndex.Entry> friends = ConversationIndex.friends();
+        if (friends.isEmpty()) {
+            log("CONTACTTEST no friends yet");
+            return;
+        }
+        contactTested = true;
+        ConversationIndex.Entry entry = friends.get(0);
+        log("CONTACTTEST open user=" + entry.username + " display=" + entry.display);
+        try {
+            android.content.Intent intent = new android.content.Intent();
+            // Discovered from the native click: 8.0.79 keeps the profile page in
+            // the profile plugin, not in com.tencent.mm.ui.contact.
+            intent.setClassName(activity, "com.tencent.mm.plugin.profile.ui.ContactInfoUI");
+            intent.putExtra("Contact_User", entry.username);
+            activity.startActivity(intent);
+            log("CONTACTTEST startActivity ok friends=" + friends.size());
+        } catch (Throwable throwable) {
+            log("CONTACTTEST failed: " + throwable);
+        }
+    }
+
+    /** Logs the on-screen row views of the contacts list (objects, not names). */
+    private static void dumpRowTexts(View pageRoot) {
+        try {
+            View list = findList(pageRoot);
+            if (!(list instanceof ViewGroup)) {
+                log("ROWS no list");
+                return;
+            }
+            ViewGroup group = (ViewGroup) list;
+            log("ROWS list=" + list.getClass().getName() + " children=" + group.getChildCount());
+            for (int i = 0; i < Math.min(group.getChildCount(), 14); i++) {
+                View row = group.getChildAt(i);
+                log("  row[" + i + "] " + row.getClass().getSimpleName()
+                        + " text=" + shorten(firstText(row))
+                        + " desc=" + shorten(row.getContentDescription())
+                        + " clickable=" + row.isClickable()
+                        + " h=" + row.getHeight());
+                if (i == 2) {
+                    dumpRowInternals(row);
+                }
+            }
+        } catch (Throwable throwable) {
+            log("ROWS failed: " + throwable);
+        }
+    }
+
+    /** What a bound contact row carries: children, texts, tags, listener. */
+    private static void dumpRowInternals(View row) {
+        log("    row.tag=" + (row.getTag() == null ? "null"
+                : row.getTag().getClass().getName()));
+        log("    row.hasClick=" + (row.hasOnClickListeners()));
+        if (!(row instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup group = (ViewGroup) row;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            log("    child[" + i + "] " + child.getClass().getSimpleName()
+                    + " id=0x" + Integer.toHexString(child.getId())
+                    + " text=" + shorten(firstText(child))
+                    + " desc=" + shorten(child.getContentDescription())
+                    + " tag=" + (child.getTag() == null ? "null"
+                    : child.getTag().getClass().getName()));
+        }
+    }
+
+    private static String firstText(View view) {
+        if (view instanceof android.widget.TextView) {
+            CharSequence text = ((android.widget.TextView) view).getText();
+            if (text != null && text.length() > 0) {
+                return text.toString();
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                String found = firstText(group.getChildAt(i));
+                if (found != null && !found.isEmpty()) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private static View findList(View root) {

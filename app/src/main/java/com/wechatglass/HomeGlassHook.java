@@ -145,6 +145,9 @@ final class HomeGlassHook {
             probeBarDone = true;
             PageProbe.probeActionBar(activity);
         }
+        if (bottomTab == 1) {
+            PageProbe.testContactOpen(activity);
+        }
         // WeChat builds the page's adapter asynchronously, so dump again once
         // the first frame and the data pass have both landed.
         final View pager = pagerView;
