@@ -218,7 +218,7 @@ public class SettingsActivity extends Activity {
             boolean on = !messageTimeSwitch.isChecked();
             messageTimeSwitch.setChecked(on);
             getSharedPreferences(PREFS, 0).edit()
-                    .putBoolean(KEY_MESSAGE_TIME, on).apply();
+                    .putBoolean(KEY_MESSAGE_TIME, on).commit();
             pushConfig();
         });
         messageTimeRow.addView(messageTimeSwitch);

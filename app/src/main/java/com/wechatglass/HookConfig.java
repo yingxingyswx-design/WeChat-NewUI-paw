@@ -111,6 +111,13 @@ final class HookConfig {
     }
 
     static boolean messageTimeEnabled(Context context) {
+        // The broadcast writes WeChat's own prefs first. Prefer that value so
+        // an async GUI .apply() cannot leave a stale true in XSharedPreferences.
+        android.content.SharedPreferences hook =
+                context.getSharedPreferences(PREFS, 0);
+        if (hook.contains(KEY_MESSAGE_TIME)) {
+            return hook.getBoolean(KEY_MESSAGE_TIME, false);
+        }
         try {
             de.robv.android.xposed.XSharedPreferences module =
                     new de.robv.android.xposed.XSharedPreferences(
@@ -121,8 +128,7 @@ final class HookConfig {
             }
         } catch (Throwable ignored) {
         }
-        return context.getSharedPreferences(PREFS, 0)
-                .getBoolean(KEY_MESSAGE_TIME, false);
+        return false;
     }
 
     static boolean nativeList(Context context) {
