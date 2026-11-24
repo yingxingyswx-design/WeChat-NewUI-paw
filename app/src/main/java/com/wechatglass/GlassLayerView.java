@@ -17,8 +17,6 @@ import android.view.ViewTreeObserver;
 /** LiquidGlass-style layer: capture pre-draw, blur, clip per chip. */
 final class GlassLayerView extends View {
 
-    private static final long MIN_CAPTURE_INTERVAL_MS = 50L;
-
     private final ViewGroup host;
     private final Path shape = new Path();
     private final RectF rect = new RectF();
@@ -28,8 +26,6 @@ final class GlassLayerView extends View {
     private RenderNode node;
     private RenderEffect effect;
     private ViewTreeObserver.OnPreDrawListener preDraw;
-    private final int[] screenLocation = new int[2];
-    private long lastCaptureUptimeMillis;
 
     GlassLayerView(Context context, ViewGroup host) {
         super(context);
@@ -87,12 +83,8 @@ final class GlassLayerView extends View {
                 || !isShown()) {
             return;
         }
-        long now = android.os.SystemClock.uptimeMillis();
-        if (now - lastCaptureUptimeMillis < MIN_CAPTURE_INTERVAL_MS) {
-            return;
-        }
-        lastCaptureUptimeMillis = now;
-        getLocationOnScreen(screenLocation);
+        int[] loc = new int[2];
+        getLocationOnScreen(loc);
         int width = getWidth();
         int height = getHeight();
         if (node == null) {
@@ -101,21 +93,34 @@ final class GlassLayerView extends View {
         node.setPosition(0, 0, width, height);
         RecordingCanvas rc = node.beginRecording(width, height);
         rc.drawColor(0x00000000);
-        Backdrop.draw(rc, backdrop, screenLocation[0], screenLocation[1], width, height);
+        Backdrop.draw(rc, backdrop, loc[0], loc[1], width, height);
         node.endRecording();
+        android.util.Log.i("WeChatGlass", "GL cap done " + width + "x" + height
+                + " hasList=" + node.hasDisplayList()
+                + " backdrop=" + (backdrop == null ? "null" : backdrop.getClass().getSimpleName()));
         if (effect == null) {
-            effect = RenderEffect.createBlurEffect(48f, 48f, Shader.TileMode.CLAMP);
+            effect = RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP);
         }
         node.setRenderEffect(effect);
+        android.util.Log.i("WeChatGlass", "layer capture " + width + "x" + height
+                + " backdrop=" + backdrop.getClass().getSimpleName()
+                + " hasList=" + node.hasDisplayList());
         invalidate();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
+        int[] gl = new int[2];
+        getLocationOnScreen(gl);
+        android.util.Log.i("WeChatGlass", "layer onDraw geom=" + gl[0] + "," + gl[1]
+                + " " + getWidth() + "x" + getHeight());
         if (getWindowVisibility() != View.VISIBLE) { return; } // foreground gate
         if (node == null || !node.hasDisplayList() || host == null) {
             return;
         }
+        RenderEffect fresh = RenderEffect.createBlurEffect(48f, 48f, Shader.TileMode.CLAMP); // fresh effect
+        node.setRenderEffect(fresh);
+        android.util.Log.i("WeChatGlass", "GL effect set blur=48 hasList=" + node.hasDisplayList());
         boolean night = Ui.isNight(getContext());
         for (int i = 0; i < host.getChildCount(); i++) {
             View child = host.getChildAt(i);

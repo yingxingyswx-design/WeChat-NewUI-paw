@@ -92,7 +92,6 @@ final class ChatGlassHook {
     private GlassChipView menuChip;
 
     private boolean attached;
-    private boolean edgeOrderLogged;
     private boolean supportActionBar;
     private int attempts;
     private int lastFooterHeight = -1;
@@ -115,10 +114,11 @@ final class ChatGlassHook {
             if (!attached) {
                 return;
             }
-            // Layout and scroll listeners handle normal updates. Keep only a
-            // slow safety check for WeChat resetting edge-to-edge geometry.
-            maybeUpdateGeometry();
-            handler.postDelayed(this, 3000L);
+            // Footer geometry depends on WeChat's own re-measure; keep the
+            // 600ms refresh here so the input bar never drifts off-screen.
+            applyEdgeLayout();
+            updateTopGeometry();
+            handler.postDelayed(this, 600L);
         }
     };
 
@@ -138,22 +138,15 @@ final class ChatGlassHook {
         int barWidth = actionBar == null ? 0 : actionBar.getWidth();
         int barHeight = actionBar == null ? 0 : actionBar.getHeight();
         int barTop = actionBar == null ? 0 : actionBar.getTop();
-        int barTranslation = actionBar == null ? 0
-                : Float.floatToIntBits(actionBar.getTranslationY());
         int footerHeight = footer == null ? 0 : footer.getHeight();
         int listPadding = list == null ? 0 : list.getPaddingTop();
-        int scrollHeight = scrollLayout == null ? 0 : scrollLayout.getHeight();
-        int contentHeight = contentFrame == null ? 0 : contentFrame.getHeight();
         long signature = decorWidth;
         signature = signature * 31 + decorHeight;
         signature = signature * 31 + barWidth;
         signature = signature * 31 + barHeight;
         signature = signature * 31 + barTop;
-        signature = signature * 31 + barTranslation;
         signature = signature * 31 + footerHeight;
         signature = signature * 31 + listPadding;
-        signature = signature * 31 + scrollHeight;
-        signature = signature * 31 + contentHeight;
         return signature;
     }
 
@@ -320,7 +313,7 @@ final class ChatGlassHook {
                 if (!attached) {
                     return;
                 }
-                maybeUpdateGeometry();
+                applyEdgeLayout();
             }
         };
         observer.addOnGlobalLayoutListener(globalLayoutListener);
@@ -340,7 +333,7 @@ final class ChatGlassHook {
         }, 1000L);
         updateTopGeometry();
         lastGeometrySignature = geometrySignature();
-        handler.postDelayed(tick, 3000L);
+        handler.postDelayed(tick, 600L);
         renderer.requestUpdate();
         Log.i(TAG, "chat glass attached: content=" + contentFrame.getClass().getName()
                 + " scroll=" + scrollLayout.getClass().getName());
@@ -1049,14 +1042,13 @@ final class ChatGlassHook {
                 ensureFooterLiquid();
                 syncWallpaperFromProvider();
                 ensureWallpaperLayer();
-                if (decor != null) decor.postDelayed(this, 1500L);
+                if (decor != null) decor.postDelayed(this, 250);
             }
-        }, 1500L);
+        }, 250);
         android.util.Log.i("WeChatGlass", "CB pill loop started");
     }
 
     private void assertWallScope() {
-        if (scopeLogged) return;
         if (activity == null || !activity.hasWindowFocus()) return;
         View rv = Ui.findByClassContains(decor, "ScrollControlRecyclerView");
         if (rv instanceof ViewGroup) {
@@ -1090,8 +1082,7 @@ final class ChatGlassHook {
     }
     /** ChattingContent: holds the chat wallpaper that the footer panels sit on. */
     private ViewGroup chatContentGroup;
-    private final java.util.WeakHashMap<View, Boolean> emojiPanelOpenStates =
-            new java.util.WeakHashMap<>();
+    private boolean panelWasOpen;
     /** The input row carrying GlassFooterDrawable; its corners follow the panel. */
     private View inputRow;
     private long lastTreeDump;
@@ -1363,8 +1354,7 @@ final class ChatGlassHook {
         applyStatusBar();
         extendChatToBottom();
         reparentActionBar();
-        if (!edgeOrderLogged && actionBar != null
-                && actionBar.getParent() instanceof ViewGroup) {
+        if (actionBar != null && actionBar.getParent() instanceof ViewGroup) {
             ViewGroup pv = (ViewGroup) actionBar.getParent();
             StringBuilder sb = new StringBuilder("CO order parent=" + pv.getClass().getSimpleName());
             for (int i = 0; i < pv.getChildCount(); i++) {
@@ -1373,7 +1363,6 @@ final class ChatGlassHook {
                   .append('@').append(c.getVisibility());
             }
             android.util.Log.i("WeChatGlass", sb.toString());
-            edgeOrderLogged = true;
         }
         // Status scrim disabled: it painted a white gradient over the status
         // bar and read as a duplicate top bar in screenshots.
@@ -1741,7 +1730,6 @@ final class ChatGlassHook {
         }
     }
     private final java.util.HashSet<View> watchedPanels = new java.util.HashSet<>();
-    private final java.util.HashSet<View> transparentEmojiTabBars = new java.util.HashSet<>();
 
     /**
      * Puts the liquid glass on a panel, and keeps it there.
@@ -1822,254 +1810,50 @@ final class ChatGlassHook {
     }
 
     private void styleEmojiPanel() {
-        if (footer == null) {
-            return;
+        if (footer == null) return;
+        View panel = Ui.findByClassContains(footer, "SmileyPanelImpl");
+        if (panel == null) {
+            panel = Ui.findByClassContains(footer, "ChatFooterPanel");
         }
-        boolean[] openPanelFound = {false};
-        styleEmojiPanelTree(footer, 0, openPanelFound);
-        if (!openPanelFound[0] && footer.getBackground() instanceof GlassBarDrawable) {
-            float radius = Ui.dp(activity, 26f);
-            ((GlassBarDrawable) footer.getBackground()).setRadii(radius, radius);
-        }
-    }
-
-    private void styleEmojiPanelTree(View view, int depth, boolean[] openPanelFound) {
-        if (view == null || depth > 16 || view.getVisibility() != View.VISIBLE) {
-            return;
-        }
-        String name = view.getClass().getSimpleName();
-        if ((name.contains("SmileyPanelImpl") || name.contains("ChatFooterPanel")
-                || name.contains("AppPanel")
-                || name.contains("EmojiPanelGroupView"))
-                && isLaidOutVisible(view)) {
-            Boolean wasOpen = emojiPanelOpenStates.put(view, true);
-            openPanelFound[0] = true;
-            styleEmojiPanelInstance(view, wasOpen == null || !wasOpen);
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                styleEmojiPanelTree(group.getChildAt(i), depth + 1, openPanelFound);
-            }
-        }
-    }
-
-    private void styleEmojiPanelInstance(View panel, boolean newlyOpened) {
         logPanelStyle("emoji", panel);
         float radius = Ui.dp(activity, 26f);
-        if (newlyOpened) {
-            android.util.Log.i(TAG, "CB panel open=true"
-                    + " cls=" + panel.getClass().getSimpleName()
-                    + " size=" + panel.getWidth() + "x" + panel.getHeight()
-                    + " bg=" + String.valueOf(panel.getBackground())
+        boolean open = isLaidOutVisible(panel);
+        if (open != panelWasOpen) {
+            panelWasOpen = open;
+            android.util.Log.i(TAG, "CB panel open=" + open
+                    + " cls=" + (panel == null ? "null" : panel.getClass().getSimpleName())
+                    + " size=" + (panel == null ? 0 : panel.getWidth()) + "x"
+                    + (panel == null ? 0 : panel.getHeight())
+                    + " bg=" + (panel == null ? "null" : String.valueOf(panel.getBackground()))
                     + " backdrop=" + (chatContentGroup == null ? "null"
                     : chatContentGroup.getClass().getSimpleName())
                     + " night=" + Ui.isNight(activity));
-            dumpPanelChain(panel, true);
-            if (decor != null) {
-                dumpEmojiWindowTree(decor);
+            dumpPanelChain(panel, open);
+        }
+        if (panel == null || !open) {
+            if (footer.getBackground() instanceof GlassBarDrawable) {
+                ((GlassBarDrawable) footer.getBackground()).setRadii(radius, radius);
             }
-            // The initial callback happens while WeChat is still expanding the
-            // panel. Its AppPanel children are often the off-screen page from
-            // the previous footer state, so record one more tree after the
-            // expansion has settled before deciding which object draws the
-            // visible sticker grid.
-            panel.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (panel.isAttachedToWindow() && panel.getVisibility() == View.VISIBLE
-                            && decor != null) {
-                        android.util.Log.i(TAG, "CB emoji-tree settled panel="
-                                + panel.getClass().getSimpleName() + " size="
-                                + panel.getWidth() + "x" + panel.getHeight());
-                        dumpEmojiWindowTree(decor);
-                    }
-                }
-            }, 700L);
+            return;
         }
         watchPanel(panel);
         ensurePanelGlass(panel);
         if (footer.getBackground() instanceof GlassBarDrawable) {
             ((GlassBarDrawable) footer.getBackground()).setRadii(radius, 0f);
         }
-        View panelScope = panel;
-        View ancestor = panel.getParent() instanceof View
-                ? (View) panel.getParent() : null;
-        while (ancestor != null) {
-            if (ancestor.getClass().getSimpleName().contains("ChatFooterBottom")) {
-                panelScope = ancestor;
-                break;
-            }
-            ancestor = ancestor.getParent() instanceof View
-                    ? (View) ancestor.getParent() : null;
+        clearEmojiBackgrounds(panel, 0);
+        View tabBar = Ui.findByClassContains(panel, "RecyclerView");
+        if (tabBar != null) {
+            tabBar.setBackground(null);
         }
-        clearEmojiBackgrounds(panelScope, 0);
-        clearEmojiTabBackgrounds(panelScope, panelScope, 0);
-        clearKnownEmojiTabBar();
-        View nested = Ui.findByClassContains(panelScope, "NestedBounceView");
+        View nested = Ui.findByClassContains(panel, "NestedBounceView");
         if (nested != null) {
             nested.setBackground(null);
         }
-        View emojiGrid = Ui.findByClassContains(panelScope, "EmojiPanelGroupView");
+        View emojiGrid = Ui.findByClassContains(panel, "EmojiPanelGroupView");
         if (emojiGrid != null) {
             emojiGrid.setBackground(null);
-        }
-        // The grid's cell class changes across WeChat versions. Scan the
-        // current panel subtree and let the size/aspect filter pick thumbnails.
-        ChatBubbleStyler.roundStickerPanel(panelScope, activity);
-        if (newlyOpened) {
-            // Sticker images are assigned asynchronously after AppPanel has
-            // completed its opening transition. Re-scan once after that load;
-            // this is a scoped one-shot task, not a draw-loop or global hook.
-            final View settledScope = panelScope;
-            panel.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (!panel.isAttachedToWindow()
-                            || panel.getVisibility() != View.VISIBLE) {
-                        return;
-                    }
-                    clearEmojiBackgrounds(settledScope, 0);
-                    clearEmojiTabBackgrounds(settledScope, settledScope, 0);
-                    clearKnownEmojiTabBar();
-                    ChatBubbleStyler.roundStickerPanel(settledScope, activity);
-                    if (decor != null) {
-                        android.util.Log.i(TAG, "CB emoji-tree content-settled panel="
-                                + panel.getClass().getSimpleName());
-                        dumpEmojiWindowTree(decor);
-                    }
-                }
-            }, 2500L);
-        }
-    }
-
-    private void dumpEmojiWindowTree(View root) {
-        if (root == null) {
-            return;
-        }
-        java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
-        java.util.IdentityHashMap<View, Boolean> seen = new java.util.IdentityHashMap<>();
-        queue.add(root);
-        int remaining = 900;
-        while (!queue.isEmpty() && remaining-- > 0) {
-            View view = queue.removeFirst();
-            if (seen.put(view, Boolean.TRUE) != null) {
-                continue;
-            }
-            int[] location = new int[2];
-            view.getLocationOnScreen(location);
-            android.graphics.drawable.Drawable background = view.getBackground();
-            android.graphics.drawable.Drawable foreground = android.os.Build.VERSION.SDK_INT < 23
-                    ? null : view.getForeground();
-            android.graphics.drawable.Drawable image = view instanceof android.widget.ImageView
-                    ? ((android.widget.ImageView) view).getDrawable() : null;
-            int children = view instanceof ViewGroup
-                    ? ((ViewGroup) view).getChildCount() : 0;
-            android.util.Log.i(TAG, "CB emoji-tree cls=" + view.getClass().getName()
-                    + " id=0x" + Integer.toHexString(view.getId())
-                    + " local=" + view.getLeft() + "," + view.getTop()
-                    + " screen=" + location[0] + "," + location[1]
-                    + " size=" + view.getWidth() + "x" + view.getHeight()
-                    + " vis=" + view.getVisibility() + " alpha=" + view.getAlpha()
-                    + " layer=" + view.getLayerType()
-                    + " bg=" + (background == null ? "-" : background.getClass().getName())
-                    + " fg=" + (foreground == null ? "-" : foreground.getClass().getName())
-                    + " image=" + (image == null ? "-" : image.getClass().getName())
-                    + " clip=" + view.getClipToOutline() + " children=" + children);
-            if (view instanceof ViewGroup) {
-                ViewGroup group = (ViewGroup) view;
-                for (int i = 0; i < group.getChildCount(); i++) {
-                    View child = group.getChildAt(i);
-                    String name = child.getClass().getSimpleName();
-                    if (name.contains("Emoji") || name.contains("Smiley")
-                            || name.contains("AppPanel") || name.contains("ChatFooter")
-                            || name.contains("Sticker")) {
-                        queue.addFirst(child);
-                    } else {
-                        queue.addLast(child);
-                    }
-                }
-            }
-        }
-    }
-
-    private void clearEmojiTabBackgrounds(View view, View panel, int depth) {
-        if (view == null || depth > 16 || view.getVisibility() != View.VISIBLE) {
-            return;
-        }
-        String name = view.getClass().getName();
-        boolean horizontalTabList = view instanceof ViewGroup
-                && view.getWidth() >= panel.getWidth() * 0.60f
-                && view.getHeight() >= Ui.dp(activity, 24f)
-                && view.getHeight() <= Ui.dp(activity, 100f)
-                && ((ViewGroup) view).getChildCount() >= 2;
-        if (horizontalTabList) {
-            clearEmojiTabSubtree(view, 0);
-            if (transparentEmojiTabBars.add(view)) {
-                android.util.Log.i(TAG, "CB transparent emoji tabs class=" + name
-                        + " size=" + view.getWidth() + "x" + view.getHeight()
-                        + " children=" + (view instanceof ViewGroup
-                        ? ((ViewGroup) view).getChildCount() : 0));
-            }
-            return;
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                clearEmojiTabBackgrounds(group.getChildAt(i), panel, depth + 1);
-            }
-        }
-    }
-
-    private void clearEmojiTabSubtree(View view, int depth) {
-        if (view == null || depth > 12) {
-            return;
-        }
-        if (view.getBackground() != null) {
-            view.setBackground(null);
-        }
-        if (android.os.Build.VERSION.SDK_INT >= 21
-                && (view.getBackgroundTintList() != null
-                || view.getBackgroundTintMode() != null)) {
-            view.setBackgroundTintList(null);
-            view.setBackgroundTintMode(null);
-        }
-        if (android.os.Build.VERSION.SDK_INT >= 23 && view.getForeground() != null) {
-            view.setForeground(null);
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                clearEmojiTabSubtree(group.getChildAt(i), depth + 1);
-            }
-        }
-    }
-
-    /**
-     * The modern emoji panel is inflated from layout a77. Its category bar is
-     * the RecyclerView n0t and the solid strip behind it is dcy. They can sit
-     * outside ChatFooterBottom during WeChat's panel transition, so find these
-     * concrete resources from the activity decor instead of guessing by size.
-     */
-    private void clearKnownEmojiTabBar() {
-        if (decor == null) {
-            return;
-        }
-        View strip = decor.findViewById(0x7f0a1d1a); // dcy
-        if (strip != null) {
-            strip.setBackground(null);
-            if (android.os.Build.VERSION.SDK_INT >= 23) {
-                strip.setForeground(null);
-            }
-        }
-        View tabs = decor.findViewById(0x7f0a61fb); // n0t
-        if (tabs != null) {
-            clearEmojiTabSubtree(tabs, 0);
-            if (transparentEmojiTabBars.add(tabs)) {
-                android.util.Log.i(TAG, "CB transparent emoji tabs exact"
-                        + " class=" + tabs.getClass().getName()
-                        + " size=" + tabs.getWidth() + "x" + tabs.getHeight());
-            }
+            ChatBubbleStyler.roundStickerPanel(emojiGrid, activity);
         }
     }
 
