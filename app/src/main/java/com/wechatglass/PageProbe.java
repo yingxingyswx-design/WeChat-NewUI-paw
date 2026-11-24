@@ -34,6 +34,7 @@ final class PageProbe {
     private static final int MAX_CHILDREN = 40;
 
     private static Object hookedAdapter;
+    private static boolean clickTested;
     private static final List<Integer> DUMPED_PAGES = new ArrayList<>();
 
     private PageProbe() {
@@ -116,6 +117,11 @@ final class PageProbe {
                 // Only the page that is actually on screen is worth a full walk.
                 if (child.getVisibility() == View.VISIBLE && child.getWidth() > 0) {
                     dumpPage("child" + i, child, 1);
+                    if (i == 2) {
+                        // One-shot functional test of the object-based click:
+                        // open the first real row of the Discover page.
+                        maybeTestClick(child);
+                    }
                 }
             }
         } catch (Throwable throwable) {
@@ -341,6 +347,65 @@ final class PageProbe {
         for (int i = 0; i < Math.min(group.getChildCount(), 20); i++) {
             dumpTree(label, group.getChildAt(i), depth + 1, maxDepth);
         }
+    }
+
+    /** Fires the native item click for the first real Discover row, once. */
+    private static void maybeTestClick(View pageRoot) {
+        if (clickTested) {
+            return;
+        }
+        try {
+            View list = findList(pageRoot);
+            if (!(list instanceof AbsListView)) {
+                log("CLICKTEST no AbsListView (found="
+                        + (list == null ? "null" : list.getClass().getName()) + ")");
+                return;
+            }
+            AbsListView lv = (AbsListView) list;
+            android.widget.ListAdapter adapter = lv.getAdapter();
+            if (adapter == null) {
+                log("CLICKTEST adapter null");
+                return;
+            }
+            for (int pos = 0; pos < adapter.getCount(); pos++) {
+                Object item = adapter.getItem(pos);
+                if (item == null
+                        || item.getClass().getSimpleName().contains("SmallCategory")) {
+                    continue;
+                }
+                clickTested = true;
+                int first = lv.getFirstVisiblePosition();
+                View row = lv.getChildAt(pos - first);
+                log("CLICKTEST pos=" + pos + " item=" + item.getClass().getSimpleName()
+                        + " row=" + (row == null ? "null" : row.getClass().getSimpleName()));
+                boolean handled = lv.performItemClick(row != null ? row : lv, pos,
+                        adapter.getItemId(pos));
+                log("CLICKTEST performItemClick handled=" + handled);
+                return;
+            }
+            log("CLICKTEST no clickable row yet (count="
+                    + adapter.getCount() + "), will retry on next dump");
+        } catch (Throwable throwable) {
+            clickTested = true;
+            log("CLICKTEST failed: " + throwable);
+        }
+    }
+
+    private static View findList(View root) {
+        if (root instanceof AbsListView || root.getClass().getName().contains("RecyclerView")) {
+            return root;
+        }
+        if (!(root instanceof ViewGroup)) {
+            return null;
+        }
+        ViewGroup group = (ViewGroup) root;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View found = findList(group.getChildAt(i));
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     private static void dumpShallow(String label, Object item) {
