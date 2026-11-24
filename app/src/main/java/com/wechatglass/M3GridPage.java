@@ -376,6 +376,7 @@ class M3GridPage extends M3PageBase {
         top.addView(refresh, new LinearLayout.LayoutParams(button, button));
 
         bindBalance(amount, caption);
+        startAutoRefresh(card, amount, caption);
         refresh.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -384,6 +385,24 @@ class M3GridPage extends M3PageBase {
             }
         });
         return card;
+    }
+
+    /**
+     * The value is produced by WeChat while the user is on the wallet page, so
+     * the card has to follow the cache instead of only reading it once.
+     */
+    private void startAutoRefresh(final View card, final TextView amount,
+                                  final TextView caption) {
+        card.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!card.isAttachedToWindow()) {
+                    return;
+                }
+                bindBalance(amount, caption);
+                card.postDelayed(this, 2000L);
+            }
+        }, 2000L);
     }
 
     private void bindBalance(TextView amount, TextView caption) {
