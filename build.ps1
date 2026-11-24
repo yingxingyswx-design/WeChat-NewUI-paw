@@ -62,7 +62,12 @@ if ($javacCode -ne 0) { throw 'javac failed' }
 
 Write-Host '=== d8 ==='
 $classes = Get-ChildItem "$build\classes" -Recurse -Filter *.class | ForEach-Object { $_.FullName }
-& "$bt\d8.bat" --lib $androidJar --min-api 24 --output "$build\dex" $classes
+# D8 accepts an argument file.  Passing every generated class on the command
+# line works until the source tree crosses Windows' command-line limit.
+$d8Args = Join-Path $build 'd8.args'
+@('--lib', $androidJar, '--min-api', '24', '--output', "$build\dex") + $classes |
+    Set-Content -LiteralPath $d8Args -Encoding ASCII
+& "$bt\d8.bat" "@$d8Args"
 if ($LASTEXITCODE -ne 0) { throw 'd8 failed' }
 
 Write-Host '=== package classes.dex ==='

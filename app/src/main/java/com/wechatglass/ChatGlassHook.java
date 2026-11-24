@@ -1869,6 +1869,23 @@ final class ChatGlassHook {
             if (decor != null) {
                 dumpEmojiWindowTree(decor);
             }
+            // The initial callback happens while WeChat is still expanding the
+            // panel. Its AppPanel children are often the off-screen page from
+            // the previous footer state, so record one more tree after the
+            // expansion has settled before deciding which object draws the
+            // visible sticker grid.
+            panel.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (panel.isAttachedToWindow() && panel.getVisibility() == View.VISIBLE
+                            && decor != null) {
+                        android.util.Log.i(TAG, "CB emoji-tree settled panel="
+                                + panel.getClass().getSimpleName() + " size="
+                                + panel.getWidth() + "x" + panel.getHeight());
+                        dumpEmojiWindowTree(decor);
+                    }
+                }
+            }, 700L);
         }
         watchPanel(panel);
         ensurePanelGlass(panel);
