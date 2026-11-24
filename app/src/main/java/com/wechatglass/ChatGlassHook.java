@@ -1872,19 +1872,30 @@ final class ChatGlassHook {
         if (footer.getBackground() instanceof GlassBarDrawable) {
             ((GlassBarDrawable) footer.getBackground()).setRadii(radius, 0f);
         }
-        clearEmojiBackgrounds(panel, 0);
-        clearEmojiTabBackgrounds(panel, panel, 0);
-        View nested = Ui.findByClassContains(panel, "NestedBounceView");
+        View panelScope = panel;
+        View ancestor = panel.getParent() instanceof View
+                ? (View) panel.getParent() : null;
+        while (ancestor != null) {
+            if (ancestor.getClass().getSimpleName().contains("ChatFooterBottom")) {
+                panelScope = ancestor;
+                break;
+            }
+            ancestor = ancestor.getParent() instanceof View
+                    ? (View) ancestor.getParent() : null;
+        }
+        clearEmojiBackgrounds(panelScope, 0);
+        clearEmojiTabBackgrounds(panelScope, panelScope, 0);
+        View nested = Ui.findByClassContains(panelScope, "NestedBounceView");
         if (nested != null) {
             nested.setBackground(null);
         }
-        View emojiGrid = Ui.findByClassContains(panel, "EmojiPanelGroupView");
+        View emojiGrid = Ui.findByClassContains(panelScope, "EmojiPanelGroupView");
         if (emojiGrid != null) {
             emojiGrid.setBackground(null);
         }
         // The grid's cell class changes across WeChat versions. Scan the
         // current panel subtree and let the size/aspect filter pick thumbnails.
-        ChatBubbleStyler.roundStickerPanel(panel, activity);
+        ChatBubbleStyler.roundStickerPanel(panelScope, activity);
     }
 
     private void clearEmojiTabBackgrounds(View view, View panel, int depth) {

@@ -219,6 +219,7 @@ final class ChatBubbleStyler {
         final boolean clipToOutline;
         final android.view.ViewOutlineProvider outlineProvider;
         final boolean clipChildren;
+        final int layerType;
         final float scaleX;
         final float scaleY;
         final float pivotX;
@@ -255,6 +256,7 @@ final class ChatBubbleStyler {
             outlineProvider = view.getOutlineProvider();
             clipChildren = view instanceof ViewGroup
                     && ((ViewGroup) view).getClipChildren();
+            layerType = view.getLayerType();
             scaleX = view.getScaleX();
             scaleY = view.getScaleY();
             pivotX = view.getPivotX();
@@ -302,6 +304,9 @@ final class ChatBubbleStyler {
             }
             if (view instanceof ViewGroup) {
                 ((ViewGroup) view).setClipChildren(clipChildren);
+            }
+            if (view.getLayerType() != layerType) {
+                view.setLayerType(layerType, null);
             }
             view.setOutlineProvider(outlineProvider);
             view.setClipToOutline(clipToOutline);
@@ -1869,6 +1874,13 @@ final class ChatBubbleStyler {
         if (messageSticker || panelThumbnail) {
             final float radius = M3Theme.dpF(context, panelThumbnail ? 12f : 20f);
             boolean firstClip = ROUNDED_STICKERS.put(view, Boolean.TRUE) == null;
+            // WeImageView panel thumbnails are software-layered by WeChat;
+            // software layers do not honor outline clipping on some devices.
+            // A hardware layer lets the per-view rounded outline clip apply.
+            if (panelThumbnail && view.getLayerType() == View.LAYER_TYPE_SOFTWARE) {
+                remember(view);
+                view.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            }
             android.view.ViewOutlineProvider stickerOutline = STICKER_OUTLINES.get(view);
             Float previousRadius = STICKER_OUTLINE_RADII.get(view);
             if (stickerOutline == null || previousRadius == null
