@@ -92,7 +92,6 @@ final class ChatGlassHook {
     private GlassChipView menuChip;
 
     private boolean attached;
-    private boolean edgeOrderLogged;
     private boolean supportActionBar;
     private int attempts;
     private int lastFooterHeight = -1;
@@ -115,10 +114,11 @@ final class ChatGlassHook {
             if (!attached) {
                 return;
             }
-            // Layout and scroll listeners handle normal updates. Keep only a
-            // slow safety check for WeChat resetting edge-to-edge geometry.
-            maybeUpdateGeometry();
-            handler.postDelayed(this, 3000L);
+            // Footer geometry depends on WeChat's own re-measure; keep the
+            // 600ms refresh here so the input bar never drifts off-screen.
+            applyEdgeLayout();
+            updateTopGeometry();
+            handler.postDelayed(this, 600L);
         }
     };
 
@@ -138,22 +138,15 @@ final class ChatGlassHook {
         int barWidth = actionBar == null ? 0 : actionBar.getWidth();
         int barHeight = actionBar == null ? 0 : actionBar.getHeight();
         int barTop = actionBar == null ? 0 : actionBar.getTop();
-        int barTranslation = actionBar == null ? 0
-                : Float.floatToIntBits(actionBar.getTranslationY());
         int footerHeight = footer == null ? 0 : footer.getHeight();
         int listPadding = list == null ? 0 : list.getPaddingTop();
-        int scrollHeight = scrollLayout == null ? 0 : scrollLayout.getHeight();
-        int contentHeight = contentFrame == null ? 0 : contentFrame.getHeight();
         long signature = decorWidth;
         signature = signature * 31 + decorHeight;
         signature = signature * 31 + barWidth;
         signature = signature * 31 + barHeight;
         signature = signature * 31 + barTop;
-        signature = signature * 31 + barTranslation;
         signature = signature * 31 + footerHeight;
         signature = signature * 31 + listPadding;
-        signature = signature * 31 + scrollHeight;
-        signature = signature * 31 + contentHeight;
         return signature;
     }
 
@@ -320,7 +313,7 @@ final class ChatGlassHook {
                 if (!attached) {
                     return;
                 }
-                maybeUpdateGeometry();
+                applyEdgeLayout();
             }
         };
         observer.addOnGlobalLayoutListener(globalLayoutListener);
@@ -340,7 +333,7 @@ final class ChatGlassHook {
         }, 1000L);
         updateTopGeometry();
         lastGeometrySignature = geometrySignature();
-        handler.postDelayed(tick, 3000L);
+        handler.postDelayed(tick, 600L);
         renderer.requestUpdate();
         Log.i(TAG, "chat glass attached: content=" + contentFrame.getClass().getName()
                 + " scroll=" + scrollLayout.getClass().getName());
@@ -1049,14 +1042,13 @@ final class ChatGlassHook {
                 ensureFooterLiquid();
                 syncWallpaperFromProvider();
                 ensureWallpaperLayer();
-                if (decor != null) decor.postDelayed(this, 1500L);
+                if (decor != null) decor.postDelayed(this, 250);
             }
-        }, 1500L);
+        }, 250);
         android.util.Log.i("WeChatGlass", "CB pill loop started");
     }
 
     private void assertWallScope() {
-        if (scopeLogged) return;
         if (activity == null || !activity.hasWindowFocus()) return;
         View rv = Ui.findByClassContains(decor, "ScrollControlRecyclerView");
         if (rv instanceof ViewGroup) {
@@ -1362,8 +1354,7 @@ final class ChatGlassHook {
         applyStatusBar();
         extendChatToBottom();
         reparentActionBar();
-        if (!edgeOrderLogged && actionBar != null
-                && actionBar.getParent() instanceof ViewGroup) {
+        if (actionBar != null && actionBar.getParent() instanceof ViewGroup) {
             ViewGroup pv = (ViewGroup) actionBar.getParent();
             StringBuilder sb = new StringBuilder("CO order parent=" + pv.getClass().getSimpleName());
             for (int i = 0; i < pv.getChildCount(); i++) {
@@ -1372,7 +1363,6 @@ final class ChatGlassHook {
                   .append('@').append(c.getVisibility());
             }
             android.util.Log.i("WeChatGlass", sb.toString());
-            edgeOrderLogged = true;
         }
         // Status scrim disabled: it painted a white gradient over the status
         // bar and read as a duplicate top bar in screenshots.
