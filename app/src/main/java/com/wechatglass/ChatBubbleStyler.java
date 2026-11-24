@@ -401,6 +401,18 @@ final class ChatBubbleStyler {
         STICKER_OUTLINES.clear();
         MEDIA_WATCHERS.clear();
         MEDIA_TARGET.clear();
+        // Detach the media bubble ring views we added to WeChat's rows.
+        for (View ring : MEDIA_BUBBLE.values()) {
+            if (ring != null && ring.getParent() instanceof ViewGroup) {
+                try {
+                    ((ViewGroup) ring.getParent()).removeView(ring);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        MEDIA_BUBBLE.clear();
+        ROW_BUBBLE.clear();
+        OUR_BUBBLES.clear();
         DIAGNOSTIC_SNAPSHOTS.clear();
         APPLIED_DIAGNOSTICS.clear();
         diagnosticItemsLogged = 0;
@@ -409,6 +421,9 @@ final class ChatBubbleStyler {
     private static void styleItem(View item, Context context) {
         if (item == null) {
             return;
+        }
+        if ("1".equals(prop("debug.wxglass.media.tree"))) {
+            dumpMediaTree(item, 0);
         }
         // Sticker messages do not necessarily contain text, so apply their
         // visual treatment before looking for a text-bubble target.
@@ -1272,6 +1287,7 @@ final class ChatBubbleStyler {
 
     private static boolean containsDiagnosticMedia(View view, View avatar, int depth) {
         if (view == null || view == avatar || isDescendantOf(view, avatar) || depth > 18
+                || isOurBubble(view)
                 || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
             return false;
         }
@@ -1301,6 +1317,15 @@ final class ChatBubbleStyler {
         View visual = media[0];
         if (visual == null) {
             return null;
+        }
+        // A sticker sits inside an off-centre wrapper (RTChattingEmojiView wraps
+        // a narrower, side-aligned ChattingEmojiView together with a progress
+        // bar), so a bubble on that wrapper is too wide and sticks out past the
+        // sticker. Anchor the bubble to the innermost sticker instead; the
+        // outset, not the wrapper, supplies the room around it.
+        if (isStickerView(visual)) {
+            View inner = innermostSticker(visual);
+            return inner != null ? inner : visual;
         }
 
         View best = null;
@@ -1354,6 +1379,7 @@ final class ChatBubbleStyler {
                                                Context context, int depth,
                                                View[] best, long[] bestArea) {
         if (view == null || view == avatar || isDescendantOf(view, avatar) || depth > 20
+                || isOurBubble(view)
                 || view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f) {
             return;
         }
@@ -1504,57 +1530,68 @@ final class ChatBubbleStyler {
         if (isStickerView(view) || panelThumbnail) {
             final float radius = M3Theme.dpF(context, panelThumbnail ? 12f : 20f);
             boolean firstClip = ROUNDED_STICKERS.put(view, Boolean.TRUE) == null;
-            android.view.ViewOutlineProvider stickerOutline = STICKER_OUTLINES.get(view);
-            if (stickerOutline == null) {
-                stickerOutline = new android.view.ViewOutlineProvider() {
-                    @Override
-                    public void getOutline(View target, android.graphics.Outline outline) {
-                        outline.setRoundRect(0, 0, target.getWidth(), target.getHeight(), radius);
-                    }
-                };
-                STICKER_OUTLINES.put(view, stickerOutline);
-            }
-            boolean outlineChanged = false;
-            if (view.getOutlineProvider() != stickerOutline) {
-                remember(view);
-                view.setOutlineProvider(stickerOutline);
-                outlineChanged = true;
-            }
-            if (!view.getClipToOutline()) {
-                remember(view);
-                view.setClipToOutline(true);
-                outlineChanged = true;
-            }
-            if (outlineChanged) {
-                view.invalidateOutline();
-                view.invalidate();
-            }
-            if (firstClip) {
-                android.util.Log.i("WeChatGlass", "CB rounded sticker "
-                        + (panelThumbnails ? "panel " : "message ")
-                        + view.getClass().getName() + " " + view.getWidth()
-                        + "x" + view.getHeight() + " clip=" + view.getClipToOutline());
-            }
+
+            // ImageViews are rounded through their drawable instead of clipToOutline.
+            // clipToOutline would also clip the media bubble's grown background and
+            // tail, which are drawn past the sticker's bounds — the same flag cannot
+            // serve both, and this is what made the sticker corners turn square.
+            // RoundedRectClipDrawable implements Animatable and forwards start/stop,
+            // so animated stickers keep playing.
+            boolean roundedByDrawable = false;
             if (view instanceof android.widget.ImageView) {
                 android.widget.ImageView image = (android.widget.ImageView) view;
                 android.graphics.drawable.Drawable drawable = image.getDrawable();
                 boolean alreadyRounded = drawable instanceof RoundedRectClipDrawable
                         && ((RoundedRectClipDrawable) drawable).hasRadius(radius);
-                // ImageView starts/stops animated drawables by interface. Leave
-                // GIFs in the loader's original ImageView path; the outline
-                // above already clips the view without replacing its drawable.
-                boolean animated = drawable instanceof android.graphics.drawable.Animatable;
-                if (panelThumbnail && drawable != null && !alreadyRounded && !animated) {
+                if (drawable != null && !alreadyRounded) {
                     if (drawable instanceof RoundedRectClipDrawable) {
                         drawable = ((RoundedRectClipDrawable) drawable).getWrappedDrawable();
                     }
                     remember(view);
                     image.setImageDrawable(new RoundedRectClipDrawable(drawable, radius));
-                    android.util.Log.i("WeChatGlass", "CB sticker drawable clip "
-                            + (panelThumbnails ? "panel " : "message ")
-                            + view.getClass().getName() + " " + view.getWidth()
-                            + "x" + view.getHeight());
+                    roundedByDrawable = true;
                 }
+            }
+
+            if (roundedByDrawable) {
+                if (view.getClipToOutline()) {
+                    remember(view);
+                    view.setClipToOutline(false);
+                }
+            } else {
+                // Custom emoji views with no drawable to wrap fall back to the
+                // outline clip.
+                android.view.ViewOutlineProvider stickerOutline = STICKER_OUTLINES.get(view);
+                if (stickerOutline == null) {
+                    stickerOutline = new android.view.ViewOutlineProvider() {
+                        @Override
+                        public void getOutline(View target, android.graphics.Outline outline) {
+                            outline.setRoundRect(0, 0, target.getWidth(), target.getHeight(), radius);
+                        }
+                    };
+                    STICKER_OUTLINES.put(view, stickerOutline);
+                }
+                boolean outlineChanged = false;
+                if (view.getOutlineProvider() != stickerOutline) {
+                    remember(view);
+                    view.setOutlineProvider(stickerOutline);
+                    outlineChanged = true;
+                }
+                if (!view.getClipToOutline()) {
+                    remember(view);
+                    view.setClipToOutline(true);
+                    outlineChanged = true;
+                }
+                if (outlineChanged) {
+                    view.invalidateOutline();
+                    view.invalidate();
+                }
+            }
+            if (firstClip) {
+                android.util.Log.i("WeChatGlass", "CB rounded sticker "
+                        + (panelThumbnails ? "panel " : "message ")
+                        + view.getClass().getName() + " " + view.getWidth()
+                        + "x" + view.getHeight() + " drawable=" + roundedByDrawable);
             }
         }
         if (view instanceof ViewGroup) {
@@ -1590,6 +1627,24 @@ final class ChatBubbleStyler {
                 || name.contains("EmojiImageView")
                 || name.contains("EmojiView")
                 || name.contains("GifImageView");
+    }
+
+    /** The deepest sticker view under {@code view}, or {@code view} itself. */
+    private static View innermostSticker(View view) {
+        View best = view;
+        if (view instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) view;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                View c = g.getChildAt(i);
+                if (isStickerView(c)) {
+                    View deeper = innermostSticker(c);
+                    if (deeper != null) {
+                        best = deeper;
+                    }
+                }
+            }
+        }
+        return best;
     }
 
     private static boolean isOutgoingByAvatar(View avatar, int screen) {
@@ -1907,37 +1962,32 @@ final class ChatBubbleStyler {
         int color = scheme.primary;
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
         float tail = M3Theme.dpF(context, 7f);
-        // The media paints its whole bounds, so a bubble inside them is hidden.
-        // Grow it past the bounds instead, but stay within the row's own slack:
-        // "25% bigger" is taken as +25% area, i.e. ~6% per side. The linear 12.5%
-        // overshot the row and got clipped / stuck out a corner.
-        float outsetX = media.getWidth() * 0.06f;
-        float outsetY = media.getHeight() * 0.06f;
+        // The bubble is the media's own background, grown past the media's bounds
+        // by ~5.9% on each side (≈ +25% area). No view is added to the row, so
+        // WeChat's layout is untouched and the media stays exactly where it is —
+        // this is what keeps it centred and stops the "shifted up" regression the
+        // sibling-view approach introduced.
+        float outsetX = media.getWidth() * 0.059f;
+        float outsetY = media.getHeight() * 0.059f;
         BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing,
                 outsetX, outsetY);
-        // WeChat swaps the media object while the image/sticker loads, so the
-        // bubble applied on an earlier pass can sit on a stale child that still
-        // draws over the correct one — two bubbles stacked. Clear the previous
-        // object's bubble whenever the target changes for this row.
-        View previousTarget = MEDIA_TARGET.get(item);
-        if (previousTarget != null && previousTarget != media
-                && previousTarget.getBackground() instanceof BubbleDrawable) {
-            previousTarget.setBackground(null);
-            previousTarget.invalidate();
-        }
-        MEDIA_TARGET.put(item, media);
         clearMediaVisualBackgrounds(media, media, avatar, context, 0);
+        // roundStickers re-enables clipToOutline every pass; it clips the grown
+        // bubble (and the tail above the media) back to the media's bounds, so it
+        // must be cleared here every pass, before the early-return below.
+        if (media.getClipToOutline()) {
+            remember(media);
+            media.setClipToOutline(false);
+        }
+        View wrap = media.getParent() instanceof View ? (View) media.getParent() : null;
+        if (wrap != null && wrap.getClipToOutline()) {
+            remember(wrap);
+            wrap.setClipToOutline(false);
+        }
         BubbleDrawable previous = APPLIED.get(media);
         if (previous != null && media.getBackground() == previous
                 && previous.matches(color, radius, tail, outgoing, outsetX, outsetY)) {
             return;
-        }
-        // A rounded outline clips the view's own background, which would cut the
-        // grown bubble off at the media's edges; sticker artwork keeps its
-        // rounding through its drawable instead.
-        if (media.getClipToOutline()) {
-            remember(media);
-            media.setClipToOutline(false);
         }
         remember(media);
         media.setBackground(shape);
@@ -1947,8 +1997,6 @@ final class ChatBubbleStyler {
         shape.setBounds(0, 0, media.getWidth(), media.getHeight());
         media.invalidate();
         APPLIED.put(media, shape);
-        // The grown bubble reaches past the media's bounds, so nothing between
-        // the media and the row may clip it.
         unclipMediaAncestors(media, item);
         watchMedia(media, item, avatar, context);
         logAppliedSurface("media", media);
@@ -1984,6 +2032,56 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     /** The media object each row currently has its bubble on; keyed by the row. */
     private static final WeakHashMap<View, View> MEDIA_TARGET = new WeakHashMap<>();
+    /** The bubble ring view for each media object. */
+    private static final WeakHashMap<View, View> MEDIA_BUBBLE = new WeakHashMap<>();
+    /** The ring currently attached to each row (for recycled-row cleanup). */
+    private static final WeakHashMap<View, View> ROW_BUBBLE = new WeakHashMap<>();
+    /** Our own ring views, so the media scans never mistake them for media. */
+    private static final WeakHashMap<View, Boolean> OUR_BUBBLES = new WeakHashMap<>();
+
+    private static boolean isOurBubble(View view) {
+        return view != null && OUR_BUBBLES.containsKey(view);
+    }
+
+    private static String prop(String key) {
+        try {
+            Object v = Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String.class, String.class)
+                    .invoke(null, key, "");
+            return v instanceof String ? (String) v : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /** Full subtree dump of a message row, gated by debug.wxglass.media.tree=1. */
+    private static void dumpMediaTree(View view, int depth) {
+        if (view == null || depth > 9) {
+            return;
+        }
+        android.graphics.drawable.Drawable bg = view.getBackground();
+        StringBuilder sb = new StringBuilder("MT ");
+        for (int i = 0; i < depth; i++) {
+            sb.append("  ");
+        }
+        sb.append(view.getClass().getSimpleName())
+                .append(" id=0x").append(Integer.toHexString(view.getId()))
+                .append(" pos=").append(view.getLeft()).append(',').append(view.getTop())
+                .append(" ty=").append(view.getTranslationY())
+                .append(' ').append(view.getWidth()).append('x').append(view.getHeight())
+                .append(" vis=").append(view.getVisibility())
+                .append(" clip=").append(view.getClipToOutline())
+                .append(" bg=").append(bg == null ? "null"
+                        : bg.getClass().getSimpleName() + "@"
+                        + Integer.toHexString(System.identityHashCode(bg)));
+        android.util.Log.i("WeChatGlass", sb.toString());
+        if (view instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) view;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                dumpMediaTree(g.getChildAt(i), depth + 1);
+            }
+        }
+    }
 
     /**
      * The media (image/video/sticker) is bound asynchronously: its container's
@@ -2037,6 +2135,9 @@ final class ChatBubbleStyler {
     }
 
     private static boolean isMediaVisual(View view, Context context) {
+        if (isOurBubble(view)) {
+            return false;
+        }
         int width = view.getWidth();
         int height = view.getHeight();
         if (width <= 0 || height <= 0) {
