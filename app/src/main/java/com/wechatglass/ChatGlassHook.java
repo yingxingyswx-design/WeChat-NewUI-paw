@@ -1839,6 +1839,7 @@ final class ChatGlassHook {
         }
         String name = view.getClass().getSimpleName();
         if ((name.contains("SmileyPanelImpl") || name.contains("ChatFooterPanel")
+                || name.contains("AppPanel")
                 || name.contains("EmojiPanelGroupView"))
                 && isLaidOutVisible(view)) {
             int[] location = new int[2];
@@ -1902,10 +1903,11 @@ final class ChatGlassHook {
             return;
         }
         String name = view.getClass().getName();
-        boolean horizontalTabList = name.contains("RecyclerView")
+        boolean horizontalTabList = view instanceof ViewGroup
                 && view.getWidth() >= panel.getWidth() * 0.60f
                 && view.getHeight() >= Ui.dp(activity, 24f)
-                && view.getHeight() <= Ui.dp(activity, 100f);
+                && view.getHeight() <= Ui.dp(activity, 100f)
+                && ((ViewGroup) view).getChildCount() >= 2;
         if (horizontalTabList) {
             clearEmojiTabSubtree(view, 0);
             if (transparentEmojiTabBars.add(view)) {
