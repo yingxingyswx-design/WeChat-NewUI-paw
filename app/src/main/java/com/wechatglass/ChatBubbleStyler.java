@@ -64,6 +64,8 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> TIME_DIAGNOSTICS =
             new WeakHashMap<>();
+    private static final WeakHashMap<TextView, Integer> MESSAGE_TIME_BG =
+            new WeakHashMap<>();
     private static final int MAX_TIME_GRAPH_OBJECTS = 160;
     private static final int MAX_DIAGNOSTIC_ITEMS = 48;
     private static final int MAX_DIAGNOSTIC_VIEWS = 32;
@@ -606,7 +608,7 @@ final class ChatBubbleStyler {
             label.setSingleLine(true);
             label.setIncludeFontPadding(false);
             label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
-            label.setTextColor(M3ColorScheme.forContext(context, false).onSurfaceVariant);
+            label.setTextColor(0xFF1F1F1F);
             label.setBackground(null);
             label.setPadding(0, 0, 0, 0);
             label.setClickable(false);
@@ -631,10 +633,7 @@ final class ChatBubbleStyler {
         if (textChanged) {
             label.setText(formattedTime);
         }
-        int timeColor = M3ColorScheme.forContext(context, false).onSurfaceVariant;
-        if (label.getCurrentTextColor() != timeColor) {
-            label.setTextColor(timeColor);
-        }
+        applyTimePill(label, item, context);
         if (textChanged || label.getMeasuredWidth() <= 0 || label.getMeasuredHeight() <= 0
                 || label.getMeasuredWidth() > overlayHost.getWidth()) {
             label.measure(View.MeasureSpec.makeMeasureSpec(overlayHost.getWidth(),
@@ -799,6 +798,46 @@ final class ChatBubbleStyler {
                 collectMvvmViewModels(group.getChildAt(i), search, depth + 1);
             }
         }
+    }
+
+    private static void applyTimePill(TextView label, View item, Context context) {
+        boolean dark = isDarkTheme(context, item);
+        int pill = dark ? 0xFF2C2C2C : 0xFFF2F2F2;
+        int text = dark ? 0xFFE6E6E6 : 0xFF1F1F1F;
+        Integer previous = MESSAGE_TIME_BG.get(label);
+        if (previous == null || previous.intValue() != pill) {
+            android.graphics.drawable.GradientDrawable bg =
+                    new android.graphics.drawable.GradientDrawable();
+            bg.setColor(pill);
+            bg.setCornerRadius(dp(10));
+            label.setBackground(bg);
+            label.setPadding(dp(8), dp(3), dp(8), dp(3));
+            MESSAGE_TIME_BG.put(label, Integer.valueOf(pill));
+        }
+        if (label.getCurrentTextColor() != text) {
+            label.setTextColor(text);
+        }
+    }
+
+    private static boolean isDarkTheme(Context context, View item) {
+        if (Ui.isNight(context)) {
+            return true;
+        }
+        View v = item;
+        for (int i = 0; i < 8 && v != null; i++) {
+            android.graphics.drawable.Drawable d = v.getBackground();
+            if (d instanceof android.graphics.drawable.ColorDrawable) {
+                int c = ((android.graphics.drawable.ColorDrawable) d).getColor();
+                if (android.graphics.Color.alpha(c) > 0) {
+                    double lum = 0.2126 * android.graphics.Color.red(c)
+                            + 0.7152 * android.graphics.Color.green(c)
+                            + 0.0722 * android.graphics.Color.blue(c);
+                    return lum < 115;
+                }
+            }
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return false;
     }
 
     private static void removeMessageTime(View item) {
