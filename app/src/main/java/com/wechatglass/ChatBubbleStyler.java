@@ -360,26 +360,20 @@ final class ChatBubbleStyler {
                                                    final android.app.Activity activity,
                                                    final ViewGroup list) {
         try {
-            java.lang.reflect.Method add = findChildListenerMethod(list.getClass(),
-                    "addOnChildAttachStateChangeListener");
-            java.lang.reflect.Method remove = findChildListenerMethod(list.getClass(),
-                    "removeOnChildAttachStateChangeListener");
-            if (add == null || remove == null) {
-                throw new NoSuchMethodException("RecyclerView child attach listener");
+            Class<?> recyclerClass = findRecyclerViewClass(list.getClass());
+            if (recyclerClass == null) {
+                throw new ClassNotFoundException("RecyclerView base class");
             }
-            Class<?> listenerClass = add.getParameterTypes()[0];
-            if (!listenerClass.isInterface()) {
-                throw new IllegalStateException("Child attach listener is not an interface");
-            }
+            Class<?> listenerClass = Class.forName(
+                    recyclerClass.getName() + "$OnChildAttachStateChangeListener",
+                    false, recyclerClass.getClassLoader());
             Object listener = java.lang.reflect.Proxy.newProxyInstance(
                     listenerClass.getClassLoader(), new Class<?>[]{listenerClass},
                     (proxy, method, args) -> {
                         String name = method.getName();
-                        if (args != null && args.length == 1
+                        if ("onChildViewAttachedToWindow".equals(name)
+                                && args != null && args.length == 1
                                 && args[0] instanceof View && session.enabled) {
-                            // WeChat may ship an obfuscated AndroidX listener
-                            // interface; both callbacks carry one View. The
-                            // posted task checks attachment before styling.
                             scheduleStyleItem(session, activity, (View) args[0], 0, true);
                         }
                         if ("equals".equals(name)) {
@@ -393,6 +387,10 @@ final class ChatBubbleStyler {
                         }
                         return null;
                     });
+            java.lang.reflect.Method add = recyclerClass.getMethod(
+                    "addOnChildAttachStateChangeListener", listenerClass);
+            java.lang.reflect.Method remove = recyclerClass.getMethod(
+                    "removeOnChildAttachStateChangeListener", listenerClass);
             add.invoke(list, listener);
             session.childAttachListener = listener;
             session.removeChildAttachListener = remove;
@@ -401,22 +399,18 @@ final class ChatBubbleStyler {
         } catch (Throwable error) {
             if (session.list == list) {
                 android.util.Log.w("WeChatGlass", "CB child listener unavailable "
-                        + error.getClass().getSimpleName() + ":" + error.getMessage()
-                        + " list=" + list.getClass().getName());
+                        + error.getClass().getSimpleName());
             }
         }
     }
 
-    private static java.lang.reflect.Method findChildListenerMethod(Class<?> type,
-                                                                     String name) {
-        for (java.lang.reflect.Method method : type.getMethods()) {
-            if (!name.equals(method.getName()) || method.getParameterTypes().length != 1) {
-                continue;
+    private static Class<?> findRecyclerViewClass(Class<?> type) {
+        Class<?> current = type;
+        while (current != null && current != Object.class) {
+            if ("androidx.recyclerview.widget.RecyclerView".equals(current.getName())) {
+                return current;
             }
-            Class<?> parameter = method.getParameterTypes()[0];
-            if (parameter.isInterface()) {
-                return method;
-            }
+            current = current.getSuperclass();
         }
         return null;
     }
