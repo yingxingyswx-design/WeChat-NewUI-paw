@@ -62,7 +62,7 @@ final class M3PageHost {
     }
 
     private void retry(final int tab, final int attempt) {
-        if (attempt > 6 || current != tab) {
+        if (attempt > 24 || current != tab) {
             return;
         }
         activity.getWindow().getDecorView().postDelayed(new Runnable() {
@@ -83,10 +83,17 @@ final class M3PageHost {
             return false;
         }
         View nativeList = findList(root);
-        if (nativeList == null || !(nativeList.getParent() instanceof ViewGroup)) {
+        ViewGroup container;
+        if (nativeList != null && nativeList.getParent() instanceof ViewGroup) {
+            container = (ViewGroup) nativeList.getParent();
+        } else if (root instanceof ViewGroup) {
+            // The page is still building (WeChat shows its own 「正在加载」).
+            // Cover it with our page right away instead of leaving the native
+            // loading state visible; the data pass follows.
+            container = (ViewGroup) root;
+        } else {
             return false;
         }
-        ViewGroup container = (ViewGroup) nativeList.getParent();
         M3PageBase page = pages[tab];
         if (page == null) {
             page = create(tab);
@@ -99,12 +106,16 @@ final class M3PageHost {
             if (page.getParent() instanceof ViewGroup) {
                 ((ViewGroup) page.getParent()).removeView(page);
             }
-            int index = container.indexOfChild(nativeList);
-            container.addView(page, index + 1, new ViewGroup.LayoutParams(
+            int index = nativeList == null ? container.getChildCount()
+                    : container.indexOfChild(nativeList) + 1;
+            container.addView(page, index, new ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         page.setVisibility(View.VISIBLE);
         page.bringToFront();
+        if (nativeList == null) {
+            return false;
+        }
         return refresh(tab, root);
     }
 

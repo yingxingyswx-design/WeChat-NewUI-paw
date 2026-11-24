@@ -38,6 +38,8 @@ class M3GridPage extends M3PageBase {
     private final List<Row> rows = new ArrayList<>();
     private View nativeList;
     private ListAdapter nativeAdapter;
+    /** Last seen state of the balance-card switch, to rebuild on change. */
+    private boolean lastBalanceEnabled;
 
     M3GridPage(Context context, String title, int mode) {
         super(context, title);
@@ -63,6 +65,12 @@ class M3GridPage extends M3PageBase {
             return false;
         }
         if (found == nativeList && adapter == nativeAdapter && !rows.isEmpty()) {
+            boolean balance = mode == ME
+                    && HookConfig.balanceCardEnabled(getContext());
+            if (balance != lastBalanceEnabled) {
+                lastBalanceEnabled = balance;
+                rebuild();
+            }
             return true;
         }
         nativeList = found;
@@ -114,6 +122,12 @@ class M3GridPage extends M3PageBase {
             header.position = profilePos;
             rows.add(header);
         }
+        if (mode == ME && HookConfig.balanceCardEnabled(getContext())) {
+            // Amount card sits between the profile block and the entry grid.
+            Row balance = new Row();
+            balance.balance = true;
+            rows.add(balance);
+        }
         java.util.List<Cell> pending = new ArrayList<>();
         for (Cell cell : cells) {
             if (cell.fullWidth) {
@@ -127,6 +141,7 @@ class M3GridPage extends M3PageBase {
             }
         }
         addPairs(rows, pending);
+        lastBalanceEnabled = mode == ME && HookConfig.balanceCardEnabled(getContext());
         adapter.notifyDataSetChanged();
     }
 
@@ -169,6 +184,8 @@ class M3GridPage extends M3PageBase {
         Cell left;
         Cell right;
         boolean full;
+        /** 「微信余额」卡片，位于资料卡与入口网格之间。 */
+        boolean balance;
     }
 
     private final class GridAdapter extends BaseAdapter {
@@ -194,7 +211,10 @@ class M3GridPage extends M3PageBase {
             }
             Row row = rows.get(position);
             if (row.profile != null) {
-                return profileCard(row);
+                return spaced(profileCard(row), 3, 12);
+            }
+            if (row.balance) {
+                return spaced(balanceCard(), 3, 12);
             }
             Context context = getContext();
             if (row.full) {
@@ -220,6 +240,15 @@ class M3GridPage extends M3PageBase {
         }
     }
 
+    /** Wraps a full-width row with vertical breathing room between cards. */
+    private View spaced(View content, int topDp, int bottomDp) {
+        android.widget.FrameLayout wrap = new android.widget.FrameLayout(getContext());
+        wrap.setPadding(0, M3Theme.dp(getContext(), topDp), 0,
+                M3Theme.dp(getContext(), bottomDp));
+        wrap.addView(content, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return wrap;
+    }
     private LinearLayout.LayoutParams weightParams() {
         return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
     }
@@ -289,6 +318,103 @@ class M3GridPage extends M3PageBase {
         return card;
     }
 
+    /**
+     * M3E amount card: label, big tabular amount, last-sync caption and a
+     * circular refresh button. The refresh only re-reads the local cache that
+     * WeChat's own 服务/钱包 page produced while the user was looking at it.
+     */
+    private View balanceCard() {
+        Context context = getContext();
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(cardBackground());
+        int padding = M3Theme.dp(context, 20f);
+        card.setPadding(padding, padding, padding, padding);
+
+        LinearLayout top = new LinearLayout(context);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(top, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        top.addView(texts, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView label = new TextView(context);
+        label.setText("微信余额");
+        M3Type.apply(label, M3Type.LABEL_LARGE, true);
+        label.setTextColor(scheme.onSurfaceVariant);
+        texts.addView(label);
+
+        TextView amount = new TextView(context);
+        M3Type.apply(amount, M3Type.DISPLAY_SMALL, true);
+        amount.setTextColor(scheme.onSurface);
+        amount.setSingleLine(true);
+        LinearLayout.LayoutParams amountLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        amountLp.topMargin = M3Theme.dp(context, 4f);
+        texts.addView(amount, amountLp);
+
+        TextView caption = new TextView(context);
+        M3Type.apply(caption, M3Type.BODY_SMALL);
+        caption.setTextColor(scheme.onSurfaceVariant);
+        LinearLayout.LayoutParams captionLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        captionLp.topMargin = M3Theme.dp(context, 6f);
+        texts.addView(caption, captionLp);
+
+        TextView refresh = new TextView(context);
+        refresh.setText("↻");
+        refresh.setTextSize(22f);
+        refresh.setGravity(Gravity.CENTER);
+        refresh.setTextColor(scheme.primary);
+        refresh.setBackground(com.wechatglass.m3.M3Drawable.fill(context,
+                scheme.surfaceContainerHigh, com.wechatglass.m3.M3Shape.FULL));
+        int button = M3Theme.dp(context, 40f);
+        top.addView(refresh, new LinearLayout.LayoutParams(button, button));
+
+        bindBalance(amount, caption);
+        refresh.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // Re-reads the cached value only; never triggers a wallet query.
+                bindBalance(amount, caption);
+            }
+        });
+        return card;
+    }
+
+    private void bindBalance(TextView amount, TextView caption) {
+        Context context = getContext();
+        String value = WalletBalanceCache.value(context);
+        long time = WalletBalanceCache.time(context);
+        if (value == null || value.isEmpty()) {
+            amount.setText("—");
+            caption.setText("打开一次微信「服务」页即可获取");
+        } else {
+            amount.setText(value);
+            caption.setText(time > 0
+                    ? "更新于 " + formatClock(time) + " · 打开服务页后自动刷新"
+                    : "打开服务页后自动刷新");
+        }
+    }
+
+    private static String formatClock(long time) {
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        c.setTimeInMillis(time);
+        boolean today = now.get(java.util.Calendar.YEAR) == c.get(java.util.Calendar.YEAR)
+                && now.get(java.util.Calendar.DAY_OF_YEAR) == c.get(java.util.Calendar.DAY_OF_YEAR);
+        if (today) {
+            return String.format("%02d:%02d", c.get(java.util.Calendar.HOUR_OF_DAY),
+                    c.get(java.util.Calendar.MINUTE));
+        }
+        return String.format("%02d-%02d %02d:%02d", c.get(java.util.Calendar.MONTH) + 1,
+                c.get(java.util.Calendar.DAY_OF_MONTH),
+                c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE));
+    }
     private View profileCard(Row row) {
         Context context = getContext();
         LinearLayout card = new LinearLayout(context);

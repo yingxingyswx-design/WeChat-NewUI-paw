@@ -485,7 +485,14 @@ final class ConversationIndex {
         if (trimmed.matches("[0-9a-fA-F]{24,}")) {
             return null; // media/msg hash, not human-readable text
         }
-        return trimmed;
+        // Group digests can be "%s: message" — the sender name is not available
+        // at this layer, so drop the placeholder instead of showing it.
+        String text = trimmed.replace("%s:", "").replace("%s：", "")
+                .replace("%s", "").trim();
+        while (text.startsWith(":") || text.startsWith("：")) {
+            text = text.substring(1).trim();
+        }
+        return text;
     }
 
     private static String systemName(String username) {

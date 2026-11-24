@@ -248,6 +248,15 @@ final class HomeGlassHook {
                         : homeListView.getFirstVisiblePosition()));
                 updateTabState();
             }
+            ensureCategoryPage();
+            if (decor != null && HookConfig.balanceCardEnabled(activity)) {
+                long scanNow = android.os.SystemClock.uptimeMillis();
+                if (scanNow - lastWalletScan > 2500L) {
+                    lastWalletScan = scanNow;
+                    // Passive: only reads text WeChat already rendered.
+                    WalletBalanceCache.capture(activity, decor);
+                }
+            }
             // The TaskBar header is the list's first row. The adapter swap
             // pins the list to the first conversation synchronously, so no
             // periodic correction is needed here.
@@ -308,6 +317,29 @@ final class HomeGlassHook {
         }
     }
 
+    /**
+     * WeChat replaces the conversation page when returning from a native page
+     * (e.g. 服务). The custom list is a child of that page, so it disappears
+     * with it; put it back on the new instance instead of staying native.
+     */
+    private void ensureCategoryPage() {
+        if (activity == null || tabMode != 0 || HookConfig.nativeList(activity)) {
+            return;
+        }
+        if (categoryPage != null && categoryPage.getParent() != null) {
+            if (categoryPage.getVisibility() != View.VISIBLE) {
+                categoryPage.setVisibility(View.VISIBLE);
+            }
+            return;
+        }
+        categoryPage = null;
+        homeListView = null;
+        resolveHomeList();
+        if (homeListView != null && homeListView.getParent() instanceof ViewGroup) {
+            installCategoryPage();
+            android.util.Log.i("WeChatGlass", "HL category page re-attached");
+        }
+    }
     private void keepNativeBarHidden() {
         if (actionBar != null) {
             if (actionBar.getVisibility() != View.GONE) {
@@ -1589,6 +1621,8 @@ final class HomeGlassHook {
     private boolean categoryPageFilled;
     private int lastIndexVersion = -1;
     private long lastIndexRefresh;
+    private long lastWalletScan;
+    private int tickCount;
     private static java.lang.ref.WeakReference<Object> bottomTabView;
 
     /**
