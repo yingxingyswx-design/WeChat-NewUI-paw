@@ -127,6 +127,36 @@ final class HomeGlassHook {
                 hook.updateTabState();
             } catch (Throwable ignored) {
             }
+            try {
+                hook.probePage();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** P0: log the live page objects for the tab the user just opened. */
+    private void probePage() {
+        if (pagerView == null) {
+            return;
+        }
+        PageProbe.probe(pagerView);
+        PageProbe.dumpPager(pagerView);
+        // WeChat builds the page's adapter asynchronously, so dump again once
+        // the first frame and the data pass have both landed.
+        final View pager = pagerView;
+        if (decor != null) {
+            decor.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    PageProbe.dumpPager(pager);
+                }
+            }, 900L);
+            decor.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    PageProbe.dumpPager(pager);
+                }
+            }, 2200L);
         }
     }
 
@@ -244,6 +274,8 @@ final class HomeGlassHook {
             // The TaskBar header is the list's first row. The adapter swap
             // pins the list to the first conversation synchronously, so no
             // periodic correction is needed here.
+            // P0 probe: install the pager-adapter hook (idempotent, no dump).
+            PageProbe.probe(pagerView);
             maybeUpdateGeometry();
             handler.postDelayed(this, 600L);
         }
