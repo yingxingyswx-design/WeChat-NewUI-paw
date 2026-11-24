@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [string]$Message
+    [string]$Message,
+    # Marks the snapshot directory with the -important suffix (milestones).
+    [switch]$Important
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,5 +37,8 @@ foreach ($file in $rootFiles) {
 Copy-Item (Join-Path $dev 'publish.ps1') (Join-Path $repo 'publish.ps1') -Force
 
 # Commit + snapshot in the backup repo (same flow as before).
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'backup.ps1') -Message $Message
+$backup = Join-Path $repo 'backup.ps1'
+$backupArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $backup, '-Message', $Message)
+if ($Important) { $backupArgs += '-Important' }
+& powershell @backupArgs
 exit $LASTEXITCODE

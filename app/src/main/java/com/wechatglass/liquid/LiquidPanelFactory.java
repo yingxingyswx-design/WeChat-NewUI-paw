@@ -58,6 +58,18 @@ public final class LiquidPanelFactory {
         return d instanceof PanelGlassDrawable;
     }
 
+    /** Uptime of the last draw of a panel-glass drawable, 0 when it is not one. */
+    public static long lastPanelDrawAt(android.graphics.drawable.Drawable d) {
+        return PanelGlassDrawable.lastDrawAt(d);
+    }
+
+    /** Drops the cached capture so the next draw samples the page again. */
+    public static void invalidatePanelCapture(android.graphics.drawable.Drawable d) {
+        if (d instanceof PanelGlassDrawable) {
+            ((PanelGlassDrawable) d).invalidateCapture();
+        }
+    }
+
     public static void setPanelRadii(android.graphics.drawable.Drawable d,
                                      float topRadius, float bottomRadius) {
         if (d instanceof PanelGlassDrawable) {

@@ -16,6 +16,7 @@ import android.graphics.RuntimeShader;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -161,6 +162,17 @@ public final class PanelGlassDrawable extends Drawable {
         return night == isNight;
     }
 
+    /** Uptime of the last draw pass of {@code d}, or 0 when it is not panel glass. */
+    public static long lastDrawAt(android.graphics.drawable.Drawable d) {
+        return d instanceof PanelGlassDrawable ? ((PanelGlassDrawable) d).lastDrawAt : 0L;
+    }
+
+    /** Discards the cached capture so the next draw re-records it. */
+    void invalidateCapture() {
+        captured = false;
+        invalidateSelf();
+    }
+
     void setRadii(float top, float bottom) {
         if (topRadius == top && bottomRadius == bottom) {
             return;
@@ -206,6 +218,7 @@ public final class PanelGlassDrawable extends Drawable {
 
     @Override
     public void draw(Canvas canvas) {
+        lastDrawAt = android.os.SystemClock.uptimeMillis();
         Rect b = getBounds();
         int w = b.width();
         int h = b.height();
@@ -217,6 +230,22 @@ public final class PanelGlassDrawable extends Drawable {
         //   debug.wxglass.panel.raw=1  draw the unblurred capture, no wash/rim
         //   debug.wxglass.panel.log=1  log which path the panel took, and why
         boolean raw = prop("debug.wxglass.panel.raw");
+        // Identity matters here: WeChat rebuilds panels between opens, so a
+        // drawable that never logs its own object id cannot be matched against
+        // the view that is actually on screen.
+        if (prop("debug.wxglass.panel.log")) {
+            long tick = android.os.SystemClock.uptimeMillis();
+            if (tick - lastObjectLog > 500L) {
+                lastObjectLog = tick;
+                Log.i("WeChatGlass", "panel draw obj=" + Integer.toHexString(
+                        System.identityHashCode(this))
+                        + " hw=" + canvas.isHardwareAccelerated()
+                        + " bounds=" + b.left + "," + b.top + "," + b.right + "," + b.bottom
+                        + " target=" + (target == null ? "null" : Integer.toHexString(
+                                System.identityHashCode(target)))
+                        + " supported=" + supported);
+            }
+        }
         // Always-on, rate-limited: proves whether this drawable is painted at
         // all while the panel is supposedly open.
         long tick = android.os.SystemClock.uptimeMillis();
@@ -264,7 +293,10 @@ public final class PanelGlassDrawable extends Drawable {
     private int drawsLogged;
     private long lastTune;
     private float tuneBlur = BLUR_DP;
-    private int tuneWash = 0x66;
+    // No wash: it read as a white film over the chat wallpaper. The panel is
+    // pure glass — blur, saturation and rim only. debug.wxglass.panel.wash can
+    // still raise it on device without a rebuild.
+    private int tuneWash = 0;
 
     /**
      * Live tuning from `adb shell setprop`, so the glass can be dialled in on
@@ -312,6 +344,9 @@ public final class PanelGlassDrawable extends Drawable {
         return fallback;
     }
     private long lastDrawLog;
+    private long lastObjectLog;
+    /** Uptime of the last draw() pass; read by the owner to detect a frozen panel. */
+    private volatile long lastDrawAt;
 
     private static boolean prop(String key) {
         try {

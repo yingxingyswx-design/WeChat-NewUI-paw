@@ -77,6 +77,7 @@ final class ChatGlassHook {
     private ViewGroup contentFrame;
     private View scrollLayout;
     private boolean footerGlassSet;
+    private boolean tickErrorLogged;
     private View list;
 
     private int listBaseLeft;
@@ -116,8 +117,19 @@ final class ChatGlassHook {
             }
             // Footer geometry depends on WeChat's own re-measure; keep the
             // 600ms refresh here so the input bar never drifts off-screen.
-            applyEdgeLayout();
-            updateTopGeometry();
+            try {
+                applyEdgeLayout();
+                updateTopGeometry();
+            } catch (Throwable throwable) {
+                // Keep the upkeep alive: one bad traversal used to end this
+                // runnable for the rest of the chat session, because the
+                // postDelayed below never ran. The panels then stopped being
+                // styled and read as "glass works once, then stops".
+                if (!tickErrorLogged) {
+                    tickErrorLogged = true;
+                    Log.e(TAG, "tick failed", throwable);
+                }
+            }
             handler.postDelayed(this, 600L);
         }
     };
@@ -1625,9 +1637,13 @@ final class ChatGlassHook {
     }
 
     private void dumpPanelCandidates(View view, int depth) {
-        if (view == null || depth > 8) return;
-        boolean interesting = view.getHeight() > Ui.dp(activity, 40f)
-                && view.getWidth() > footer.getWidth() * 0.5f;
+        if (view == null || depth > 12) return;
+        // debug.wxglass.panel.tree=1 lists every descendant, not just the ones
+        // big enough to be a panel: the opaque layer that hides the panel glass
+        // is usually one of the small containers in between.
+        boolean tree = "1".equals(prop("debug.wxglass.panel.tree"));
+        boolean interesting = tree || (view.getHeight() > Ui.dp(activity, 40f)
+                && view.getWidth() > footer.getWidth() * 0.5f);
         if (interesting) {
             int[] loc = new int[2];
             view.getLocationOnScreen(loc);
@@ -1637,7 +1653,9 @@ final class ChatGlassHook {
                     + " size=" + view.getWidth() + "x" + view.getHeight()
                     + " screen=" + loc[0] + "," + loc[1]
                     + " vis=" + view.getVisibility() + " shown=" + view.isShown()
-                    + " bg=" + String.valueOf(view.getBackground()));
+                    + " alpha=" + view.getAlpha()
+                    + " bg=" + describeDrawable(view.getBackground())
+                    + " fg=" + describeDrawable(view.getForeground()));
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
@@ -1645,6 +1663,27 @@ final class ChatGlassHook {
                 dumpPanelCandidates(group.getChildAt(i), depth + 1);
             }
         }
+    }
+
+    /** Background/foreground descriptor: class plus the colour when it has one. */
+    private static String describeDrawable(android.graphics.drawable.Drawable d) {
+        if (d == null) {
+            return "null";
+        }
+        String name = d.getClass().getSimpleName();
+        try {
+            if (d instanceof android.graphics.drawable.ColorDrawable) {
+                return name + "#" + Integer.toHexString(
+                        ((android.graphics.drawable.ColorDrawable) d).getColor());
+            }
+            if (d instanceof android.graphics.drawable.GradientDrawable) {
+                return name + "#" + Integer.toHexString(
+                        ((android.graphics.drawable.GradientDrawable) d).getColor()
+                                .getDefaultColor());
+            }
+        } catch (Throwable ignored) {
+        }
+        return name;
     }
 
     /**
@@ -1763,6 +1802,9 @@ final class ChatGlassHook {
 
     private boolean ensurePanelGlass(View panel) {
         if (!isLaidOutVisible(panel)) {
+            // Remember that this object is off screen, so the next open counts
+            // as a transition even when WeChat reuses the same instance.
+            panelVisibleSeen.put(panel, Boolean.FALSE);
             return false;
         }
         float radius = Ui.dp(activity, 26f);
@@ -1771,6 +1813,7 @@ final class ChatGlassHook {
         if (com.wechatglass.liquid.LiquidPanelFactory.isPanelGlass(bg)) {
             com.wechatglass.liquid.LiquidPanelFactory.setPanelRadii(bg, 0f, radius);
             com.wechatglass.liquid.LiquidPanelFactory.setPanelTheme(bg, night);
+            keepPanelPainting(panel, bg);
             return true;
         }
         android.graphics.drawable.Drawable glass =
@@ -1781,8 +1824,54 @@ final class ChatGlassHook {
         }
         panel.setBackground(glass);
         android.util.Log.i(TAG, "panel glass set on " + panel.getClass().getSimpleName()
+                + "@" + Integer.toHexString(System.identityHashCode(panel))
+                + " drawable@" + Integer.toHexString(System.identityHashCode(glass))
                 + " h=" + panel.getHeight());
+        keepPanelPainting(panel, glass);
         return true;
+    }
+
+    /** Rate limit for the repaint watchdog's log line. */
+    private long lastPanelPaintLog;
+    /** Per-object visibility memory: WeChat hands us a fresh panel per open. */
+    private final java.util.WeakHashMap<View, Boolean> panelVisibleSeen =
+            new java.util.WeakHashMap<>();
+
+    /**
+     * Re-renders a panel the moment it becomes visible.
+     *
+     * <p>WeChat slides the footer up over a cached layer: the panel is drawn
+     * during that slide, and afterwards the subtree stops being painted, so a
+     * background applied after that first frame never reaches the screen. That
+     * is the "glass on the first open only" bug, and it is object-based on
+     * purpose — no class name is involved.
+     *
+     * <p>Only the open transition forces the pass. An idle watchdog was tried
+     * and rejected: waiting for the drawable to go quiet delayed the glass by
+     * up to 1.5s, which is plainly visible during the slide-in.
+     */
+    private void keepPanelPainting(View panel, android.graphics.drawable.Drawable bg) {
+        Boolean seen = panelVisibleSeen.put(panel, Boolean.TRUE);
+        if (seen != null && seen.booleanValue()) {
+            return; // already visible last tick: nothing to repair
+        }
+        panel.invalidate();
+        ViewParent parent = panel.getParent();
+        if (parent instanceof View) {
+            ((View) parent).invalidate();
+            ViewParent up = ((View) parent).getParent();
+            if (up instanceof View) {
+                ((View) up).invalidate();
+            }
+        }
+        // The capture may predate the current page content, so re-sample too.
+        com.wechatglass.liquid.LiquidPanelFactory.invalidatePanelCapture(bg);
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastPanelPaintLog > 2000L) {
+            lastPanelPaintLog = now;
+            Log.i(TAG, "panel repaint on open, target@"
+                    + Integer.toHexString(System.identityHashCode(panel)));
+        }
     }
 
     /** Rate-limited state line so a panel that stops being styled is visible. */
