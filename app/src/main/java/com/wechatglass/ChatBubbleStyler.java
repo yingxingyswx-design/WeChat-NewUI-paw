@@ -399,6 +399,8 @@ final class ChatBubbleStyler {
         APPLIED.clear();
         ROUNDED_STICKERS.clear();
         STICKER_OUTLINES.clear();
+        MEDIA_WATCHERS.clear();
+        MEDIA_TARGET.clear();
         DIAGNOSTIC_SNAPSHOTS.clear();
         APPLIED_DIAGNOSTICS.clear();
         diagnosticItemsLogged = 0;
@@ -1303,6 +1305,14 @@ final class ChatBubbleStyler {
 
         View best = null;
         int bestExtra = Integer.MAX_VALUE;
+        // A container whose child fills it exactly leaves no room for the bubble
+        // along that axis: the tail band is painted at the top of the bubble and
+        // is then covered by the media, which is why such a bubble reads as
+        // missing. Only containers with slack on both axes may own the bubble.
+        int minSlackX = M3Theme.dp(context, 8f);
+        int minSlackY = M3Theme.dp(context, 16f);
+        View fallback = null;
+        int fallbackExtra = Integer.MAX_VALUE;
         View current = visual.getParent() instanceof View
                 ? (View) visual.getParent() : null;
         while (current != null && current != item) {
@@ -1323,15 +1333,21 @@ final class ChatBubbleStyler {
                     <= M3Theme.dp(context, 120f)) {
                 int extra = current.getWidth() - visual.getWidth()
                         + current.getHeight() - visual.getHeight();
-                if (extra < bestExtra) {
+                if (current.getWidth() - visual.getWidth() >= minSlackX
+                        && current.getHeight() - visual.getHeight() >= minSlackY
+                        && extra < bestExtra) {
                     best = current;
                     bestExtra = extra;
+                }
+                if (extra < fallbackExtra) {
+                    fallback = current;
+                    fallbackExtra = extra;
                 }
             }
             current = current.getParent() instanceof View
                     ? (View) current.getParent() : null;
         }
-        return best != null ? best : visual;
+        return best != null ? best : fallback != null ? fallback : visual;
     }
 
     private static void findLargestMediaVisual(View view, View avatar,
@@ -1891,12 +1907,37 @@ final class ChatBubbleStyler {
         int color = scheme.primary;
         float radius = M3Theme.dpF(context, M3Shape.LARGE_INCREASED);
         float tail = M3Theme.dpF(context, 7f);
-        BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing);
+        // The media paints its whole bounds, so a bubble inside them is hidden.
+        // Grow it past the bounds instead, but stay within the row's own slack:
+        // "25% bigger" is taken as +25% area, i.e. ~6% per side. The linear 12.5%
+        // overshot the row and got clipped / stuck out a corner.
+        float outsetX = media.getWidth() * 0.06f;
+        float outsetY = media.getHeight() * 0.06f;
+        BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing,
+                outsetX, outsetY);
+        // WeChat swaps the media object while the image/sticker loads, so the
+        // bubble applied on an earlier pass can sit on a stale child that still
+        // draws over the correct one — two bubbles stacked. Clear the previous
+        // object's bubble whenever the target changes for this row.
+        View previousTarget = MEDIA_TARGET.get(item);
+        if (previousTarget != null && previousTarget != media
+                && previousTarget.getBackground() instanceof BubbleDrawable) {
+            previousTarget.setBackground(null);
+            previousTarget.invalidate();
+        }
+        MEDIA_TARGET.put(item, media);
         clearMediaVisualBackgrounds(media, media, avatar, context, 0);
         BubbleDrawable previous = APPLIED.get(media);
         if (previous != null && media.getBackground() == previous
-                && previous.matches(color, radius, tail, outgoing)) {
+                && previous.matches(color, radius, tail, outgoing, outsetX, outsetY)) {
             return;
+        }
+        // A rounded outline clips the view's own background, which would cut the
+        // grown bubble off at the media's edges; sticker artwork keeps its
+        // rounding through its drawable instead.
+        if (media.getClipToOutline()) {
+            remember(media);
+            media.setClipToOutline(false);
         }
         remember(media);
         media.setBackground(shape);
@@ -1906,15 +1947,71 @@ final class ChatBubbleStyler {
         shape.setBounds(0, 0, media.getWidth(), media.getHeight());
         media.invalidate();
         APPLIED.put(media, shape);
-        if (media instanceof ViewGroup) {
-            ((ViewGroup) media).setClipChildren(false);
-        }
-        if (media.getParent() instanceof ViewGroup) {
-            ViewGroup parent = (ViewGroup) media.getParent();
-            remember(parent);
-            parent.setClipChildren(false);
-        }
+        // The grown bubble reaches past the media's bounds, so nothing between
+        // the media and the row may clip it.
+        unclipMediaAncestors(media, item);
+        watchMedia(media, item, avatar, context);
         logAppliedSurface("media", media);
+    }
+
+    /** Lets the grown media bubble draw past its own bounds up to the row. */
+    private static void unclipMediaAncestors(View media, View item) {
+        // Unclip from the media up to and including the row, then one level
+        // above it (the list) so the grown corners are never cut by a clip.
+        View v = media;
+        int guard = 0;
+        while (v != null && guard++ < 8) {
+            if (v instanceof ViewGroup && ((ViewGroup) v).getClipChildren()) {
+                remember(v);
+                ((ViewGroup) v).setClipChildren(false);
+            }
+            if (v == item) {
+                android.view.ViewParent up = v.getParent();
+                View list = up instanceof View ? (View) up : null;
+                if (list instanceof ViewGroup && ((ViewGroup) list).getClipChildren()) {
+                    remember(list);
+                    ((ViewGroup) list).setClipChildren(false);
+                }
+                break;
+            }
+            android.view.ViewParent p = v.getParent();
+            v = p instanceof View ? (View) p : null;
+        }
+    }
+
+    /** Media containers we keep a layout watcher on, so bubbles re-apply on load. */
+    private static final WeakHashMap<View, View.OnLayoutChangeListener> MEDIA_WATCHERS =
+            new WeakHashMap<>();
+    /** The media object each row currently has its bubble on; keyed by the row. */
+    private static final WeakHashMap<View, View> MEDIA_TARGET = new WeakHashMap<>();
+
+    /**
+     * The media (image/video/sticker) is bound asynchronously: its container's
+     * size — and sometimes the container object itself — changes after the poll
+     * styled it, which is the timing window where a bubble applied to a
+     * placeholder never covers the settled media. Re-assert the bubble the
+     * moment the container lays out again, instead of waiting up to 600ms (or
+     * missing a swapped view until the next pass).
+     */
+    private static void watchMedia(final View media, final View item,
+                                   final View avatar, final Context context) {
+        if (media == null || MEDIA_WATCHERS.containsKey(media)) {
+            return;
+        }
+        View.OnLayoutChangeListener listener = new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                                       int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                media.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        styleMediaBubble(media, item, avatar, context);
+                    }
+                });
+            }
+        };
+        MEDIA_WATCHERS.put(media, listener);
+        media.addOnLayoutChangeListener(listener);
     }
 
     private static void clearMediaVisualBackgrounds(View view, View root,
