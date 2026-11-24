@@ -1842,20 +1842,9 @@ final class ChatGlassHook {
                 || name.contains("AppPanel")
                 || name.contains("EmojiPanelGroupView"))
                 && isLaidOutVisible(view)) {
-            int[] location = new int[2];
-            view.getLocationOnScreen(location);
-            int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
-            int screenHeight = activity.getResources().getDisplayMetrics().heightPixels;
-            boolean onScreen = location[0] < screenWidth
-                    && location[0] + view.getWidth() > 0
-                    && location[1] < screenHeight
-                    && location[1] + view.getHeight() > 0
-                    && view.getAlpha() > 0f;
-            Boolean wasOpen = emojiPanelOpenStates.put(view, onScreen);
-            if (onScreen) {
-                openPanelFound[0] = true;
-                styleEmojiPanelInstance(view, wasOpen == null || !wasOpen);
-            }
+            Boolean wasOpen = emojiPanelOpenStates.put(view, true);
+            openPanelFound[0] = true;
+            styleEmojiPanelInstance(view, wasOpen == null || !wasOpen);
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
