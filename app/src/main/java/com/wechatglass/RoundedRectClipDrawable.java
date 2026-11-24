@@ -19,6 +19,7 @@ final class RoundedRectClipDrawable extends Drawable
     private final Path clipPath = new Path();
     private final RectF clipRect = new RectF();
     private final Rect contentBounds = new Rect();
+    private boolean drawLogged;
 
     RoundedRectClipDrawable(Drawable wrapped, float radius) {
         this(wrapped, radius, 0);
@@ -63,6 +64,13 @@ final class RoundedRectClipDrawable extends Drawable
         int minSide = Math.min(bounds.width(), bounds.height());
         if (bounds.isEmpty() || minSide <= 0) {
             return;
+        }
+        if (!drawLogged) {
+            drawLogged = true;
+            android.util.Log.i("WeChatGlass", "CB rounded drawable draw bounds="
+                    + bounds.toShortString() + " radius=" + radius + " inset=" + inset
+                    + " offsetX=" + offsetX + " hw=" + canvas.isHardwareAccelerated()
+                    + " wrapped=" + wrapped.getClass().getName());
         }
         float scale = Math.max(0f, (minSide - 2f * inset) / minSide);
         float cx = bounds.exactCenterX();
