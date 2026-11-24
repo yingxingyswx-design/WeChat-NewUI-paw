@@ -58,13 +58,28 @@ final class HomeCategoryPage extends FrameLayout {
         super(context);
         this.scheme = M3Theme.colors(context);
         // Sampled from Google Chat's light home: neutral page + card.
-        this.pageBg = scheme.dark ? scheme.surfaceContainer : 0xFFF0EDEF;
-        this.cardBg = scheme.dark ? scheme.surfaceContainerHigh : 0xFFFCF8F9;
+        // Same surfaces as the 通讯录 / 发现 / 我 pages so the four tabs share one
+        // background instead of switching between a grey and a green-tinted page.
+        this.pageBg = scheme.surface;
+        this.cardBg = scheme.surfaceContainerLow;
         this.topInset = topInset;
         this.bottomInset = bottomInset;
         this.openChat = openChat;
         this.openAction = openAction;
         setBackgroundColor(pageBg);
+
+        // The other three tabs paint a 32sp large title; the home tab had none,
+        // which is what made it feel unlike the rest of the M3E shell.
+        TextView heading = new TextView(context);
+        heading.setText(titleFor(context));
+        M3Type.apply(heading, M3Type.HEADLINE_LARGE, true);
+        heading.setTextColor(scheme.onSurface);
+        heading.setSingleLine(true);
+        FrameLayout.LayoutParams headingLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        headingLp.leftMargin = M3Theme.dp(context, 16f);
+        headingLp.topMargin = Ui.statusBarHeight(context) + M3Theme.dp(context, 40f);
+        addView(heading, headingLp);
 
         list = new ListView(context);
         list.setBackgroundColor(pageBg);
@@ -145,6 +160,19 @@ final class HomeCategoryPage extends FrameLayout {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         current = this;
+    }
+
+    private static String titleFor(Context context) {
+        String language = "zh";
+        try {
+            language = context.getResources().getConfiguration()
+                    .getLocales().get(0).getLanguage();
+        } catch (Throwable ignored) {
+        }
+        if ("ja".equals(language)) {
+            return "Weixin";
+        }
+        return "zh".equals(language) ? "微信" : "WeChat";
     }
 
     private static final class Row {
