@@ -1898,10 +1898,22 @@ final class ChatBubbleStyler {
                 view.invalidate();
             }
             if (firstClip) {
+                android.graphics.drawable.Drawable currentDrawable =
+                        view instanceof android.widget.ImageView
+                        ? ((android.widget.ImageView) view).getDrawable() : null;
+                String drawableName = currentDrawable == null ? "-"
+                        : currentDrawable.getClass().getName();
+                String parentName = view.getParent() instanceof View
+                        ? ((View) view.getParent()).getClass().getName() : "-";
                 android.util.Log.i("WeChatGlass", "CB rounded sticker "
                         + (panelThumbnails ? "panel " : "message ")
                         + view.getClass().getName() + " " + view.getWidth()
-                        + "x" + view.getHeight() + " clip=" + view.getClipToOutline());
+                        + "x" + view.getHeight() + " parent=" + parentName
+                        + " drawable=" + drawableName
+                        + " animated=" + (currentDrawable
+                        instanceof android.graphics.drawable.Animatable)
+                        + " clip=" + view.getClipToOutline()
+                        + " layer=" + view.getLayerType());
             }
             if (view instanceof android.widget.ImageView) {
                 android.widget.ImageView image = (android.widget.ImageView) view;

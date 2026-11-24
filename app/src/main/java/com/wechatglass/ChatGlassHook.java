@@ -1740,6 +1740,7 @@ final class ChatGlassHook {
         }
     }
     private final java.util.HashSet<View> watchedPanels = new java.util.HashSet<>();
+    private final java.util.HashSet<View> transparentEmojiTabBars = new java.util.HashSet<>();
 
     /**
      * Puts the liquid glass on a panel, and keeps it there.
@@ -1852,10 +1853,7 @@ final class ChatGlassHook {
             ((GlassBarDrawable) footer.getBackground()).setRadii(radius, 0f);
         }
         clearEmojiBackgrounds(panel, 0);
-        View tabBar = Ui.findByClassContains(panel, "RecyclerView");
-        if (tabBar != null) {
-            tabBar.setBackground(null);
-        }
+        clearEmojiTabBackgrounds(panel, panel, 0);
         View nested = Ui.findByClassContains(panel, "NestedBounceView");
         if (nested != null) {
             nested.setBackground(null);
@@ -1863,7 +1861,60 @@ final class ChatGlassHook {
         View emojiGrid = Ui.findByClassContains(panel, "EmojiPanelGroupView");
         if (emojiGrid != null) {
             emojiGrid.setBackground(null);
-            ChatBubbleStyler.roundStickerPanel(emojiGrid, activity);
+        }
+        // The grid's cell class changes across WeChat versions. Scan the
+        // current panel subtree and let the size/aspect filter pick thumbnails.
+        ChatBubbleStyler.roundStickerPanel(panel, activity);
+    }
+
+    private void clearEmojiTabBackgrounds(View view, View panel, int depth) {
+        if (view == null || depth > 16 || view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        String name = view.getClass().getName();
+        boolean horizontalTabList = name.contains("RecyclerView")
+                && view.getWidth() >= panel.getWidth() * 0.60f
+                && view.getHeight() >= Ui.dp(activity, 24f)
+                && view.getHeight() <= Ui.dp(activity, 100f);
+        if (horizontalTabList) {
+            clearEmojiTabSubtree(view, 0);
+            if (transparentEmojiTabBars.add(view)) {
+                android.util.Log.i(TAG, "CB transparent emoji tabs class=" + name
+                        + " size=" + view.getWidth() + "x" + view.getHeight()
+                        + " children=" + (view instanceof ViewGroup
+                        ? ((ViewGroup) view).getChildCount() : 0));
+            }
+            return;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                clearEmojiTabBackgrounds(group.getChildAt(i), panel, depth + 1);
+            }
+        }
+    }
+
+    private void clearEmojiTabSubtree(View view, int depth) {
+        if (view == null || depth > 12) {
+            return;
+        }
+        if (view.getBackground() != null) {
+            view.setBackground(null);
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 21
+                && (view.getBackgroundTintList() != null
+                || view.getBackgroundTintMode() != null)) {
+            view.setBackgroundTintList(null);
+            view.setBackgroundTintMode(null);
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 23 && view.getForeground() != null) {
+            view.setForeground(null);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                clearEmojiTabSubtree(group.getChildAt(i), depth + 1);
+            }
         }
     }
 
