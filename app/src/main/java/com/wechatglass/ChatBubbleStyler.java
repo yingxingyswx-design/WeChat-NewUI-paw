@@ -223,6 +223,8 @@ final class ChatBubbleStyler {
         final float scaleY;
         final float pivotX;
         final float pivotY;
+        final float translationX;
+        final float translationY;
         final android.graphics.drawable.Drawable imageDrawable;
         final android.content.res.ColorStateList textColors;
         final float textSize;
@@ -257,6 +259,8 @@ final class ChatBubbleStyler {
             scaleY = view.getScaleY();
             pivotX = view.getPivotX();
             pivotY = view.getPivotY();
+            translationX = view.getTranslationX();
+            translationY = view.getTranslationY();
             imageDrawable = view instanceof android.widget.ImageView
                     ? ((android.widget.ImageView) view).getDrawable() : null;
             if (view instanceof TextView) {
@@ -305,6 +309,8 @@ final class ChatBubbleStyler {
             view.setPivotY(pivotY);
             view.setScaleX(scaleX);
             view.setScaleY(scaleY);
+            view.setTranslationX(translationX);
+            view.setTranslationY(translationY);
             if (view instanceof android.widget.ImageView) {
                 android.widget.ImageView image = (android.widget.ImageView) view;
                 android.graphics.drawable.Drawable current = image.getDrawable();
@@ -2282,9 +2288,9 @@ final class ChatBubbleStyler {
         View[] visual = {null};
         long[] visualArea = {0L};
         findLargestMediaVisual(media, avatar, context, 0, visual, visualArea);
-        applyMediaContentInset(media, avatar, context, visualArea[0], 0);
+        applyMediaContentInset(media, avatar, context, visualArea[0], outgoing, 0);
         android.graphics.RectF contentBounds = mediaBubbleContentBounds(
-                media, visual[0], context);
+                media, visual[0], context, outgoing);
         BubbleDrawable shape = new BubbleDrawable(color, radius, tail, outgoing,
                 contentBounds);
         remember(media);
@@ -2314,7 +2320,7 @@ final class ChatBubbleStyler {
 
     private static void applyMediaContentInset(View view, View avatar,
                                                Context context, long largestArea,
-                                               int depth) {
+                                               boolean outgoing, int depth) {
         if (view == null || view == avatar || isDescendantOf(view, avatar)
                 || depth > 18 || view.getVisibility() != View.VISIBLE
                 || view.getAlpha() <= 0f) {
@@ -2326,26 +2332,27 @@ final class ChatBubbleStyler {
                 android.widget.ImageView image = (android.widget.ImageView) view;
                 android.graphics.drawable.Drawable drawable = image.getDrawable();
                 int inset = M3Theme.dp(context, 6f);
+                float offsetX = M3Theme.dpF(context, 4f) * (outgoing ? -1f : 1f);
                 float radius = isStickerRenderView(view)
                         ? M3Theme.dpF(context, 20f) : 0f;
                 boolean alreadyInset = drawable instanceof RoundedRectClipDrawable
                         && ((RoundedRectClipDrawable) drawable)
-                        .hasRadiusAndInset(radius, inset);
+                        .hasRadiusInsetAndOffset(radius, inset, offsetX);
                 android.graphics.drawable.Drawable contentDrawable = drawable;
                 while (contentDrawable instanceof RoundedRectClipDrawable) {
                     contentDrawable = ((RoundedRectClipDrawable) contentDrawable)
                             .getWrappedDrawable();
                 }
                 if (contentDrawable instanceof android.graphics.drawable.Animatable) {
-                    // Preserve WeChat's animated drawable and only shrink the
-                    // sticker view around its center to reveal the bubble.
+                    // Preserve WeChat's animated drawable and move its view
+                    // inward inside the message row.
                     if (isStickerRenderView(view)) {
-                        applyAnimatedStickerInset(view, context);
+                        applyAnimatedStickerInset(view, context, outgoing);
                     }
                 } else if (contentDrawable != null && !alreadyInset) {
                     remember(view);
                     image.setImageDrawable(new RoundedRectClipDrawable(
-                            contentDrawable, radius, inset));
+                            contentDrawable, radius, inset, offsetX));
                 }
             }
         }
@@ -2353,12 +2360,13 @@ final class ChatBubbleStyler {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
                 applyMediaContentInset(group.getChildAt(i), avatar, context,
-                        largestArea, depth + 1);
+                        largestArea, outgoing, depth + 1);
             }
         }
     }
 
-    private static void applyAnimatedStickerInset(View view, Context context) {
+    private static void applyAnimatedStickerInset(View view, Context context,
+                                                 boolean outgoing) {
         int inset = M3Theme.dp(context, 4f);
         if (view.getWidth() <= inset * 2 || view.getHeight() <= inset * 2) {
             return;
@@ -2371,11 +2379,14 @@ final class ChatBubbleStyler {
                 / view.getWidth());
         view.setScaleY(original.scaleY * (view.getHeight() - inset * 2f)
                 / view.getHeight());
+        view.setTranslationX(original.translationX
+                + M3Theme.dpF(context, 4f) * (outgoing ? -1f : 1f));
     }
 
     private static android.graphics.RectF mediaBubbleContentBounds(View media,
                                                                    View visual,
-                                                                   Context context) {
+                                                                   Context context,
+                                                                   boolean outgoing) {
         if (media == null || visual == null || visual == media) {
             return null;
         }
@@ -2383,15 +2394,38 @@ final class ChatBubbleStyler {
         int[] visualLocation = new int[2];
         media.getLocationOnScreen(mediaLocation);
         visual.getLocationOnScreen(visualLocation);
-        float inset = M3Theme.dpF(context, 4f);
-        float left = visualLocation[0] - mediaLocation[0] - inset;
-        float top = visualLocation[1] - mediaLocation[1] - inset;
+        float padding = M3Theme.dpF(context, 8f);
+        float left = visualLocation[0] - mediaLocation[0];
+        float top = visualLocation[1] - mediaLocation[1];
         float width = visual.getWidth() * Math.abs(visual.getScaleX());
         float height = visual.getHeight() * Math.abs(visual.getScaleY());
-        float right = left + width + inset * 2f;
-        float bottom = top + height + inset * 2f;
-        return new android.graphics.RectF(Math.max(0f, left), Math.max(0f, top),
-                Math.min(media.getWidth(), right), Math.min(media.getHeight(), bottom));
+        if (visual instanceof android.widget.ImageView) {
+            android.graphics.drawable.Drawable drawable =
+                    ((android.widget.ImageView) visual).getDrawable();
+            while (drawable instanceof RoundedRectClipDrawable) {
+                drawable = ((RoundedRectClipDrawable) drawable).getWrappedDrawable();
+            }
+            if (!(drawable instanceof android.graphics.drawable.Animatable)) {
+                float inset = M3Theme.dpF(context, 6f);
+                float minSide = Math.min(width, height);
+                float scale = minSide <= 0f ? 1f
+                        : Math.max(0f, (minSide - 2f * inset) / minSide);
+                float contentWidth = width * scale;
+                float contentHeight = height * scale;
+                float offset = M3Theme.dpF(context, 4f) * (outgoing ? -1f : 1f);
+                float maxOffset = Math.max(0f, (width - contentWidth) / 2f);
+                offset = Math.max(-maxOffset, Math.min(maxOffset, offset));
+                left += (width - contentWidth) / 2f + offset;
+                top += (height - contentHeight) / 2f;
+                width = contentWidth;
+                height = contentHeight;
+            }
+        }
+        float right = left + width;
+        float bottom = top + height;
+        return new android.graphics.RectF(Math.max(0f, left - padding),
+                Math.max(0f, top - padding), Math.min(media.getWidth(), right + padding),
+                Math.min(media.getHeight(), bottom + padding));
     }
 
     private static void clearMediaVisualBackgrounds(View view, View root,

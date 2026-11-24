@@ -15,6 +15,7 @@ final class RoundedRectClipDrawable extends Drawable
     private final Drawable wrapped;
     private final float radius;
     private final int inset;
+    private final float offsetX;
     private final Path clipPath = new Path();
     private final RectF clipRect = new RectF();
     private final Rect contentBounds = new Rect();
@@ -24,9 +25,14 @@ final class RoundedRectClipDrawable extends Drawable
     }
 
     RoundedRectClipDrawable(Drawable wrapped, float radius, int inset) {
+        this(wrapped, radius, inset, 0f);
+    }
+
+    RoundedRectClipDrawable(Drawable wrapped, float radius, int inset, float offsetX) {
         this.wrapped = wrapped;
         this.radius = radius;
         this.inset = Math.max(0, inset);
+        this.offsetX = offsetX;
         wrapped.setCallback(this);
     }
 
@@ -42,32 +48,41 @@ final class RoundedRectClipDrawable extends Drawable
         return Float.compare(radius, value) == 0 && inset == expectedInset;
     }
 
-    int getInset() {
-        return inset;
+    boolean hasRadiusInsetAndOffset(float value, int expectedInset, float expectedOffsetX) {
+        return hasRadiusAndInset(value, expectedInset)
+                && Float.compare(offsetX, expectedOffsetX) == 0;
     }
 
-    private Rect innerBounds(Rect bounds) {
-        contentBounds.set(bounds);
-        contentBounds.inset(inset, inset);
-        return contentBounds;
+    int getInset() {
+        return inset;
     }
 
     @Override
     public void draw(Canvas canvas) {
         Rect bounds = getBounds();
-        if (bounds.isEmpty()) {
+        int minSide = Math.min(bounds.width(), bounds.height());
+        if (bounds.isEmpty() || minSide <= 0) {
             return;
         }
-        Rect inner = innerBounds(bounds);
-        if (inner.isEmpty()) {
+        float scale = Math.max(0f, (minSide - 2f * inset) / minSide);
+        float cx = bounds.exactCenterX();
+        float cy = bounds.exactCenterY();
+        float halfWidth = bounds.width() * scale / 2f;
+        float halfHeight = bounds.height() * scale / 2f;
+        float maxOffset = Math.max(0f, bounds.width() / 2f - halfWidth);
+        float appliedOffset = Math.max(-maxOffset, Math.min(maxOffset, offsetX));
+        if (scale <= 0f) {
             return;
         }
         int save = canvas.save();
-        clipRect.set(inner);
+        clipRect.set(cx - halfWidth + appliedOffset, cy - halfHeight,
+                cx + halfWidth + appliedOffset, cy + halfHeight);
         clipPath.reset();
         clipPath.addRoundRect(clipRect, radius, radius, Path.Direction.CW);
         canvas.clipPath(clipPath);
-        wrapped.setBounds(inner);
+        canvas.translate(appliedOffset, 0f);
+        canvas.scale(scale, scale, cx, cy);
+        wrapped.setBounds(bounds);
         wrapped.draw(canvas);
         canvas.restoreToCount(save);
     }
@@ -89,7 +104,8 @@ final class RoundedRectClipDrawable extends Drawable
 
     @Override
     protected void onBoundsChange(Rect bounds) {
-        wrapped.setBounds(innerBounds(bounds));
+        contentBounds.set(bounds);
+        wrapped.setBounds(contentBounds);
     }
 
     @Override
