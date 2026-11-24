@@ -1,34 +1,48 @@
-# WeChat-NewUI v1.3.0.1
+# WeChat-NewUI v1.3.1
 
-- versionCode：`6`
-- versionName：`1.3.0.1`
-- Release tag：`6-1.3.0.1`
-- APK：`wechat-glass-1.3.0.1.apk`
-- 源码：`wechat-glass-1.3.0.1-source.zip`
+- versionCode：`7`
+- versionName：`1.3.1.release`（开发版为 `1.3.1.dev`）
+- Release tag：`7-1.3.1`（发布时）
+- APK：`wechat-glass-1.3.1.apk`
+- 源码：`wechat-glass-1.3.1-source.zip`
 - 作用域：仅 `com.tencent.mm`（微信）
 
-## 1.3.0 的内容
+## 1.3.1 新增：版本号熔断（circuit breaker）
 
-- **通讯录页（M3E）**：自建单列列表，按备注拼音优先 / 无备注用昵称分区 A–Z，
-  右侧字母索引条，行采用与首页一致的胶囊卡片，点按进入微信原生资料页。
-- **发现页（M3E）**：2 列卡片网格，条目与图标全部来自微信对象，点击转发微信原生行为。
-- **我页（M3E）**：资料卡（头像形状跟随「圆形头像」开关）+ 2 列入口卡片，
-  「服务」单独占一行，点资料卡进入微信「个人资料」。
-- **微信余额卡片**（默认关闭）：只被动采样——用户自己打开「钱包」页时读取页面上
-  已渲染的金额并缓存，模块不发网络请求、不写微信数据库；卡片每 2 秒跟随本地缓存
-  刷新。开启前有红色二次确认。
-- **首页扫一扫**：顶栏右侧液态玻璃胶囊按钮，打开微信原生扫码页。
-- **首页长按会话**：转发微信原生会话菜单（置顶/未读/删除等）。
-- 首页状态栏真正透明；系统账号去重；四个 tab 统一 `surface` 背景。
-- Material Design 组默认全部关闭；GUI 顶部红色免责声明。
+版本号里带 `release` 的构建，会在启动时**自动拒绝安装探测型高风险 hook**
+（钱包页采样 hook：`MallIndexUIv2.onResume` / `UIPageFragmentActivity.onResume`），
+只保留常规 UI hook。日志会打印：
 
-## 1.3.0.1 修复
+```
+WeChatGlass wallet probe disabled (release build)<versionName>
+```
 
-- **移除遗留的探测型高风险 hook**：删掉 `hookFreGriest`
-  （对 `android$net$FreGriest` 的 `hookAllMethods` + `setResult`，每次启动都会
-  ClassNotFoundException，属于探索期实验代码），以及未使用的 `ensureCategoryPage()`。
-- **发现页条目不全**：此前只在 adapter 实例变化时重建列表，微信「发现页管理」里
-  重新开启的入口不会出现；现在同时比较条目数量，变化即重建。
+命令：
+
+```
+# 开发版（允许探测 hook）
+versionName = "1.3.2.dev"
+
+# 发布版（自动熔断，探测 hook 不安装）
+versionName = "1.3.2.release"
+```
+
+对应代码：`BuildFlags.devProbesAllowed()`，在 `HookEntry` 安装 wallet hook 时与
+`HomeGlassHook` 的被动采样循环处各判断一次。
+
+## 由此产生的行为差异
+
+- **dev 构建**：余额卡片可被动采样（用户打开钱包页后读取金额并缓存）。
+- **release 构建**：不装采样 hook，余额卡片只能显示已有缓存（通常是“—”），
+  不会读取任何支付页面。这是刻意为之：发布包绝不允许带支付域 hook。
+
+## 1.3.0 / 1.3.0.1 的内容
+
+- M3E 化的「通讯录 / 发现 / 我」三页；首页扫一扫按钮；首页长按转发原生会话菜单；
+  首页状态栏透明；系统账号去重；四个 tab 统一背景。
+- 微信余额卡片（默认关闭、开启前红色二次确认）：只被动采样已渲染的金额。
+- 1.3.0.1：移除探测期遗留的 `hookFreGriest`（`hookAllMethods` + `setResult`，从未生效）；
+  发现页条目随「发现页管理」设置变化重建。
 
 ## 已知问题（下一版修复）
 
