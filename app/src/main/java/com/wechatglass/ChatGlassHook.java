@@ -1090,7 +1090,8 @@ final class ChatGlassHook {
     }
     /** ChattingContent: holds the chat wallpaper that the footer panels sit on. */
     private ViewGroup chatContentGroup;
-    private boolean panelWasOpen;
+    private final java.util.WeakHashMap<View, Boolean> emojiPanelOpenStates =
+            new java.util.WeakHashMap<>();
     /** The input row carrying GlassFooterDrawable; its corners follow the panel. */
     private View inputRow;
     private long lastTreeDump;
@@ -1821,31 +1822,60 @@ final class ChatGlassHook {
     }
 
     private void styleEmojiPanel() {
-        if (footer == null) return;
-        View panel = Ui.findByClassContains(footer, "SmileyPanelImpl");
-        if (panel == null) {
-            panel = Ui.findByClassContains(footer, "ChatFooterPanel");
+        if (footer == null) {
+            return;
         }
+        boolean[] openPanelFound = {false};
+        styleEmojiPanelTree(footer, 0, openPanelFound);
+        if (!openPanelFound[0] && footer.getBackground() instanceof GlassBarDrawable) {
+            float radius = Ui.dp(activity, 26f);
+            ((GlassBarDrawable) footer.getBackground()).setRadii(radius, radius);
+        }
+    }
+
+    private void styleEmojiPanelTree(View view, int depth, boolean[] openPanelFound) {
+        if (view == null || depth > 16 || view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        String name = view.getClass().getSimpleName();
+        if ((name.contains("SmileyPanelImpl") || name.contains("ChatFooterPanel")
+                || name.contains("EmojiPanelGroupView"))
+                && isLaidOutVisible(view)) {
+            int[] location = new int[2];
+            view.getLocationOnScreen(location);
+            int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
+            int screenHeight = activity.getResources().getDisplayMetrics().heightPixels;
+            boolean onScreen = location[0] < screenWidth
+                    && location[0] + view.getWidth() > 0
+                    && location[1] < screenHeight
+                    && location[1] + view.getHeight() > 0
+                    && view.getAlpha() > 0f;
+            Boolean wasOpen = emojiPanelOpenStates.put(view, onScreen);
+            if (onScreen) {
+                openPanelFound[0] = true;
+                styleEmojiPanelInstance(view, wasOpen == null || !wasOpen);
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                styleEmojiPanelTree(group.getChildAt(i), depth + 1, openPanelFound);
+            }
+        }
+    }
+
+    private void styleEmojiPanelInstance(View panel, boolean newlyOpened) {
         logPanelStyle("emoji", panel);
         float radius = Ui.dp(activity, 26f);
-        boolean open = isLaidOutVisible(panel);
-        if (open != panelWasOpen) {
-            panelWasOpen = open;
-            android.util.Log.i(TAG, "CB panel open=" + open
-                    + " cls=" + (panel == null ? "null" : panel.getClass().getSimpleName())
-                    + " size=" + (panel == null ? 0 : panel.getWidth()) + "x"
-                    + (panel == null ? 0 : panel.getHeight())
-                    + " bg=" + (panel == null ? "null" : String.valueOf(panel.getBackground()))
+        if (newlyOpened) {
+            android.util.Log.i(TAG, "CB panel open=true"
+                    + " cls=" + panel.getClass().getSimpleName()
+                    + " size=" + panel.getWidth() + "x" + panel.getHeight()
+                    + " bg=" + String.valueOf(panel.getBackground())
                     + " backdrop=" + (chatContentGroup == null ? "null"
                     : chatContentGroup.getClass().getSimpleName())
                     + " night=" + Ui.isNight(activity));
-            dumpPanelChain(panel, open);
-        }
-        if (panel == null || !open) {
-            if (footer.getBackground() instanceof GlassBarDrawable) {
-                ((GlassBarDrawable) footer.getBackground()).setRadii(radius, radius);
-            }
-            return;
+            dumpPanelChain(panel, true);
         }
         watchPanel(panel);
         ensurePanelGlass(panel);
