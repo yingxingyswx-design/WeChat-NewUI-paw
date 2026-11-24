@@ -54,6 +54,12 @@ final class ChatBubbleStyler {
             new WeakHashMap<>();
     private static final WeakHashMap<View, TextView> MESSAGE_TIME_LABELS =
             new WeakHashMap<>();
+    private static final WeakHashMap<View, ViewGroup> MESSAGE_TIME_HOSTS =
+            new WeakHashMap<>();
+    private static final WeakHashMap<View, MessageTimePadding> MESSAGE_TIME_PADDING =
+            new WeakHashMap<>();
+    private static final WeakHashMap<View, CachedMessageTime> MESSAGE_TIME_CACHE =
+            new WeakHashMap<>();
     private static final WeakHashMap<View, String> MESSAGE_TIME_SOURCES =
             new WeakHashMap<>();
     private static final WeakHashMap<View, String> TIME_DIAGNOSTICS =
@@ -77,6 +83,9 @@ final class ChatBubbleStyler {
         final android.os.Handler handler = new android.os.Handler(
                 android.os.Looper.getMainLooper());
         Runnable poller;
+        ViewGroup list;
+        Object childAttachListener;
+        java.lang.reflect.Method removeChildAttachListener;
         boolean enabled;
     }
 
@@ -110,6 +119,31 @@ final class ChatBubbleStyler {
                 bestRank = rank;
                 bestPath = path;
             }
+        }
+    }
+
+    private static final class CachedMessageTime {
+        int bindingSignature;
+        long scannedAt;
+        long millis;
+        String path = "-";
+        int objectsVisited;
+        final ArrayList<String> modelPaths = new ArrayList<>();
+        final ArrayList<String> timeFields = new ArrayList<>();
+    }
+
+    private static final class MessageTimePadding {
+        final int left;
+        final int top;
+        final int right;
+        final int bottom;
+        int extraTop;
+
+        MessageTimePadding(View view) {
+            left = view.getPaddingLeft();
+            top = view.getPaddingTop();
+            right = view.getPaddingRight();
+            bottom = view.getPaddingBottom();
         }
     }
 
@@ -261,30 +295,191 @@ final class ChatBubbleStyler {
                     detach(activity);
                     return;
                 }
-                try {
-                    boolean enabled = !HookConfig.nativeList(activity);
-                    session.enabled = enabled;
-                    updateActive();
-                    if (enabled) {
-                        View decor = activity.getWindow() == null
-                                ? null : activity.getWindow().getDecorView();
-                        View list = decor == null ? null
-                                : Ui.findByClassContains(decor, "ScrollControlRecyclerView");
-                        if (list instanceof ViewGroup) {
-                            ViewGroup group = (ViewGroup) list;
-                            for (int i = 0; i < group.getChildCount(); i++) {
-                                styleItem(group.getChildAt(i), activity);
-                            }
-                        }
-                    } else {
-                        restoreOriginalViews();
-                    }
-                } catch (Throwable ignored) {
-                }
-                session.handler.postDelayed(this, 600L);
+                updateSession(session, activity);
+                session.handler.postDelayed(this,
+                        session.childAttachListener == null ? 2000L : 3000L);
             }
         };
         session.handler.postDelayed(session.poller, 300L);
+    }
+
+    private static void updateSession(final Session session,
+                                     final android.app.Activity activity) {
+        try {
+            boolean enabled = !HookConfig.nativeList(activity);
+            if (!enabled) {
+                boolean wasEnabled = session.enabled;
+                session.enabled = false;
+                removeChildAttachListener(session);
+                session.list = null;
+                updateActive();
+                if (wasEnabled) {
+                    restoreOriginalViews();
+                }
+                return;
+            }
+
+            View decor = activity.getWindow() == null
+                    ? null : activity.getWindow().getDecorView();
+            View candidate = session.list != null && session.list.isAttachedToWindow()
+                    && decor != null && isDescendantOf(session.list, decor)
+                    ? session.list : decor == null ? null
+                    : Ui.findByClassContains(decor, "ScrollControlRecyclerView");
+            if (!(candidate instanceof ViewGroup)) {
+                if (session.list != null && !session.list.isAttachedToWindow()) {
+                    removeChildAttachListener(session);
+                    session.list = null;
+                }
+                session.enabled = true;
+                updateActive();
+                return;
+            }
+
+            ViewGroup list = (ViewGroup) candidate;
+            boolean listChanged = list != session.list;
+            boolean newlyEnabled = !session.enabled;
+            session.enabled = true;
+            updateActive();
+            if (listChanged) {
+                removeChildAttachListener(session);
+                session.list = list;
+                installChildAttachListener(session, activity, list);
+                styleVisibleChildren(session, activity, list, true);
+            } else if (newlyEnabled || session.childAttachListener == null) {
+                // Slow fallback only when this WeChat RecyclerView version
+                // does not expose its child-attach listener reflectively.
+                styleVisibleChildren(session, activity, list, false);
+            }
+        } catch (Throwable error) {
+            android.util.Log.w("WeChatGlass", "CB list monitor failed "
+                    + error.getClass().getSimpleName());
+        }
+    }
+
+    private static void installChildAttachListener(final Session session,
+                                                   final android.app.Activity activity,
+                                                   final ViewGroup list) {
+        try {
+            java.lang.reflect.Method add = findChildListenerMethod(list.getClass(),
+                    "addOnChildAttachStateChangeListener");
+            java.lang.reflect.Method remove = findChildListenerMethod(list.getClass(),
+                    "removeOnChildAttachStateChangeListener");
+            if (add == null || remove == null) {
+                throw new NoSuchMethodException("RecyclerView child attach listener");
+            }
+            Class<?> listenerClass = add.getParameterTypes()[0];
+            if (!listenerClass.isInterface()) {
+                throw new IllegalStateException("Child attach listener is not an interface");
+            }
+            Object listener = java.lang.reflect.Proxy.newProxyInstance(
+                    listenerClass.getClassLoader(), new Class<?>[]{listenerClass},
+                    (proxy, method, args) -> {
+                        String name = method.getName();
+                        if (args != null && args.length == 1
+                                && args[0] instanceof View && session.enabled) {
+                            // WeChat may ship an obfuscated AndroidX listener
+                            // interface; both callbacks carry one View. The
+                            // posted task checks attachment before styling.
+                            scheduleStyleItem(session, activity, (View) args[0], 0, true);
+                        }
+                        if ("equals".equals(name)) {
+                            return proxy == (args == null ? null : args[0]);
+                        }
+                        if ("hashCode".equals(name)) {
+                            return System.identityHashCode(proxy);
+                        }
+                        if ("toString".equals(name)) {
+                            return "WeChatGlassChildAttachListener";
+                        }
+                        return null;
+                    });
+            add.invoke(list, listener);
+            session.childAttachListener = listener;
+            session.removeChildAttachListener = remove;
+            android.util.Log.i("WeChatGlass", "CB child attach listener active"
+                    + " list=" + list.getClass().getSimpleName());
+        } catch (Throwable error) {
+            if (session.list == list) {
+                android.util.Log.w("WeChatGlass", "CB child listener unavailable "
+                        + error.getClass().getSimpleName() + ":" + error.getMessage()
+                        + " list=" + list.getClass().getName());
+            }
+        }
+    }
+
+    private static java.lang.reflect.Method findChildListenerMethod(Class<?> type,
+                                                                     String name) {
+        for (java.lang.reflect.Method method : type.getMethods()) {
+            if (!name.equals(method.getName()) || method.getParameterTypes().length != 1) {
+                continue;
+            }
+            Class<?> parameter = method.getParameterTypes()[0];
+            if (parameter.isInterface()) {
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private static void removeChildAttachListener(Session session) {
+        if (session.childAttachListener != null && session.list != null
+                && session.removeChildAttachListener != null) {
+            try {
+                session.removeChildAttachListener.invoke(session.list,
+                        session.childAttachListener);
+            } catch (Throwable ignored) {
+            }
+        }
+        session.childAttachListener = null;
+        session.removeChildAttachListener = null;
+    }
+
+    private static void styleVisibleChildren(Session session,
+                                             android.app.Activity activity,
+                                             ViewGroup list, boolean settle) {
+        for (int i = 0; i < list.getChildCount(); i++) {
+            scheduleStyleItem(session, activity, list.getChildAt(i), 0, settle);
+        }
+    }
+
+    private static void scheduleStyleItem(final Session session,
+                                          final android.app.Activity activity,
+                                          final View item, final int layoutAttempt,
+                                          final boolean settle) {
+        if (item == null) {
+            return;
+        }
+        item.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!session.enabled || session.list == null
+                        || !item.isAttachedToWindow()
+                        || !isDescendantOf(item, session.list)) {
+                    return;
+                }
+                if (item.getWidth() <= 0 || item.getHeight() <= 0) {
+                    if (layoutAttempt < 5) {
+                        item.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                scheduleStyleItem(session, activity, item,
+                                        layoutAttempt + 1, settle);
+                            }
+                        }, 50L);
+                    }
+                    return;
+                }
+                styleItem(item, activity);
+                if (settle) {
+                    item.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            scheduleStyleItem(session, activity, item, 0, false);
+                        }
+                    }, 500L);
+                }
+            }
+        });
     }
 
     static void force(TextView text) {
@@ -299,8 +494,11 @@ final class ChatBubbleStyler {
     static void detach(android.app.Activity activity) {
         if (activity != null) {
             Session session = SESSIONS.remove(activity);
-            if (session != null && session.poller != null) {
-                session.handler.removeCallbacks(session.poller);
+            if (session != null) {
+                if (session.poller != null) {
+                    session.handler.removeCallbacks(session.poller);
+                }
+                removeChildAttachListener(session);
             }
         }
         restoreOriginalViews();
@@ -338,14 +536,21 @@ final class ChatBubbleStyler {
         for (java.util.Map.Entry<View, TextView> entry : MESSAGE_TIME_LABELS.entrySet()) {
             View item = entry.getKey();
             TextView label = entry.getValue();
-            if (item instanceof ViewGroup && label != null) {
+            ViewGroup host = MESSAGE_TIME_HOSTS.get(item);
+            if (host == null && item instanceof ViewGroup) {
+                host = (ViewGroup) item;
+            }
+            if (host != null && label != null) {
                 try {
-                    ((ViewGroup) item).getOverlay().remove(label);
+                    host.getOverlay().remove(label);
                 } catch (Throwable ignored) {
                 }
             }
         }
         MESSAGE_TIME_LABELS.clear();
+        MESSAGE_TIME_HOSTS.clear();
+        MESSAGE_TIME_PADDING.clear();
+        MESSAGE_TIME_CACHE.clear();
         MESSAGE_TIME_SOURCES.clear();
         TIME_DIAGNOSTICS.clear();
         APPLIED.clear();
@@ -524,22 +729,44 @@ final class ChatBubbleStyler {
 
     private static void updateMessageTimeInternal(View item, View anchor, View avatar,
                                                   Context context) {
-        if (!(item instanceof ViewGroup) || anchor == null || anchor == item
+        // Keep each label in its message row. A RecyclerView overlay is
+        // stationary while child rows scroll, which makes labels lag and stack.
+        ViewGroup overlayHost = item instanceof ViewGroup ? (ViewGroup) item : null;
+        if (overlayHost == null || anchor == null || anchor == item
                 || anchor.getWidth() <= 0 || anchor.getHeight() <= 0
-                || anchor.getVisibility() != View.VISIBLE || !anchor.isAttachedToWindow()) {
+                || anchor.getVisibility() != View.VISIBLE || !anchor.isAttachedToWindow()
+                || !isDescendantOf(anchor, overlayHost)) {
             removeMessageTime(item);
             return;
         }
-        TimeSearch search = new TimeSearch();
-        collectMvvmViewModels(item, search, 0);
-        collectMessageTime(item, search);
-        if (search.bestMillis <= 0) {
-            logMissingMessageTime(item, anchor, search);
+        int bindingSignature = messageBindingSignature(item);
+        long now = android.os.SystemClock.uptimeMillis();
+        CachedMessageTime cached = MESSAGE_TIME_CACHE.get(item);
+        if (cached == null || cached.bindingSignature != bindingSignature
+                || now - cached.scannedAt > 30000L) {
+            TimeSearch scanned = new TimeSearch();
+            collectMvvmViewModels(item, scanned, 0);
+            collectMessageTime(item, scanned);
+            cached = new CachedMessageTime();
+            cached.bindingSignature = bindingSignature;
+            cached.scannedAt = now;
+            cached.millis = scanned.bestMillis;
+            cached.path = scanned.bestPath;
+            cached.objectsVisited = scanned.objectsVisited;
+            cached.modelPaths.addAll(scanned.modelPaths);
+            cached.timeFields.addAll(scanned.timeFields);
+            MESSAGE_TIME_CACHE.put(item, cached);
+        }
+        if (cached.millis <= 0) {
+            TimeSearch missing = new TimeSearch();
+            missing.objectsVisited = cached.objectsVisited;
+            missing.modelPaths.addAll(cached.modelPaths);
+            missing.timeFields.addAll(cached.timeFields);
+            logMissingMessageTime(item, anchor, missing);
             removeMessageTime(item);
             return;
         }
         TIME_DIAGNOSTICS.remove(item);
-        ViewGroup row = (ViewGroup) item;
         TextView label = MESSAGE_TIME_LABELS.get(item);
         if (label == null) {
             label = new TextView(context);
@@ -555,35 +782,87 @@ final class ChatBubbleStyler {
             label.setFocusableInTouchMode(false);
             label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             label.setElevation(0f);
-            row.getOverlay().add(label);
+            overlayHost.getOverlay().add(label);
             MESSAGE_TIME_LABELS.put(item, label);
+            MESSAGE_TIME_HOSTS.put(item, overlayHost);
+        } else if (MESSAGE_TIME_HOSTS.get(item) != overlayHost) {
+            ViewGroup oldHost = MESSAGE_TIME_HOSTS.get(item);
+            if (oldHost != null) {
+                oldHost.getOverlay().remove(label);
+            }
+            overlayHost.getOverlay().add(label);
+            MESSAGE_TIME_HOSTS.put(item, overlayHost);
         }
-        label.setText(formatMessageTime(search.bestMillis));
-        label.setTextColor(M3ColorScheme.forContext(context, false).onSurfaceVariant);
-        label.measure(View.MeasureSpec.makeMeasureSpec(row.getWidth(), View.MeasureSpec.AT_MOST),
-                View.MeasureSpec.makeMeasureSpec(row.getHeight(), View.MeasureSpec.AT_MOST));
+        String formattedTime = formatMessageTime(cached.millis);
+        boolean textChanged = !formattedTime.contentEquals(label.getText());
+        if (textChanged) {
+            label.setText(formattedTime);
+        }
+        int timeColor = M3ColorScheme.forContext(context, false).onSurfaceVariant;
+        if (label.getCurrentTextColor() != timeColor) {
+            label.setTextColor(timeColor);
+        }
+        if (textChanged || label.getMeasuredWidth() <= 0 || label.getMeasuredHeight() <= 0
+                || label.getMeasuredWidth() > overlayHost.getWidth()) {
+            label.measure(View.MeasureSpec.makeMeasureSpec(overlayHost.getWidth(),
+                            View.MeasureSpec.AT_MOST),
+                    View.MeasureSpec.makeMeasureSpec(overlayHost.getHeight(),
+                            View.MeasureSpec.AT_MOST));
+        }
         int labelWidth = label.getMeasuredWidth();
         int labelHeight = label.getMeasuredHeight();
-        int[] rowLocation = new int[2];
-        int[] anchorLocation = new int[2];
-        row.getLocationOnScreen(rowLocation);
-        anchor.getLocationOnScreen(anchorLocation);
+        android.graphics.Rect anchorBounds = new android.graphics.Rect(
+                0, 0, anchor.getWidth(), anchor.getHeight());
+        overlayHost.offsetDescendantRectToMyCoords(anchor, anchorBounds);
         int gap = M3Theme.dp(context, 2f);
+        MessageTimePadding padding = MESSAGE_TIME_PADDING.get(item);
+        if (padding == null) {
+            padding = new MessageTimePadding(item);
+            MESSAGE_TIME_PADDING.put(item, padding);
+        }
+        int baseAnchorTop = Math.max(0, anchorBounds.top - padding.extraTop);
+        int neededTop = Math.max(0, labelHeight + gap - baseAnchorTop);
+        int extraTop = Math.max(padding.extraTop, neededTop);
+        if (extraTop != padding.extraTop) {
+            remember(item);
+            padding.extraTop = extraTop;
+            item.setPadding(padding.left, padding.top + extraTop,
+                    padding.right, padding.bottom);
+            item.requestLayout();
+            final View timeAnchor = anchor;
+            final View timeAvatar = avatar;
+            item.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (item.isAttachedToWindow()) {
+                        updateMessageTime(item, timeAnchor, timeAvatar, context);
+                    }
+                }
+            });
+        }
         boolean outgoing = avatar != null
                 ? isOutgoingByAvatar(avatar, context.getResources().getDisplayMetrics().widthPixels)
-                : anchorLocation[0] + anchor.getWidth() / 2
+                : anchorBounds.centerX()
                 > context.getResources().getDisplayMetrics().widthPixels / 2;
         int x = outgoing
-                ? anchorLocation[0] - rowLocation[0] + anchor.getWidth() - labelWidth
-                : anchorLocation[0] - rowLocation[0];
-        int y = anchorLocation[1] - rowLocation[1] - labelHeight - gap;
-        x = Math.max(0, Math.min(x, Math.max(0, row.getWidth() - labelWidth)));
-        y = Math.max(0, Math.min(y, Math.max(0, row.getHeight() - labelHeight)));
-        label.layout(x, y, x + labelWidth, y + labelHeight);
-        label.invalidate();
+                ? anchorBounds.right - labelWidth : anchorBounds.left;
+        int y = anchorBounds.top - labelHeight - gap;
+        if (y < 0) {
+            y = 0;
+        }
+        x = Math.max(0, Math.min(x, Math.max(0, overlayHost.getWidth() - labelWidth)));
+        y = Math.max(0, Math.min(y, Math.max(0, overlayHost.getHeight() - labelHeight)));
+        if (label.getLeft() != x || label.getTop() != y
+                || label.getRight() != x + labelWidth
+                || label.getBottom() != y + labelHeight) {
+            label.layout(x, y, x + labelWidth, y + labelHeight);
+            label.invalidate();
+        }
 
-        String source = item.getClass().getName() + ":" + search.bestPath
-                + ":anchor=" + anchor.getClass().getName();
+        String source = item.getClass().getName() + ":" + cached.path
+                + ":anchor=" + anchor.getClass().getName()
+                + ":host=" + overlayHost.getClass().getName()
+                + ":binding=" + bindingSignature;
         if (!source.equals(MESSAGE_TIME_SOURCES.get(item))) {
             MESSAGE_TIME_SOURCES.put(item, source);
             android.util.Log.i("WeChatGlass", "CB time source=" + source
@@ -612,6 +891,49 @@ final class ChatBubbleStyler {
             TIME_DIAGNOSTICS.put(item, signature);
             android.util.Log.i("WeChatGlass", "CB time missing " + signature);
         }
+    }
+
+    /** Cheaply detects RecyclerView rebinding without traversing model fields. */
+    private static int messageBindingSignature(View root) {
+        if (root == null) {
+            return 0;
+        }
+        long signature = 0x9e3779b97f4a7c15L;
+        ArrayList<View> pending = new ArrayList<>();
+        pending.add(root);
+        int visited = 0;
+        while (!pending.isEmpty() && visited < 256) {
+            View view = pending.remove(pending.size() - 1);
+            visited++;
+            signature = signature * 31 + view.getId();
+            signature = signature * 31 + view.getClass().getName().hashCode();
+            signature = signature * 31 + System.identityHashCode(view.getTag());
+            if (view instanceof TextView) {
+                CharSequence text = ((TextView) view).getText();
+                signature = signature * 31 + (text == null ? 0 : text.hashCode());
+            }
+            Class<?> type = view.getClass();
+            while (type != null && type != Object.class
+                    && !"com.tencent.mm.mvvm.MvvmView".equals(type.getName())) {
+                type = type.getSuperclass();
+            }
+            if (type != null && type != Object.class) {
+                try {
+                    Object model = view.getClass().getMethod("getViewModel").invoke(view);
+                    signature = signature * 31 + System.identityHashCode(model);
+                } catch (Throwable ignored) {
+                }
+            }
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                signature = signature * 31 + group.getChildCount();
+                for (int i = group.getChildCount() - 1; i >= 0; i--) {
+                    pending.add(group.getChildAt(i));
+                }
+            }
+        }
+        signature = signature * 31 + visited;
+        return (int) (signature ^ (signature >>> 32));
     }
 
     private static void collectMvvmViewModels(View view, TimeSearch search, int depth) {
@@ -648,10 +970,14 @@ final class ChatBubbleStyler {
 
     private static void removeMessageTime(View item) {
         TextView label = MESSAGE_TIME_LABELS.remove(item);
+        ViewGroup host = MESSAGE_TIME_HOSTS.remove(item);
         MESSAGE_TIME_SOURCES.remove(item);
-        if (label != null && item instanceof ViewGroup) {
+        if (host == null && item instanceof ViewGroup) {
+            host = (ViewGroup) item;
+        }
+        if (label != null && host != null) {
             try {
-                ((ViewGroup) item).getOverlay().remove(label);
+                host.getOverlay().remove(label);
             } catch (Throwable ignored) {
             }
         }
@@ -1295,7 +1621,11 @@ final class ChatBubbleStyler {
                 android.graphics.drawable.Drawable drawable = image.getDrawable();
                 boolean alreadyRounded = drawable instanceof RoundedRectClipDrawable
                         && ((RoundedRectClipDrawable) drawable).hasRadius(radius);
-                if (drawable != null && !alreadyRounded) {
+                // ImageView starts/stops animated drawables by interface. Leave
+                // GIFs in the loader's original ImageView path; the outline
+                // above already clips the view without replacing its drawable.
+                boolean animated = drawable instanceof android.graphics.drawable.Animatable;
+                if (panelThumbnail && drawable != null && !alreadyRounded && !animated) {
                     if (drawable instanceof RoundedRectClipDrawable) {
                         drawable = ((RoundedRectClipDrawable) drawable).getWrappedDrawable();
                     }
