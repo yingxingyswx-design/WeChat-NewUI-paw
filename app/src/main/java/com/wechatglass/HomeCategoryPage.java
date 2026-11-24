@@ -465,6 +465,14 @@ final class HomeCategoryPage extends FrameLayout {
             return;
         }
         final String username = entry.username;
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (openChat != null) {
+                    openChat.open(username);
+                }
+            }
+        });
         row.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
             public boolean onLongClick(View v) {
