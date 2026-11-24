@@ -207,6 +207,19 @@ final class HomeGlassHook {
                     lastIndexVersion = version;
                     categoryPage.show(HomeConversationFilter.mode());
                 }
+                // Keep the unread/read badges live: re-read rconversation on a
+                // background thread every couple of seconds. The version bump on
+                // completion makes the next tick re-render the list.
+                long nowMs = android.os.SystemClock.uptimeMillis();
+                if (nowMs - lastIndexRefresh > 2500L) {
+                    lastIndexRefresh = nowMs;
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            ConversationIndex.refresh();
+                        }
+                    }, "wxglass-refresh").start();
+                }
             }
             scanNativeRows();
             long now = android.os.SystemClock.uptimeMillis();
@@ -1444,6 +1457,7 @@ final class HomeGlassHook {
 
     private boolean categoryPageFilled;
     private int lastIndexVersion = -1;
+    private long lastIndexRefresh;
     private static java.lang.ref.WeakReference<Object> bottomTabView;
 
     /**

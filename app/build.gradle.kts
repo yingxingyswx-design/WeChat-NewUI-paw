@@ -60,7 +60,7 @@ dependencies {
 val copyApk = tasks.register<Copy>("copyApk") {
     from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
     into(rootProject.layout.projectDirectory.dir("out"))
-    rename { "wechat-glass-1.1.apk" }
+    rename { "wechat-glass-1.2-pre.apk" }
 }
 
 tasks.matching { it.name == "assembleRelease" }.configureEach {
