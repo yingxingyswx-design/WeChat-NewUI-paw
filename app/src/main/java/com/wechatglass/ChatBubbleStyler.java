@@ -1961,8 +1961,10 @@ final class ChatBubbleStyler {
 
     private static boolean isPanelStickerThumbnail(View view, Context context) {
         if (view.getVisibility() != View.VISIBLE
-                || !(view instanceof android.widget.ImageView
-                || view instanceof ViewGroup)) {
+                || !(view instanceof android.widget.ImageView)) {
+            return false;
+        }
+        if (((android.widget.ImageView) view).getDrawable() == null) {
             return false;
         }
         int minSide = M3Theme.dp(context, 20f);

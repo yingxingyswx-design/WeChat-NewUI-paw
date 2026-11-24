@@ -1916,6 +1916,29 @@ final class ChatGlassHook {
         // The grid's cell class changes across WeChat versions. Scan the
         // current panel subtree and let the size/aspect filter pick thumbnails.
         ChatBubbleStyler.roundStickerPanel(panelScope, activity);
+        if (newlyOpened) {
+            // Sticker images are assigned asynchronously after AppPanel has
+            // completed its opening transition. Re-scan once after that load;
+            // this is a scoped one-shot task, not a draw-loop or global hook.
+            final View settledScope = panelScope;
+            panel.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (!panel.isAttachedToWindow()
+                            || panel.getVisibility() != View.VISIBLE) {
+                        return;
+                    }
+                    clearEmojiBackgrounds(settledScope, 0);
+                    clearEmojiTabBackgrounds(settledScope, settledScope, 0);
+                    ChatBubbleStyler.roundStickerPanel(settledScope, activity);
+                    if (decor != null) {
+                        android.util.Log.i(TAG, "CB emoji-tree content-settled panel="
+                                + panel.getClass().getSimpleName());
+                        dumpEmojiWindowTree(decor);
+                    }
+                }
+            }, 2500L);
+        }
     }
 
     private void dumpEmojiWindowTree(View root) {
