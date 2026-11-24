@@ -31,13 +31,8 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
         try {
             hookExactBarVisibility(lpparam);
-            // 熔断：版本号里带 release 的构建不安装探测型 wallet hook。
-            if (com.wechatglass.BuildFlags.devProbesAllowed()) {
-                com.wechatglass.WalletBalanceCache.install(lpparam.classLoader);
-            } else {
-                XposedBridge.log(TAG + " wallet probe disabled (release build)"
-                        + com.wechatglass.BuildFlags.versionName());
-            }
+            // 余额采样属于正式功能：按 GUI 开关生效，release 包同样可用。
+            com.wechatglass.WalletBalanceCache.install(lpparam.classLoader);
             hookChatLifecycle(lpparam);
             hookHomeLifecycle(lpparam);
             hookResume(CHATTING_UI, lpparam, true);

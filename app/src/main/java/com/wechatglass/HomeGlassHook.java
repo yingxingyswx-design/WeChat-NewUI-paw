@@ -248,8 +248,7 @@ final class HomeGlassHook {
                         : homeListView.getFirstVisiblePosition()));
                 updateTabState();
             }
-            if (decor != null && HookConfig.balanceCardEnabled(activity)
-                    && BuildFlags.devProbesAllowed()) {
+            if (decor != null && HookConfig.balanceCardEnabled(activity)) {
                 long scanNow = android.os.SystemClock.uptimeMillis();
                 if (scanNow - lastWalletScan > 2500L) {
                     lastWalletScan = scanNow;
