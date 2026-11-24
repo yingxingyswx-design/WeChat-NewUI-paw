@@ -1866,8 +1866,8 @@ final class ChatGlassHook {
                     : chatContentGroup.getClass().getSimpleName())
                     + " night=" + Ui.isNight(activity));
             dumpPanelChain(panel, true);
-            if (footer != null) {
-                dumpEmojiViewTree(footer, 0, new int[]{180});
+            if (decor != null) {
+                dumpEmojiWindowTree(decor);
             }
         }
         watchPanel(panel);
@@ -1901,35 +1901,52 @@ final class ChatGlassHook {
         ChatBubbleStyler.roundStickerPanel(panelScope, activity);
     }
 
-    private void dumpEmojiViewTree(View view, int depth, int[] remaining) {
-        if (view == null || depth > 18 || remaining[0] <= 0) {
+    private void dumpEmojiWindowTree(View root) {
+        if (root == null) {
             return;
         }
-        remaining[0]--;
-        int[] location = new int[2];
-        view.getLocationOnScreen(location);
-        android.graphics.drawable.Drawable background = view.getBackground();
-        android.graphics.drawable.Drawable foreground = android.os.Build.VERSION.SDK_INT < 23
-                ? null : view.getForeground();
-        android.graphics.drawable.Drawable image = view instanceof android.widget.ImageView
-                ? ((android.widget.ImageView) view).getDrawable() : null;
-        int children = view instanceof ViewGroup
-                ? ((ViewGroup) view).getChildCount() : 0;
-        android.util.Log.i(TAG, "CB emoji-tree d=" + depth + " cls="
-                + view.getClass().getName() + " id=0x" + Integer.toHexString(view.getId())
-                + " local=" + view.getLeft() + "," + view.getTop()
-                + " screen=" + location[0] + "," + location[1]
-                + " size=" + view.getWidth() + "x" + view.getHeight()
-                + " vis=" + view.getVisibility() + " alpha=" + view.getAlpha()
-                + " layer=" + view.getLayerType()
-                + " bg=" + (background == null ? "-" : background.getClass().getName())
-                + " fg=" + (foreground == null ? "-" : foreground.getClass().getName())
-                + " image=" + (image == null ? "-" : image.getClass().getName())
-                + " clip=" + view.getClipToOutline() + " children=" + children);
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = group.getChildCount() - 1; i >= 0 && remaining[0] > 0; i--) {
-                dumpEmojiViewTree(group.getChildAt(i), depth + 1, remaining);
+        java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
+        java.util.IdentityHashMap<View, Boolean> seen = new java.util.IdentityHashMap<>();
+        queue.add(root);
+        int remaining = 900;
+        while (!queue.isEmpty() && remaining-- > 0) {
+            View view = queue.removeFirst();
+            if (seen.put(view, Boolean.TRUE) != null) {
+                continue;
+            }
+            int[] location = new int[2];
+            view.getLocationOnScreen(location);
+            android.graphics.drawable.Drawable background = view.getBackground();
+            android.graphics.drawable.Drawable foreground = android.os.Build.VERSION.SDK_INT < 23
+                    ? null : view.getForeground();
+            android.graphics.drawable.Drawable image = view instanceof android.widget.ImageView
+                    ? ((android.widget.ImageView) view).getDrawable() : null;
+            int children = view instanceof ViewGroup
+                    ? ((ViewGroup) view).getChildCount() : 0;
+            android.util.Log.i(TAG, "CB emoji-tree cls=" + view.getClass().getName()
+                    + " id=0x" + Integer.toHexString(view.getId())
+                    + " local=" + view.getLeft() + "," + view.getTop()
+                    + " screen=" + location[0] + "," + location[1]
+                    + " size=" + view.getWidth() + "x" + view.getHeight()
+                    + " vis=" + view.getVisibility() + " alpha=" + view.getAlpha()
+                    + " layer=" + view.getLayerType()
+                    + " bg=" + (background == null ? "-" : background.getClass().getName())
+                    + " fg=" + (foreground == null ? "-" : foreground.getClass().getName())
+                    + " image=" + (image == null ? "-" : image.getClass().getName())
+                    + " clip=" + view.getClipToOutline() + " children=" + children);
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    View child = group.getChildAt(i);
+                    String name = child.getClass().getSimpleName();
+                    if (name.contains("Emoji") || name.contains("Smiley")
+                            || name.contains("AppPanel") || name.contains("ChatFooter")
+                            || name.contains("Sticker")) {
+                        queue.addFirst(child);
+                    } else {
+                        queue.addLast(child);
+                    }
+                }
             }
         }
     }
