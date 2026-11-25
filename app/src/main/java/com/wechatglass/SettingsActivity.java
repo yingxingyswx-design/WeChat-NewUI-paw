@@ -139,14 +139,6 @@ public class SettingsActivity extends Activity {
         banner.setPadding(dp(2), dp(4), dp(2), dp(2));
         root.addView(banner, lp(-1, -2, 0, 0));
 
-        TextView banner2 = new TextView(this);
-        banner2.setText("聊天页液态玻璃需要手动选择壁纸！");
-        banner2.setTextSize(17f);
-        banner2.setTypeface(android.graphics.Typeface.create(
-                "sans-serif-medium", android.graphics.Typeface.NORMAL));
-        banner2.setTextColor(scheme.error);
-        banner2.setPadding(dp(2), dp(2), dp(2), dp(4));
-        root.addView(banner2, lp(-1, -2, 0, dp(16)));
 
         TextView title = new TextView(this);
         title.setText("液态玻璃");
@@ -212,22 +204,23 @@ public class SettingsActivity extends Activity {
         row.addView(glass);
         root.addView(row, lp(-1, -2, 0, dp(8)));
 
-        // 4. 选择聊天壁纸（聊天页玻璃必需）
+        // 4. 聊天壁纸：已改为自动跟随微信自身的聊天背景，手动选择保留但禁用。
         root.addView(section("聊天页液态玻璃背景壁纸", card, onBg, onVar));
 
         wallpaperHint = new TextView(this);
         wallpaperHint.setTextSize(13f);
         wallpaperHint.setTextColor(onVar);
-        String saved = getSharedPreferences(PREFS, 0).getString(KEY_WALLPAPER, null);
-        wallpaperHint.setText(saved == null ? "未选择（玻璃只显示内容）" : saved);
+        wallpaperHint.setText("已自动跟随微信聊天背景，无需手动选择");
         root.addView(wallpaperHint, lp(-1, -2, 0, dp(8)));
 
         Button pick = new Button(this);
-        pick.setText("选择壁纸");
+        pick.setText("选择壁纸（已停用）");
         pick.setAllCaps(false);
         pick.setTextSize(16f);
-        pick.setOnClickListener(v -> pickWallpaper());
+        pick.setEnabled(false);
+        pick.setAlpha(0.4f);
         styleButton(pick, false);
+        pick.setAlpha(0.4f);
         root.addView(pick, lp(-1, dp(72), 0, dp(8)));
 
         // 5-8. Material Design 相关
@@ -983,6 +976,9 @@ public class SettingsActivity extends Activity {
         applyGated(roundAvatarSwitch, m3);
         applyGated(mediaBubbleSwitch, m3);
         applyGated(messageTimeSwitch, m3);
+        // The balance card lives on the Material Design 「我」 page, so it is
+        // unavailable while Material Design is off.
+        applyGated(balanceCardSwitch, m3);
     }
 
     private void applyGated(M3Switch sw, boolean enabled) {
