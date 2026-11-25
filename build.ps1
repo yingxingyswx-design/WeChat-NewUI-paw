@@ -184,6 +184,6 @@ $publishScript = Join-Path $root 'publish.ps1'
 if (!(Test-Path $publishScript)) { throw "publish.ps1 not found: $publishScript" }
 $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm'
 & powershell -NoProfile -ExecutionPolicy Bypass -File $publishScript `
-    -Message "build: 自动备份 $version @ $stamp"
+    -Message "build: auto backup $version @ $stamp"
 if ($LASTEXITCODE -ne 0) { throw 'backup to C:\git\wechat_chat_ui failed' }
 Write-Host "backup: done ($version @ $stamp)"
