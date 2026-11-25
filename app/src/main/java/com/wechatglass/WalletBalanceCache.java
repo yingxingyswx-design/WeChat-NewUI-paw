@@ -99,8 +99,6 @@ final class WalletBalanceCache {
             // A "¥0.40" amount is enough on its own: WeChat renders the wallet
             // page in the app language, so matching 「钱包/零钱」 alone misses
             // English ("Balance") and any other locale.
-            android.util.Log.i(TAG, "cap sym=" + texts.symbolMoney + " plain=" + texts.plainMoney
-                    + " word=" + texts.sawWalletWord);
             String value = texts.symbolMoney != null
                     ? texts.symbolMoney
                     : (texts.sawWalletWord ? texts.plainMoney : null);
