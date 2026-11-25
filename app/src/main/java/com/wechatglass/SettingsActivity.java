@@ -110,10 +110,7 @@ public class SettingsActivity extends Activity {
         setContentView(scroll);
 
         TextView versionLabel = new TextView(this);
-        versionLabel.setText("WeChat-NewUI  "
-                + io.github.yingxingyswx_design.wechatglass.BuildConfig.VERSION_NAME
-                + "  (" + io.github.yingxingyswx_design.wechatglass.BuildConfig.VERSION_CODE
-                + ")");
+        versionLabel.setText("WeChat-NewUI  " + moduleVersion());
         versionLabel.setTextSize(13f);
         versionLabel.setTypeface(android.graphics.Typeface.create(
                 "monospace", android.graphics.Typeface.NORMAL));
@@ -472,6 +469,19 @@ public class SettingsActivity extends Activity {
     }
 
     /** WeChat replies with its real state, so the switches never lie. */
+    /** Reads the version from the package manager so no generated class is needed. */
+    private String moduleVersion() {
+        try {
+            android.content.pm.PackageInfo info = getPackageManager()
+                    .getPackageInfo(getPackageName(), 0);
+            long code = android.os.Build.VERSION.SDK_INT >= 28
+                    ? info.getLongVersionCode() : info.versionCode;
+            return info.versionName + "  (" + code + ")";
+        } catch (Throwable throwable) {
+            return "?";
+        }
+    }
+
     private void registerStateReceiver() {
         stateReceiver = new android.content.BroadcastReceiver() {
             @Override

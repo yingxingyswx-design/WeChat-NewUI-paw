@@ -88,7 +88,24 @@ val sourceZip = tasks.register<Zip>("sourceZip") {
     isReproducibleFileOrder = true
 }
 
+// The version also lives in ModuleVersion.java (build.ps1 has no BuildConfig),
+// so both must agree or the build stops.
+val verifyModuleVersion = tasks.register("verifyModuleVersion") {
+    doLast {
+        val expected = android.defaultConfig.versionName
+        val expectedCode = android.defaultConfig.versionCode
+        val source = rootProject.file(
+            "app/src/main/java/com/wechatglass/ModuleVersion.java").readText()
+        val name = Regex("NAME\\s*=\\s*\"([^\"]+)\"").find(source)?.groupValues?.get(1)
+        val code = Regex("CODE\\s*=\\s*(\\d+)").find(source)?.groupValues?.get(1)?.toInt()
+        if (name != expected || code != expectedCode) {
+            throw GradleException("ModuleVersion.java (/) does not match" +
+                " build.gradle.kts (/)")
+        }
+    }
+}
 tasks.matching { it.name == "assembleRelease" }.configureEach {
+    dependsOn(verifyModuleVersion)
     finalizedBy(copyApk)
     // Hard rule: a successful build must be backed up into the git repo.
     // doLast only runs when the task actually succeeded, so a failed compile
