@@ -17,8 +17,8 @@ android {
         applicationId = "io.github.yingxingyswx_design.wechatglass"
         minSdk = 24
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.3.2.dev"
+        versionCode = 10
+        versionName = "1.3.3.release"
     }
 
     compileOptions {
@@ -63,7 +63,7 @@ dependencies {
 val copyApk = tasks.register<Copy>("copyApk") {
     from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
     into(rootProject.layout.projectDirectory.dir("out"))
-    rename { "wechat-glass-1.3.2-dev.apk" }
+    rename { "wechat-glass-1.3.3.apk" }
 }
 
 // Every release ships the source archive next to the APK.
@@ -82,7 +82,7 @@ val sourceZip = tasks.register<Zip>("sourceZip") {
         "THIRD_PARTY_NOTICES.md").forEach { name ->
         from(rootProject.file(name))
     }
-    archiveFileName.set("wechat-glass-1.3.2-dev-source.zip")
+    archiveFileName.set("wechat-glass-1.3.3-source.zip")
     destinationDirectory.set(rootProject.layout.projectDirectory.dir("out"))
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
