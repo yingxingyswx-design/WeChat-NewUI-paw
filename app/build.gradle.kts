@@ -1,3 +1,6 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
 }
@@ -87,4 +90,24 @@ val sourceZip = tasks.register<Zip>("sourceZip") {
 
 tasks.matching { it.name == "assembleRelease" }.configureEach {
     finalizedBy(copyApk)
+    // Hard rule: a successful build must be backed up into the git repo.
+    // doLast only runs when the task actually succeeded, so a failed compile
+    // never commits a half state.
+    doLast {
+        val script = rootProject.file("publish.ps1")
+        if (!script.exists()) {
+            throw GradleException("publish.ps1 not found: ${script.absolutePath}")
+        }
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())
+        val appVersion = android.defaultConfig.versionName ?: "unknown"
+        val message = "build: 自动备份 $appVersion @ $stamp"
+        println("backup -> C:\\git\\wechat_chat_ui   ($message)")
+        val process = ProcessBuilder(
+            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", script.absolutePath, "-Message", message
+        ).directory(rootProject.projectDir).inheritIO().start()
+        if (process.waitFor() != 0) {
+            throw GradleException("backup to C:\\git\\wechat_chat_ui failed")
+        }
+    }
 }
