@@ -96,11 +96,12 @@ final class WalletBalanceCache {
         try {
             Texts texts = new Texts();
             collect(decor, texts, 0);
-            if (!texts.sawWalletWord) {
-                return;
-            }
+            // A "¥0.40" amount is enough on its own: WeChat renders the wallet
+            // page in the app language, so matching 「钱包/零钱」 alone misses
+            // English ("Balance") and any other locale.
             String value = texts.symbolMoney != null
-                    ? texts.symbolMoney : texts.plainMoney;
+                    ? texts.symbolMoney
+                    : (texts.sawWalletWord ? texts.plainMoney : null);
             if (value == null) {
                 return;
             }
