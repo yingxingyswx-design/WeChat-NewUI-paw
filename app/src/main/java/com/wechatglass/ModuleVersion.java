@@ -9,8 +9,8 @@ package com.wechatglass;
  */
 final class ModuleVersion {
 
-    static final String NAME = "1.3.3.release";
-    static final int CODE = 11;
+    static final String NAME = "1.3.4.release";
+    static final int CODE = 12;
 
     private ModuleVersion() {
     }
